@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
 import { localdb, startSync, markDeleted, type LocalProject } from '../lib/localdb';
+import * as backend from '../lib/backend';
 
 import type { PromptProject, PromptBlock, BlockType, Workspace, CustomFramework } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
@@ -169,6 +170,8 @@ export function usePromptProject(_userId: string) {
     for (const p of inWs) {
       await localdb.projects.update(p.id, { workspaceId: undefined, dirty: 1 });
     }
+    // Delete from backend immediately
+    backend.deleteWorkspace(id).catch(() => {});
     triggerLibraryRefresh();
     flashSaved();
   }, [triggerLibraryRefresh, flashSaved]);
@@ -176,6 +179,8 @@ export function usePromptProject(_userId: string) {
   const deleteProject = useCallback(async (id: string) => {
     markDeleted(id);
     await localdb.projects.delete(id);
+    // Delete from backend immediately (fire-and-forget)
+    backend.deleteProject(id).catch(() => {});
     triggerLibraryRefresh();
     flashSaved();
   }, [triggerLibraryRefresh, flashSaved]);

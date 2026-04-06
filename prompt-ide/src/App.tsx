@@ -176,6 +176,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showRightTabMenu, setShowRightTabMenu] = useState(false);
+  const [showLeftTabMenu, setShowLeftTabMenu] = useState(false);
   const [triggerExecute, setTriggerExecute] = useState(false);
 
   // Keyboard shortcuts
@@ -209,6 +210,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
         setShowThemeMenu(false);
         setShowLangMenu(false);
         setShowRightTabMenu(false);
+        setShowLeftTabMenu(false);
       }
     };
     document.addEventListener('click', handler);
@@ -434,21 +436,35 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
         {/* Left Panel */}
         {leftOpen && (
           <div className={`${isMobile ? 'mobile-panel-left' : 'w-72'} flex-shrink-0 border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col animate-slideIn`}>
-            <div className="flex border-b border-[var(--color-border)]">
-              {leftTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setLeftTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 text-xs font-medium transition-colors ${
-                    leftTab === tab.id
-                      ? 'text-[var(--color-accent)] border-b-2 border-[var(--color-accent)]'
-                      : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-                  }`}
-                >
-                  <tab.icon size={13} />
-                  {tab.label}
-                </button>
-              ))}
+            {/* Left panel tab selector — dropdown */}
+            <div className="relative border-b border-[var(--color-border)]" data-dropdown>
+              <button
+                onClick={() => setShowLeftTabMenu(!showLeftTabMenu)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  {(() => { const active = leftTabs.find((t) => t.id === leftTab); return active ? <><span className="text-[var(--color-accent)]"><active.icon size={14} /></span>{active.label}</> : null; })()}
+                </div>
+                <ChevronDown size={14} className={`text-[var(--color-text-muted)] transition-transform ${showLeftTabMenu ? 'rotate-180' : ''}`} />
+              </button>
+              {showLeftTabMenu && (
+                <div className="absolute left-0 right-0 top-full bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] shadow-xl z-50 py-1 animate-fadeIn">
+                  {leftTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => { setLeftTab(tab.id); setShowLeftTabMenu(false); }}
+                      className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm transition-colors ${
+                        leftTab === tab.id
+                          ? 'text-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+                      }`}
+                    >
+                      <tab.icon size={14} />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-auto">

@@ -123,6 +123,8 @@ export const translations = {
   'library.freePromptOption': { fr: 'Prompt libre (hors projet)', en: 'Free prompt (no project)' },
   'library.duplicate': { fr: 'Dupliquer', en: 'Duplicate' },
   'library.deletePrompt': { fr: 'Supprimer le prompt', en: 'Delete prompt' },
+  'library.confirmDeletePrompt': { fr: 'Supprimer ce prompt ?', en: 'Delete this prompt?' },
+  'library.confirmDeleteWorkspace': { fr: 'Supprimer ce projet ? Les prompts seront deplacés en "libres".', en: 'Delete this project? Prompts will be moved to "free".' },
   'library.newPromptInProject': { fr: 'Nouveau prompt dans ce projet', en: 'New prompt in this project' },
 
   // Versions

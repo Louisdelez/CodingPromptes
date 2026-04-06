@@ -192,6 +192,7 @@ export function Library({
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!window.confirm(t('library.confirmDeletePrompt'))) return;
     setProjects((prev) => prev.filter((p) => p.id !== id));
     if (onDeleteProject) {
       onDeleteProject(id);
@@ -583,6 +584,7 @@ export function Library({
               <div className="h-px bg-[var(--color-border)] my-1" />
               <button
                 onClick={() => {
+                  if (!window.confirm(t('library.confirmDeleteWorkspace'))) return;
                   const id = contextMenu.id;
                   setContextMenu(null);
                   setWorkspaces((prev) => prev.filter((w) => w.id !== id));

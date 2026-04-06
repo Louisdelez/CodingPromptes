@@ -107,7 +107,7 @@ export function usePromptProject(_userId: string) {
       setProject((prev) => {
         const next = updater(prev);
         if (saveTimeout.current) clearTimeout(saveTimeout.current);
-        saveTimeout.current = setTimeout(() => saveProject(next), 500);
+        saveTimeout.current = setTimeout(() => saveProject(next), 1000);
         return next;
       });
     },

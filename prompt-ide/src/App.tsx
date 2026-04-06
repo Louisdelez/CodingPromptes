@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -45,21 +45,24 @@ import { TokenCounter } from './components/TokenCounter';
 import { VariablesPanel } from './components/VariablesPanel';
 import { TagsEditor } from './components/TagsEditor';
 import { PreviewPanel } from './components/PreviewPanel';
-import { Playground } from './components/Playground';
-import { FrameworkSelector } from './components/FrameworkSelector';
 import { Library } from './components/Library';
-import { VersionHistory } from './components/VersionHistory';
-import { ExportPanel } from './components/ExportPanel';
-import { PromptOptimizer } from './components/PromptOptimizer';
-import { LintingPanel } from './components/LintingPanel';
-import { SttSettings } from './components/SttSettings';
-import { ExecutionHistory } from './components/ExecutionHistory';
-import { AnalyticsPanel } from './components/AnalyticsPanel';
-import { PromptChain } from './components/PromptChain';
-import { ConversationMode } from './components/ConversationMode';
-import { CollaborationPanel } from './components/CollaborationPanel';
+
+// Lazy-loaded panels (code-splitting)
+const Playground = lazy(() => import('./components/Playground').then(m => ({ default: m.Playground })));
+const FrameworkSelector = lazy(() => import('./components/FrameworkSelector').then(m => ({ default: m.FrameworkSelector })));
+const VersionHistory = lazy(() => import('./components/VersionHistory').then(m => ({ default: m.VersionHistory })));
+const ExportPanel = lazy(() => import('./components/ExportPanel').then(m => ({ default: m.ExportPanel })));
+const PromptOptimizer = lazy(() => import('./components/PromptOptimizer').then(m => ({ default: m.PromptOptimizer })));
+const LintingPanel = lazy(() => import('./components/LintingPanel').then(m => ({ default: m.LintingPanel })));
+const SttSettings = lazy(() => import('./components/SttSettings').then(m => ({ default: m.SttSettings })));
+const ExecutionHistory = lazy(() => import('./components/ExecutionHistory').then(m => ({ default: m.ExecutionHistory })));
+const AnalyticsPanel = lazy(() => import('./components/AnalyticsPanel').then(m => ({ default: m.AnalyticsPanel })));
+const PromptChain = lazy(() => import('./components/PromptChain').then(m => ({ default: m.PromptChain })));
+const ConversationMode = lazy(() => import('./components/ConversationMode').then(m => ({ default: m.ConversationMode })));
+const CollaborationPanel = lazy(() => import('./components/CollaborationPanel').then(m => ({ default: m.CollaborationPanel })));
+const AuthPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.AuthPage })));
 import { usePromptProject } from './hooks/usePromptProject';
-import { AuthPage } from './components/AuthPage';
+// AuthPage loaded lazily above
 import { UserMenu } from './components/UserMenu';
 import { getSession, type AuthSession } from './lib/auth';
 import { extractVariables } from './lib/prompt';
@@ -111,13 +114,15 @@ export default function App() {
             onThemeChange={handleThemeChange}
           />
         ) : (
-          <AuthPage
-            onAuth={setSession}
-            language={language}
-            onLanguageChange={handleLanguageChange}
-            themeMode={themeMode}
-            onThemeChange={handleThemeChange}
-          />
+          <Suspense fallback={<div className="min-h-screen bg-[var(--color-bg-primary)]" />}>
+            <AuthPage
+              onAuth={setSession}
+              language={language}
+              onLanguageChange={handleLanguageChange}
+              themeMode={themeMode}
+              onThemeChange={handleThemeChange}
+            />
+          </Suspense>
         )}
       </ThemeContext.Provider>
     </I18nContext.Provider>
@@ -471,6 +476,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
             </div>
 
             <div className="flex-1 overflow-auto">
+              <Suspense fallback={<div className="p-4 text-sm text-[var(--color-text-muted)]">...</div>}>
               {leftTab === 'library' && (
                 <Library
                   currentProjectId={project.id}
@@ -503,6 +509,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
                   onRestoreVersion={handleRestoreVersion}
                 />
               )}
+              </Suspense>
             </div>
           </div>
         )}
@@ -612,29 +619,27 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
             </div>
 
             <div className="flex-1 overflow-auto">
-              {rightTab === 'preview' && <PreviewPanel blocks={project.blocks} variables={project.variables} />}
-              {rightTab === 'playground' && (
-                <Playground
-                  blocks={project.blocks}
-                  variables={project.variables}
-                  projectId={project.id}
-                  triggerExecute={triggerExecute}
-                  onExecuteTriggered={() => setTriggerExecute(false)}
-                />
-              )}
-              {rightTab === 'history' && (
-                <ExecutionHistory projectId={project.id} />
-              )}
-              {rightTab === 'stt' && <SttSettings />}
-              {rightTab === 'export' && <ExportPanel project={project} onImport={handleImport} />}
-              {rightTab === 'optimize' && (
-                <PromptOptimizer blocks={project.blocks} variables={project.variables} onApply={handleOptimizedApply} />
-              )}
-              {rightTab === 'lint' && <LintingPanel blocks={project.blocks} variables={project.variables} />}
-              {rightTab === 'analytics' && <AnalyticsPanel />}
-              {rightTab === 'chain' && <PromptChain />}
-              {rightTab === 'chat' && <ConversationMode blocks={project.blocks} variables={project.variables} />}
-              {rightTab === 'collab' && <CollaborationPanel projectId={project.id} currentUserId={session.userId} />}
+              <Suspense fallback={<div className="p-4 text-sm text-[var(--color-text-muted)]">...</div>}>
+                {rightTab === 'preview' && <PreviewPanel blocks={project.blocks} variables={project.variables} />}
+                {rightTab === 'playground' && (
+                  <Playground
+                    blocks={project.blocks}
+                    variables={project.variables}
+                    projectId={project.id}
+                    triggerExecute={triggerExecute}
+                    onExecuteTriggered={() => setTriggerExecute(false)}
+                  />
+                )}
+                {rightTab === 'history' && <ExecutionHistory projectId={project.id} />}
+                {rightTab === 'stt' && <SttSettings />}
+                {rightTab === 'export' && <ExportPanel project={project} onImport={handleImport} />}
+                {rightTab === 'optimize' && <PromptOptimizer blocks={project.blocks} variables={project.variables} onApply={handleOptimizedApply} />}
+                {rightTab === 'lint' && <LintingPanel blocks={project.blocks} variables={project.variables} />}
+                {rightTab === 'analytics' && <AnalyticsPanel />}
+                {rightTab === 'chain' && <PromptChain />}
+                {rightTab === 'chat' && <ConversationMode blocks={project.blocks} variables={project.variables} />}
+                {rightTab === 'collab' && <CollaborationPanel projectId={project.id} currentUserId={session.userId} />}
+              </Suspense>
             </div>
           </div>
         )}

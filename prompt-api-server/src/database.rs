@@ -161,6 +161,10 @@ impl Database {
         self.conn.execute("INSERT INTO workspaces (id,name,description,color,user_id,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             params![ws.id,ws.name,ws.description,ws.color,ws.user_id,ws.created_at,ws.updated_at]).map_err(|e| e.to_string())?; Ok(())
     }
+    pub fn conn_update_workspace(&self, id: &str, user_id: &str, ws: &DbWorkspace) -> Result<(), String> {
+        self.conn.execute("UPDATE workspaces SET name=?1,description=?2,color=?3,updated_at=?4 WHERE id=?5 AND user_id=?6",
+            params![ws.name,ws.description,ws.color,ws.updated_at,id,user_id]).map_err(|e| e.to_string())?; Ok(())
+    }
     pub fn delete_workspace(&self, id: &str, user_id: &str) -> Result<(), String> {
         self.conn.execute("UPDATE projects SET workspace_id=NULL WHERE workspace_id=?1 AND user_id=?2", params![id,user_id]).ok();
         self.conn.execute("DELETE FROM workspaces WHERE id=?1 AND user_id=?2", params![id,user_id]).map_err(|e| e.to_string())?; Ok(())

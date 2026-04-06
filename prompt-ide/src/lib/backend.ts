@@ -134,6 +134,10 @@ export async function createWorkspace(data: { name: string; color: string; descr
   return request('POST', '/workspaces', data);
 }
 
+export async function updateWorkspace(id: string, data: { name?: string; color?: string; description?: string }): Promise<BackendWorkspace> {
+  return request('PUT', `/workspaces/${id}`, data);
+}
+
 export async function deleteWorkspace(id: string): Promise<void> {
   return request('DELETE', `/workspaces/${id}`);
 }

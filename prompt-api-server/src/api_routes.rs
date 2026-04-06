@@ -29,6 +29,9 @@ pub struct UserResp { pub id: String, pub email: String, pub display_name: Strin
 pub struct CreateWorkspaceReq { pub name: String, pub description: Option<String>, pub color: String }
 
 #[derive(Deserialize)]
+pub struct UpdateWorkspaceReq { pub name: Option<String>, pub color: Option<String>, pub description: Option<String> }
+
+#[derive(Deserialize)]
 pub struct CreateProjectReq { pub id: Option<String>, pub name: String, pub workspace_id: Option<String>, pub blocks_json: String, pub variables_json: Option<String>, pub framework: Option<String>, pub tags_json: Option<String> }
 
 #[derive(Deserialize)]
@@ -112,7 +115,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/auth/me", get(me))
         // Data (JWT required)
         .route("/workspaces", get(list_workspaces).post(create_workspace))
-        .route("/workspaces/{id}", delete(delete_workspace))
+        .route("/workspaces/{id}", put(update_workspace).delete(delete_workspace))
         .route("/projects", get(list_projects).post(create_project))
         .route("/projects/{id}", put(update_project).delete(delete_project))
         .route("/projects/{id}/versions", get(list_versions).post(create_version))
@@ -181,6 +184,20 @@ async fn create_workspace(State(state): State<Arc<AppState>>, auth: AuthUser, Js
     let db = state.db.lock().await;
     db.create_workspace(&ws).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(ws))
+}
+
+async fn update_workspace(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id): Path<String>, Json(req): Json<UpdateWorkspaceReq>) -> Result<Json<DbWorkspace>, (StatusCode, String)> {
+    let db = state.db.lock().await;
+    let existing = db.list_workspaces(&auth.user_id).into_iter().find(|w| w.id == id)
+        .ok_or((StatusCode::NOT_FOUND, "Workspace not found".into()))?;
+    let updated = DbWorkspace {
+        id: existing.id.clone(), name: req.name.unwrap_or(existing.name),
+        description: req.description.unwrap_or(existing.description),
+        color: req.color.unwrap_or(existing.color), user_id: existing.user_id,
+        created_at: existing.created_at, updated_at: now(),
+    };
+    db.conn_update_workspace(&id, &auth.user_id, &updated).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(updated))
 }
 
 async fn delete_workspace(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id): Path<String>) -> Result<StatusCode, (StatusCode, String)> {

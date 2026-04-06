@@ -35,7 +35,7 @@ interface LibraryProps {
   onLoadProject: (id: string) => void;
   onNewProject: (workspaceId?: string) => void;
   onCreateWorkspace: (name: string, color?: string) => Promise<Workspace>;
-  onUpdateWorkspace: (id: string, changes: Partial<Workspace>) => Promise<void>;
+  onUpdateWorkspace?: (id: string, changes: Partial<Workspace>) => Promise<void>;
   onDeleteWorkspace: (id: string) => Promise<void>;
   onMovePrompt: (workspaceId: string | undefined) => void;
   currentWorkspaceId?: string;
@@ -91,7 +91,6 @@ export function Library({
   onLoadProject,
   onNewProject,
   onCreateWorkspace,
-  onUpdateWorkspace,
   onDeleteWorkspace,
   onMovePrompt,
   currentWorkspaceId,
@@ -170,24 +169,32 @@ export function Library({
     });
   };
 
-  const handleCreateWs = async () => {
+  const handleCreateWs = () => {
     if (!newWsName.trim()) return;
-    setCreatingWs(false);
-    setColorPickerWsId(null);
     const name = newWsName.trim();
     const color = newWsColor;
+    // Optimistic: add to UI immediately with temp id
+    const tempId = `temp-${Date.now()}`;
+    const now = Date.now();
+    setWorkspaces((prev) => [{ id: tempId, name, description: '', color, userId: '', createdAt: now, updatedAt: now }, ...prev]);
+    setExpandedWs((prev) => new Set(prev).add(tempId));
+    // Reset form immediately
+    setCreatingWs(false);
+    setColorPickerWsId(null);
     setNewWsName('');
     setNewWsColor(WORKSPACE_COLORS[0]);
-    const ws = await onCreateWorkspace(name, color);
-    setExpandedWs((prev) => new Set(prev).add(ws.id));
-    loadData();
+    // Create on backend then refresh to get real id
+    onCreateWorkspace(name, color).then(() => loadData());
   };
 
-  const handleRenameWs = async (id: string) => {
+  const handleRenameWs = (id: string) => {
     if (!editWsName.trim()) return;
-    await onUpdateWorkspace(id, { name: editWsName.trim() });
+    const name = editWsName.trim();
+    // Optimistic
+    setWorkspaces((prev) => prev.map((w) => w.id === id ? { ...w, name } : w));
     setEditingWsId(null);
     setEditWsName('');
+    backend.updateWorkspace(id, { name }).catch(() => {});
   };
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
@@ -350,9 +357,12 @@ export function Library({
               {WORKSPACE_COLORS.map((c) => (
                 <button
                   key={c}
-                  onClick={async () => {
-                    await onUpdateWorkspace(ws.id, { color: c });
+                  onClick={() => {
+                    // Optimistic: update color locally immediately
+                    setWorkspaces((prev) => prev.map((w) => w.id === ws.id ? { ...w, color: c } : w));
                     setColorPickerWsId(null);
+                    // Sync to backend
+                    backend.updateWorkspace(ws.id, { color: c }).catch(() => {});
                   }}
                   className="w-5 h-5 rounded-full transition-transform hover:scale-125"
                   style={{

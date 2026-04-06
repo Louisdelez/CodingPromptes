@@ -98,12 +98,18 @@ let initialPullDone = false;
 
 export function startSync() {
   if (syncInterval) return;
-  // Initial pull from backend (one-time, to populate local DB)
+  // Only pull from backend if local DB is completely empty (first login)
   if (!initialPullDone) {
     initialPullDone = true;
-    pullFromBackend().catch(() => {});
+    localdb.projects.count().then((count) => {
+      if (count === 0) {
+        // Empty local = first time or after reset → pull from backend
+        pullFromBackend().catch(() => {});
+      }
+      // If local has data, trust it — don't overwrite with backend
+    });
   }
-  // Then only PUSH every 3 seconds (local → backend)
+  // Push dirty records to backend every 3 seconds
   syncInterval = setInterval(pushDirty, 3000);
 }
 

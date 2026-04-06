@@ -152,6 +152,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     setVariable,
     loadProject,
     newProject,
+    deleteProject,
     loadFramework,
     saveVersion,
     updateProject,
@@ -498,6 +499,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
                   onCreateWorkspace={createWorkspace}
                   onUpdateWorkspace={updateWorkspace}
                   onDeleteWorkspace={deleteWorkspace}
+                  onDeleteProject={deleteProject}
                   onMovePrompt={movePromptToWorkspace}
                 />
               )}

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
 import { localdb, startSync, type LocalProject } from '../lib/localdb';
+import * as backend from '../lib/backend';
 import type { PromptProject, PromptBlock, BlockType, Workspace, CustomFramework } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
 import { getLang } from '../lib/i18n';
@@ -113,18 +114,26 @@ export function usePromptProject(_userId: string) {
     if (lp) setProject(localToProject(lp));
   }, []);
 
+  const flashSaved = useCallback(() => {
+    setSaveStatus('saving');
+    setTimeout(() => {
+      setSaveStatus('saved');
+      if (statusTimeout.current) clearTimeout(statusTimeout.current);
+      statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 1500);
+    }, 50);
+  }, []);
+
   // --- New project (instant) ---
   const newProject = useCallback((workspaceId?: string) => {
     const p = createDefaultPrompt(workspaceId);
     setProject(p);
-    // Write to local DB immediately (< 1ms)
     localdb.projects.put({
       id: p.id, name: p.name, workspaceId: p.workspaceId,
       blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
       framework: undefined, tagsJson: '[]',
       createdAt: p.createdAt, updatedAt: p.updatedAt, dirty: 1,
-    }).then(() => triggerLibraryRefresh());
-  }, [triggerLibraryRefresh]);
+    }).then(() => { triggerLibraryRefresh(); flashSaved(); });
+  }, [triggerLibraryRefresh, flashSaved]);
 
   const movePromptToWorkspace = useCallback((workspaceId: string | undefined) => {
     updateProject((p) => ({ ...p, workspaceId }));
@@ -144,21 +153,29 @@ export function usePromptProject(_userId: string) {
     };
     await localdb.workspaces.put({ ...ws, dirty: 1 });
     triggerLibraryRefresh();
+    flashSaved();
     return ws;
-  }, [triggerLibraryRefresh]);
+  }, [triggerLibraryRefresh, flashSaved]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {}, []);
 
   const deleteWorkspace = useCallback(async (id: string) => {
     await localdb.workspaces.delete(id);
-    // Move projects out of this workspace
     const inWs = await localdb.projects.where('workspaceId').equals(id).toArray();
     for (const p of inWs) {
       await localdb.projects.update(p.id, { workspaceId: undefined, dirty: 1 });
     }
     triggerLibraryRefresh();
-  }, [triggerLibraryRefresh]);
+    flashSaved();
+  }, [triggerLibraryRefresh, flashSaved]);
+
+  const deleteProject = useCallback(async (id: string) => {
+    await localdb.projects.delete(id);
+    backend.deleteProject(id).catch(() => {});
+    triggerLibraryRefresh();
+    flashSaved();
+  }, [triggerLibraryRefresh, flashSaved]);
 
   // --- Versions (instant) ---
   const saveVersion = useCallback(async (label: string) => {
@@ -232,7 +249,7 @@ export function usePromptProject(_userId: string) {
   return {
     project, saveStatus, libraryRefreshKey,
     addBlock, removeBlock, updateBlock, toggleBlock, reorderBlocks, setVariable,
-    loadProject, newProject, movePromptToWorkspace, loadFramework,
+    loadProject, newProject, deleteProject, movePromptToWorkspace, loadFramework,
     saveVersion, updateProject,
     createWorkspace, updateWorkspace, deleteWorkspace,
     createFramework, updateFramework, deleteFramework, saveCurrentAsFramework,

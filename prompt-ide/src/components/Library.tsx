@@ -39,6 +39,7 @@ interface LibraryProps {
   onCreateWorkspace: (name: string, color?: string) => Promise<Workspace>;
   onUpdateWorkspace?: (id: string, changes: Partial<Workspace>) => Promise<void>;
   onDeleteWorkspace: (id: string) => Promise<void>;
+  onDeleteProject?: (id: string) => Promise<void>;
   onMovePrompt: (workspaceId: string | undefined) => void;
   currentWorkspaceId?: string;
 }
@@ -70,6 +71,7 @@ export function Library({
   onNewProject,
   onCreateWorkspace,
   onDeleteWorkspace,
+  onDeleteProject,
   onMovePrompt,
   currentWorkspaceId,
 }: LibraryProps) {
@@ -190,11 +192,13 @@ export function Library({
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Remove from local DB (instant) + UI
     setProjects((prev) => prev.filter((p) => p.id !== id));
-    localdb.projects.delete(id);
-    // Backend sync in background
-    backend.deleteProject(id).catch(() => {});
+    if (onDeleteProject) {
+      onDeleteProject(id);
+    } else {
+      localdb.projects.delete(id);
+      backend.deleteProject(id).catch(() => {});
+    }
   };
 
   const handleContextMenu = (e: React.MouseEvent, type: 'workspace' | 'prompt', id: string) => {

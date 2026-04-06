@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -68,23 +68,23 @@ function backendWorkspaceToLocal(bw: backend.BackendWorkspace): Workspace {
   };
 }
 
-function DraggablePromptItem({ prompt, children }: { prompt: PromptProject; children: React.ReactNode }) {
+const DraggablePromptItem = memo(function DraggablePromptItem({ prompt, children }: { prompt: PromptProject; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: prompt.id });
   return (
     <div ref={setNodeRef} {...attributes} {...listeners} style={{ opacity: isDragging ? 0.4 : 1, cursor: 'grab' }}>
       {children}
     </div>
   );
-}
+});
 
-function DroppableWorkspace({ wsId, children }: { wsId: string; children: React.ReactNode }) {
+const DroppableWorkspace = memo(function DroppableWorkspace({ wsId, children }: { wsId: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id: wsId });
   return (
     <div ref={setNodeRef} style={{ backgroundColor: isOver ? 'var(--color-accent-hover)' : undefined, borderRadius: '4px', transition: 'background-color 0.15s' }}>
       {children}
     </div>
   );
-}
+});
 
 export function Library({
   currentProjectId,
@@ -131,9 +131,17 @@ export function Library({
   useEffect(() => { const t = setTimeout(loadData, 0); return () => clearTimeout(t); }, [loadData]);
 
   const handleNewProject = (wsId?: string) => {
+    // Optimistic: add to local list immediately
+    const tempId = `temp-${Date.now()}`;
+    const now = Date.now();
+    const newPrompt: PromptProject = {
+      id: tempId, name: 'Nouveau prompt', workspaceId: wsId,
+      blocks: [], variables: {}, tags: [], createdAt: now, updatedAt: now,
+    };
+    setProjects((prev) => [newPrompt, ...prev]);
+    // Create on backend (fire-and-forget), then soft-refresh to get real ID
     onNewProject(wsId);
-    // Refresh after backend creates it
-    setTimeout(loadData, 500);
+    setTimeout(loadData, 1500); // Gentle background sync, not blocking
   };
 
   // Close context menu on click outside
@@ -183,8 +191,9 @@ export function Library({
     setColorPickerWsId(null);
     setNewWsName('');
     setNewWsColor(WORKSPACE_COLORS[0]);
-    // Create on backend then refresh to get real id
-    onCreateWorkspace(name, color).then(() => loadData());
+    // Create on backend (fire-and-forget), soft-refresh later for real ID
+    onCreateWorkspace(name, color).catch(() => {});
+    setTimeout(loadData, 1500);
   };
 
   const handleRenameWs = (id: string) => {
@@ -202,7 +211,7 @@ export function Library({
     // Optimistic: remove from UI immediately
     setProjects((prev) => prev.filter((p) => p.id !== id));
     // Sync backend in background
-    backend.deleteProject(id).catch(() => loadData());
+    backend.deleteProject(id).catch(() => {});
   };
 
   const handleContextMenu = (e: React.MouseEvent, type: 'workspace' | 'prompt', id: string) => {
@@ -590,7 +599,7 @@ export function Library({
                   const id = contextMenu.id;
                   setContextMenu(null);
                   setWorkspaces((prev) => prev.filter((w) => w.id !== id));
-                  onDeleteWorkspace(id).then(() => loadData());
+                  onDeleteWorkspace(id).catch(() => {});
                 }}
                 className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-danger)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"
               >
@@ -639,14 +648,25 @@ export function Library({
                   // Use local data instead of re-fetching
                   const original = projects.find((p) => p.id === contextMenu.id);
                   if (original) {
-                    backend.createProject({
+                    // Optimistic: add copy to local list immediately
+                    const copy: PromptProject = {
+                      ...original,
+                      id: `temp-${Date.now()}`,
                       name: `${original.name} (copie)`,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now(),
+                    };
+                    setProjects((prev) => [copy, ...prev]);
+                    // Backend in background
+                    backend.createProject({
+                      name: copy.name,
                       blocks_json: JSON.stringify(original.blocks),
                       variables_json: JSON.stringify(original.variables),
                       workspace_id: original.workspaceId ?? null,
                       framework: original.framework ?? null,
                       tags_json: JSON.stringify(original.tags || []),
-                    }).then(() => loadData());
+                    }).catch(() => {});
+                    setTimeout(loadData, 1500);
                   }
                 }}
                 className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"

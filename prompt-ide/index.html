@@ -12,6 +12,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // ?reset in URL = wipe all local data and reload clean
+      if (location.search.includes('reset')) {
+        indexedDB.deleteDatabase('InkwellLocalDB');
+        localStorage.clear();
+        location.href = location.pathname;
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

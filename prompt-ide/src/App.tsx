@@ -175,6 +175,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
   const [isEditingName, setIsEditingName] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
+  const [showRightTabMenu, setShowRightTabMenu] = useState(false);
   const [triggerExecute, setTriggerExecute] = useState(false);
 
   // Keyboard shortcuts
@@ -207,6 +208,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
       if (!target.closest('[data-dropdown]')) {
         setShowThemeMenu(false);
         setShowLangMenu(false);
+        setShowRightTabMenu(false);
       }
     };
     document.addEventListener('click', handler);
@@ -556,21 +558,35 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
         {/* Right Panel */}
         {rightOpen && (
           <div className={`${isMobile ? 'mobile-panel-right' : 'w-96'} flex-shrink-0 border-l border-[var(--color-border)] bg-[var(--color-bg-secondary)] flex flex-col animate-slideIn`}>
-            <div className="flex border-b border-[var(--color-border)]">
-              {rightTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setRightTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1 px-1 py-2.5 text-xs font-medium transition-colors ${
-                    rightTab === tab.id
-                      ? 'text-[var(--color-accent)] border-b-2 border-[var(--color-accent)]'
-                      : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
-                  }`}
-                >
-                  <tab.icon size={13} />
-                  {tab.label}
-                </button>
-              ))}
+            {/* Right panel tab selector — dropdown */}
+            <div className="relative border-b border-[var(--color-border)]" data-dropdown>
+              <button
+                onClick={() => setShowRightTabMenu(!showRightTabMenu)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  {(() => { const active = rightTabs.find((t) => t.id === rightTab); return active ? <><span className="text-[var(--color-accent)]"><active.icon size={14} /></span>{active.label}</> : null; })()}
+                </div>
+                <ChevronDown size={14} className={`text-[var(--color-text-muted)] transition-transform ${showRightTabMenu ? 'rotate-180' : ''}`} />
+              </button>
+              {showRightTabMenu && (
+                <div className="absolute left-0 right-0 top-full bg-[var(--color-bg-secondary)] border-b border-[var(--color-border)] shadow-xl z-50 py-1 animate-fadeIn">
+                  {rightTabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => { setRightTab(tab.id); setShowRightTabMenu(false); }}
+                      className={`w-full flex items-center gap-2.5 px-4 py-2 text-sm transition-colors ${
+                        rightTab === tab.id
+                          ? 'text-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+                      }`}
+                    >
+                      <tab.icon size={14} />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-auto">

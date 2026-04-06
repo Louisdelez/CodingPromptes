@@ -89,6 +89,18 @@ body {
   flex-direction: column;
 }
 
+/* Fix native select/option elements for dark theme */
+select, option {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+select:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
 /* ===== CodeMirror ===== */
 .cm-editor {
   background: transparent !important;

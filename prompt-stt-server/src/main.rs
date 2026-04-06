@@ -93,9 +93,9 @@ impl App {
 
         let ollama_state = OllamaState::new();
 
-        let app = Self {
+        let mut app = Self {
             engine,
-            server_running: false,
+            server_running: true,
             port: 8910,
             selected_model: selected,
             all_models,
@@ -114,6 +114,20 @@ impl App {
             ollama_error: None,
             log_messages: vec!["Prompt AI Server demarre.".into()],
         };
+
+        // Auto-start HTTP server
+        {
+            let port = app.port;
+            let engine = app.engine.clone();
+            let ollama = app.ollama_state.clone();
+            let status_tx = app.server_status_tx.clone();
+            app.log_messages.push(format!("Serveur demarre automatiquement sur le port {port}..."));
+            app.log_messages.push("STT: /transcribe | LLM: /v1/chat/completions | API: /api/*".into());
+            tokio::spawn(async move {
+                let db = database::Database::open().expect("Failed to open database");
+                server::start_server(port, engine, ollama, status_tx, db).await;
+            });
+        }
 
         // Initial Ollama check
         let ollama_check = ollama_state.clone();

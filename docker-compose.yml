@@ -1,0 +1,15 @@
+services:
+  prompt-ide:
+    build: .
+    container_name: prompt-ide
+    ports:
+      - "3000:80"
+    volumes:
+      - prompt-data:/root/.local/share/prompt-ai-server
+    environment:
+      - JWT_SECRET=change-me-in-production
+      - OLLAMA_URL=http://host.docker.internal:11434
+    restart: unless-stopped
+
+volumes:
+  prompt-data:

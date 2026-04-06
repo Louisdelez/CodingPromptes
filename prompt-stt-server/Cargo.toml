@@ -1,0 +1,31 @@
+[package]
+name = "prompt-ai-server"
+version = "0.2.0"
+edition = "2024"
+description = "Local AI server (STT + LLM proxy) with Iced GUI for Prompt IDE"
+
+[dependencies]
+# GUI
+iced = { version = "0.13", features = ["tokio"] }
+
+# HTTP server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+tokio = { version = "1", features = ["full"] }
+
+# Whisper inference
+whisper-rs = "0.13"
+
+# Utilities
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["stream", "json"] }
+bytes = "1"
+dirs = "6"
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+hound = "3.5"
+bytemuck = "1"
+base64 = "0.22"
+http = "1"
+axum-extra = { version = "0.10", features = ["typed-header"] }

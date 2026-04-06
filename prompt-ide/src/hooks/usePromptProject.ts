@@ -30,7 +30,11 @@ function createDefaultPrompt(workspaceId?: string): PromptProject {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function usePromptProject(_userId: string) {
-  const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt());
+  // Empty shell — will be replaced by useEffect loading from IndexedDB
+  const [project, setProject] = useState<PromptProject>({
+    id: '', name: '', blocks: [], variables: {}, tags: [],
+    createdAt: 0, updatedAt: 0,
+  });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const triggerLibraryRefresh = useCallback(() => setLibraryRefreshKey((k) => k + 1), []);
@@ -193,20 +197,14 @@ export function usePromptProject(_userId: string) {
     updateProject((p) => ({ ...p, tags: (p.tags || []).filter((t: string) => t !== tag) }));
   }, [updateProject]);
 
-  // Load most recent on mount
+  // Load most recent on mount — DON'T create a default if empty
   useEffect(() => {
     localdb.projects.orderBy('updatedAt').reverse().first().then((lp) => {
       if (lp) {
         setProject(localToProject(lp));
-      } else {
-        const p = createDefaultPrompt();
-        setProject(p);
-        localdb.projects.put({
-          id: p.id, name: p.name, workspaceId: p.workspaceId,
-          blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
-          framework: undefined, tagsJson: '[]', createdAt: p.createdAt, updatedAt: p.updatedAt,
-        });
       }
+      // If empty, just keep the in-memory default — don't save to DB
+      // The user will explicitly create their first prompt
     });
   }, []);
 

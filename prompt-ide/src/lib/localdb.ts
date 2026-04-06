@@ -94,13 +94,17 @@ import * as backend from './backend';
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let syncing = false;
+let initialPullDone = false;
 
 export function startSync() {
   if (syncInterval) return;
-  // Sync every 3 seconds
-  syncInterval = setInterval(syncAll, 3000);
-  // Initial sync immediately
-  syncAll();
+  // Initial pull from backend (one-time, to populate local DB)
+  if (!initialPullDone) {
+    initialPullDone = true;
+    pullFromBackend().catch(() => {});
+  }
+  // Then only PUSH every 3 seconds (local → backend)
+  syncInterval = setInterval(pushDirty, 3000);
 }
 
 export function stopSync() {
@@ -108,18 +112,12 @@ export function stopSync() {
     clearInterval(syncInterval);
     syncInterval = null;
   }
+  initialPullDone = false;
 }
 
-async function syncAll() {
-  if (syncing || !backend.getToken()) return;
-  syncing = true;
-  try {
-    await pushDirty();
-    await pullFromBackend();
-  } catch {
-    // Silently ignore sync errors — we're offline or server is down
-  }
-  syncing = false;
+// Force a pull (called on login)
+export async function pullOnce() {
+  await pullFromBackend();
 }
 
 // Push local dirty records to backend
@@ -275,5 +273,10 @@ async function pullFromBackend() {
 
 // Force a full sync now
 export async function syncNow() {
-  await syncAll();
+  if (syncing) return;
+  syncing = true;
+  try {
+    await pushDirty();
+  } catch { /* ignore */ }
+  syncing = false;
 }

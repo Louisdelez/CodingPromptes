@@ -39,22 +39,24 @@ export function usePromptProject(_userId: string) {
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const statusTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Start sync engine on mount + listen to sync events
+  // Start sync engine on mount
   useEffect(() => {
     startSync();
     // Poll dirty count to show sync status
     const interval = setInterval(async () => {
-      const dirtyCount = await localdb.projects.where('dirty').equals(1).count();
-      if (dirtyCount > 0) {
+      const dirtyCount = await localdb.projects.where('dirty').equals(1).count()
+        + await localdb.workspaces.where('dirty').equals(1).count();
+      if (dirtyCount > 0 && saveStatus === 'idle') {
         setSaveStatus('syncing');
-      } else if (saveStatus === 'syncing') {
+      } else if (dirtyCount === 0 && saveStatus === 'syncing') {
         setSaveStatus('synced');
         if (statusTimeout.current) clearTimeout(statusTimeout.current);
         statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 2000);
       }
-    }, 3500);
+    }, 4000);
     return () => clearInterval(interval);
-  }, [saveStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Save to local DB (instant) ---
   const saveProject = useCallback(async (p: PromptProject) => {

@@ -17,9 +17,17 @@
         // Block React from loading by removing the root
         document.getElementById('root').remove();
         document.write('<div style="color:white;background:#0f1117;height:100vh;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-size:18px">Resetting Inkwell...</div>');
+        // Unregister service workers + clear caches
+        if (navigator.serviceWorker) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            regs.forEach(function(r) { r.unregister(); });
+          });
+        }
+        caches.keys().then(function(names) {
+          names.forEach(function(n) { caches.delete(n); });
+        });
         // Delete IndexedDB
         var r1 = indexedDB.deleteDatabase('InkwellLocalDB');
-        var r2 = indexedDB.deleteDatabase('InkwellLocalDB'); // double tap
         var done = false;
         function finish() {
           if (done) return;

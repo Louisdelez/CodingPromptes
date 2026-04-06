@@ -345,16 +345,11 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
             </button>
           )}
           {saveStatus !== 'idle' && (
-            <span className={`text-xs transition-opacity ${
+            <span className={`text-xs ${
               saveStatus === 'saving' ? 'text-[var(--color-warning)] animate-pulse' :
-              saveStatus === 'saved' ? 'text-[var(--color-success)]' :
-              saveStatus === 'syncing' ? 'text-[var(--color-accent)] animate-pulse' :
               'text-[var(--color-success)]'
             }`}>
-              {saveStatus === 'saving' ? t('app.saving') :
-               saveStatus === 'saved' ? `✓ ${t('app.saved')}` :
-               saveStatus === 'syncing' ? `↑ ${t('app.syncing')}` :
-               `✓ ${t('app.synced')}`}
+              {saveStatus === 'saving' ? t('app.saving') : `✓ ${t('app.saved')}`}
             </span>
           )}
         </div>

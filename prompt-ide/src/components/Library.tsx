@@ -217,7 +217,7 @@ export function Library({
     const newWorkspaceId = targetId === '__free__' ? undefined : targetId;
 
     // Update in backend
-    localdb.projects.update(promptId, { workspaceId: newWorkspaceId, synced: 0 });
+    localdb.projects.update(promptId, { workspaceId: newWorkspaceId });
 
     // If it's the currently active prompt, update state too
     if (promptId === currentProjectId) {
@@ -604,7 +604,7 @@ export function Library({
                 <button
                   key={ws.id}
                   onClick={() => {
-                    localdb.projects.update(contextMenu.id, { workspaceId: ws.id, synced: 0 });
+                    localdb.projects.update(contextMenu.id, { workspaceId: ws.id });
                     if (contextMenu.id === currentProjectId) {
                       onMovePrompt(ws.id);
                     }
@@ -618,7 +618,7 @@ export function Library({
               ))}
               <button
                 onClick={() => {
-                  localdb.projects.update(contextMenu.id, { workspaceId: undefined, synced: 0 });
+                  localdb.projects.update(contextMenu.id, { workspaceId: undefined });
                   if (contextMenu.id === currentProjectId) {
                     onMovePrompt(undefined);
                   }
@@ -649,7 +649,7 @@ export function Library({
                       blocksJson: JSON.stringify(original.blocks),
                       variablesJson: JSON.stringify(original.variables),
                       framework: original.framework, tagsJson: JSON.stringify(original.tags || []),
-                      createdAt: now, updatedAt: now, synced: 0,
+                      createdAt: now, updatedAt: now,
                     });
                   }
                 }}

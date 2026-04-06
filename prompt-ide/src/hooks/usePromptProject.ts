@@ -1,8 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
-import { localdb, startSync, markDeleted, type LocalProject } from '../lib/localdb';
-import * as backend from '../lib/backend';
-
+import { localdb, type LocalProject } from '../lib/localdb';
 import type { PromptProject, PromptBlock, BlockType, Workspace, CustomFramework } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
 import { getLang } from '../lib/i18n';
@@ -13,8 +11,7 @@ function localToProject(lp: LocalProject): PromptProject {
     blocks: JSON.parse(lp.blocksJson || '[]'),
     variables: JSON.parse(lp.variablesJson || '{}'),
     tags: JSON.parse(lp.tagsJson || '[]'),
-    framework: lp.framework,
-    createdAt: lp.createdAt, updatedAt: lp.updatedAt,
+    framework: lp.framework, createdAt: lp.createdAt, updatedAt: lp.updatedAt,
   };
 }
 
@@ -34,88 +31,11 @@ function createDefaultPrompt(workspaceId?: string): PromptProject {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function usePromptProject(_userId: string) {
   const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt());
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'syncing' | 'synced'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const triggerLibraryRefresh = useCallback(() => setLibraryRefreshKey((k) => k + 1), []);
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const statusTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  // Start sync engine on mount
-  useEffect(() => {
-    startSync();
-    // Poll dirty count to show sync status
-    const interval = setInterval(async () => {
-      const dirtyCount = await localdb.projects.where('synced').equals(0).count()
-        + await localdb.workspaces.where('synced').equals(0).count();
-      if (dirtyCount > 0 && saveStatus === 'idle') {
-        setSaveStatus('syncing');
-      } else if (dirtyCount === 0 && saveStatus === 'syncing') {
-        setSaveStatus('synced');
-        if (statusTimeout.current) clearTimeout(statusTimeout.current);
-        statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 2000);
-      }
-    }, 4000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // --- Save to local DB (instant) ---
-  const saveProject = useCallback(async (p: PromptProject) => {
-    setSaveStatus('saving');
-    const now = Date.now();
-    await localdb.projects.put({
-      id: p.id, name: p.name, workspaceId: p.workspaceId,
-      blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
-      framework: p.framework, tagsJson: JSON.stringify(p.tags ?? []),
-      createdAt: p.createdAt, updatedAt: now, synced: 0,
-    });
-    setSaveStatus('saved');
-    if (statusTimeout.current) clearTimeout(statusTimeout.current);
-    statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 1500);
-  }, []);
-
-  const updateProject = useCallback(
-    (updater: (prev: PromptProject) => PromptProject) => {
-      setProject((prev) => {
-        const next = updater(prev);
-        if (saveTimeout.current) clearTimeout(saveTimeout.current);
-        saveTimeout.current = setTimeout(() => saveProject(next), 300);
-        return next;
-      });
-    },
-    [saveProject]
-  );
-
-  // --- Blocks ---
-  const addBlock = useCallback((type: BlockType) => {
-    updateProject((p) => ({ ...p, blocks: [...p.blocks, { id: uuid(), type, content: '', enabled: true }] }));
-  }, [updateProject]);
-
-  const removeBlock = useCallback((blockId: string) => {
-    updateProject((p) => ({ ...p, blocks: p.blocks.filter((b) => b.id !== blockId) }));
-  }, [updateProject]);
-
-  const updateBlock = useCallback((blockId: string, changes: Partial<PromptBlock>) => {
-    updateProject((p) => ({ ...p, blocks: p.blocks.map((b) => (b.id === blockId ? { ...b, ...changes } : b)) }));
-  }, [updateProject]);
-
-  const toggleBlock = useCallback((blockId: string) => {
-    updateProject((p) => ({ ...p, blocks: p.blocks.map((b) => (b.id === blockId ? { ...b, enabled: !b.enabled } : b)) }));
-  }, [updateProject]);
-
-  const reorderBlocks = useCallback((newBlocks: PromptBlock[]) => {
-    updateProject((p) => ({ ...p, blocks: newBlocks }));
-  }, [updateProject]);
-
-  const setVariable = useCallback((key: string, value: string) => {
-    updateProject((p) => ({ ...p, variables: { ...p.variables, [key]: value } }));
-  }, [updateProject]);
-
-  // --- Load project ---
-  const loadProject = useCallback(async (id: string) => {
-    const lp = await localdb.projects.get(id);
-    if (lp) setProject(localToProject(lp));
-  }, []);
 
   const flashSaved = useCallback(() => {
     setSaveStatus('saving');
@@ -126,16 +46,72 @@ export function usePromptProject(_userId: string) {
     }, 50);
   }, []);
 
-  // --- New project (instant) ---
+  // Save to local IndexedDB (instant, < 1ms)
+  const saveProject = useCallback(async (p: PromptProject) => {
+    setSaveStatus('saving');
+    await localdb.projects.put({
+      id: p.id, name: p.name, workspaceId: p.workspaceId,
+      blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
+      framework: p.framework, tagsJson: JSON.stringify(p.tags ?? []),
+      createdAt: p.createdAt, updatedAt: Date.now(),
+    });
+    setSaveStatus('saved');
+    if (statusTimeout.current) clearTimeout(statusTimeout.current);
+    statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 1500);
+  }, []);
+
+  const updateProject = useCallback((updater: (prev: PromptProject) => PromptProject) => {
+    setProject((prev) => {
+      const next = updater(prev);
+      if (saveTimeout.current) clearTimeout(saveTimeout.current);
+      saveTimeout.current = setTimeout(() => saveProject(next), 300);
+      return next;
+    });
+  }, [saveProject]);
+
+  const addBlock = useCallback((type: BlockType) => {
+    updateProject((p) => ({ ...p, blocks: [...p.blocks, { id: uuid(), type, content: '', enabled: true }] }));
+  }, [updateProject]);
+
+  const removeBlock = useCallback((blockId: string) => {
+    updateProject((p) => ({ ...p, blocks: p.blocks.filter((b: PromptBlock) => b.id !== blockId) }));
+  }, [updateProject]);
+
+  const updateBlock = useCallback((blockId: string, changes: Partial<PromptBlock>) => {
+    updateProject((p) => ({ ...p, blocks: p.blocks.map((b: PromptBlock) => (b.id === blockId ? { ...b, ...changes } : b)) }));
+  }, [updateProject]);
+
+  const toggleBlock = useCallback((blockId: string) => {
+    updateProject((p) => ({ ...p, blocks: p.blocks.map((b: PromptBlock) => (b.id === blockId ? { ...b, enabled: !b.enabled } : b)) }));
+  }, [updateProject]);
+
+  const reorderBlocks = useCallback((newBlocks: PromptBlock[]) => {
+    updateProject((p) => ({ ...p, blocks: newBlocks }));
+  }, [updateProject]);
+
+  const setVariable = useCallback((key: string, value: string) => {
+    updateProject((p) => ({ ...p, variables: { ...p.variables, [key]: value } }));
+  }, [updateProject]);
+
+  const loadProject = useCallback(async (id: string) => {
+    const lp = await localdb.projects.get(id);
+    if (lp) setProject(localToProject(lp));
+  }, []);
+
   const newProject = useCallback((workspaceId?: string) => {
     const p = createDefaultPrompt(workspaceId);
     setProject(p);
     localdb.projects.put({
       id: p.id, name: p.name, workspaceId: p.workspaceId,
       blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
-      framework: undefined, tagsJson: '[]',
-      createdAt: p.createdAt, updatedAt: p.updatedAt, synced: 0,
+      framework: undefined, tagsJson: '[]', createdAt: p.createdAt, updatedAt: p.updatedAt,
     }).then(() => { triggerLibraryRefresh(); flashSaved(); });
+  }, [triggerLibraryRefresh, flashSaved]);
+
+  const deleteProject = useCallback(async (id: string) => {
+    await localdb.projects.delete(id);
+    triggerLibraryRefresh();
+    flashSaved();
   }, [triggerLibraryRefresh, flashSaved]);
 
   const movePromptToWorkspace = useCallback((workspaceId: string | undefined) => {
@@ -146,7 +122,9 @@ export function usePromptProject(_userId: string) {
     updateProject((p) => ({ ...p, framework: frameworkId, blocks: blocks.map((b) => ({ ...b, id: uuid() })) }));
   }, [updateProject]);
 
-  // --- Workspaces (instant) ---
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {}, []);
+
   const createWorkspace = useCallback(async (name: string, color?: string): Promise<Workspace> => {
     const now = Date.now();
     const ws: Workspace = {
@@ -154,55 +132,35 @@ export function usePromptProject(_userId: string) {
       color: color ?? WORKSPACE_COLORS[Math.floor(Math.random() * WORKSPACE_COLORS.length)],
       createdAt: now, updatedAt: now,
     };
-    await localdb.workspaces.put({ ...ws, synced: 0 });
+    await localdb.workspaces.put({ ...ws });
     triggerLibraryRefresh();
     flashSaved();
     return ws;
   }, [triggerLibraryRefresh, flashSaved]);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {}, []);
-
   const deleteWorkspace = useCallback(async (id: string) => {
-    markDeleted(id);
     await localdb.workspaces.delete(id);
     const inWs = await localdb.projects.where('workspaceId').equals(id).toArray();
     for (const p of inWs) {
-      await localdb.projects.update(p.id, { workspaceId: undefined, synced: 0 });
+      await localdb.projects.update(p.id, { workspaceId: undefined });
     }
-    // Delete from backend immediately
-    backend.deleteWorkspace(id).catch(() => {});
     triggerLibraryRefresh();
     flashSaved();
   }, [triggerLibraryRefresh, flashSaved]);
 
-  const deleteProject = useCallback(async (id: string) => {
-    markDeleted(id);
-    await localdb.projects.delete(id);
-    // Delete from backend immediately (fire-and-forget)
-    backend.deleteProject(id).catch(() => {});
-    triggerLibraryRefresh();
-    flashSaved();
-  }, [triggerLibraryRefresh, flashSaved]);
-
-  // --- Versions (instant) ---
   const saveVersion = useCallback(async (label: string) => {
     await localdb.versions.add({
       id: uuid(), projectId: project.id,
       blocksJson: JSON.stringify(project.blocks),
       variablesJson: JSON.stringify(project.variables),
-      label, createdAt: Date.now(), synced: 0,
+      label, createdAt: Date.now(),
     });
   }, [project]);
 
-  // --- Frameworks (instant) ---
   const createFramework = useCallback(async (name: string, description: string, blocks: Omit<PromptBlock, 'id'>[]): Promise<CustomFramework> => {
     const now = Date.now();
     const fw: CustomFramework = { id: uuid(), name, description, blocks, createdAt: now, updatedAt: now };
-    await localdb.frameworks.put({
-      id: fw.id, name, description, blocksJson: JSON.stringify(blocks),
-      createdAt: now, updatedAt: now, synced: 0,
-    });
+    await localdb.frameworks.put({ id: fw.id, name, description, blocksJson: JSON.stringify(blocks), createdAt: now, updatedAt: now });
     return fw;
   }, []);
 
@@ -213,7 +171,7 @@ export function usePromptProject(_userId: string) {
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.description !== undefined ? { description: changes.description } : {}),
         ...(changes.blocks !== undefined ? { blocksJson: JSON.stringify(changes.blocks) } : {}),
-        updatedAt: Date.now(), synced: 0,
+        updatedAt: Date.now(),
       });
     }
   }, []);
@@ -223,20 +181,19 @@ export function usePromptProject(_userId: string) {
   }, []);
 
   const saveCurrentAsFramework = useCallback(async (name: string, description: string): Promise<CustomFramework> => {
-    const blocks: Omit<PromptBlock, 'id'>[] = project.blocks.map((b) => ({ type: b.type, content: b.content, enabled: b.enabled }));
+    const blocks: Omit<PromptBlock, 'id'>[] = project.blocks.map((b: PromptBlock) => ({ type: b.type, content: b.content, enabled: b.enabled }));
     return createFramework(name, description, blocks);
   }, [project.blocks, createFramework]);
 
-  // --- Tags ---
   const addTag = useCallback((tag: string) => {
-    updateProject((p) => ({ ...p, tags: [...(p.tags || []), tag].filter((v, i, a) => a.indexOf(v) === i) }));
+    updateProject((p) => ({ ...p, tags: [...(p.tags || []), tag].filter((v: string, i: number, a: string[]) => a.indexOf(v) === i) }));
   }, [updateProject]);
 
   const removeTag = useCallback((tag: string) => {
-    updateProject((p) => ({ ...p, tags: (p.tags || []).filter((t) => t !== tag) }));
+    updateProject((p) => ({ ...p, tags: (p.tags || []).filter((t: string) => t !== tag) }));
   }, [updateProject]);
 
-  // --- Load most recent on mount ---
+  // Load most recent on mount
   useEffect(() => {
     localdb.projects.orderBy('updatedAt').reverse().first().then((lp) => {
       if (lp) {
@@ -247,8 +204,7 @@ export function usePromptProject(_userId: string) {
         localdb.projects.put({
           id: p.id, name: p.name, workspaceId: p.workspaceId,
           blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
-          framework: undefined, tagsJson: '[]',
-          createdAt: p.createdAt, updatedAt: p.updatedAt, synced: 0,
+          framework: undefined, tagsJson: '[]', createdAt: p.createdAt, updatedAt: p.updatedAt,
         });
       }
     });

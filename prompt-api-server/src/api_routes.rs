@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

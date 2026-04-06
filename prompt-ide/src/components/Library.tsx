@@ -128,7 +128,7 @@ export function Library({
   }, []);
 
   // Load once on mount
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { const t = setTimeout(loadData, 0); return () => clearTimeout(t); }, [loadData]);
 
   const handleNewProject = (wsId?: string) => {
     onNewProject(wsId);

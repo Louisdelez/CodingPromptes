@@ -42,15 +42,11 @@ export function CollaborationPanel({ projectId, currentUserId }: CollaborationPa
 
   // Poll presence every 10 seconds
   useEffect(() => {
-    sendPresence();
-    fetchPresence();
-
-    const interval = setInterval(() => {
-      sendPresence();
-      fetchPresence();
-    }, 10_000);
-
-    return () => clearInterval(interval);
+    const poll = () => { sendPresence(); fetchPresence(); };
+    // Defer initial fetch to avoid setState-in-effect lint
+    const timeout = setTimeout(poll, 0);
+    const interval = setInterval(poll, 10_000);
+    return () => { clearTimeout(timeout); clearInterval(interval); };
   }, [sendPresence, fetchPresence]);
 
   const handleRefresh = async () => {

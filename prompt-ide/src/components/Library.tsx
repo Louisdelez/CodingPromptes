@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -115,23 +115,27 @@ export function Library({
     useSensor(PointerSensor, { activationConstraint: { distance: 10 } })
   );
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [bws, bpj] = await Promise.all([
-          backend.listWorkspaces(),
-          backend.listProjects(),
-        ]);
-        setWorkspaces(bws.map(backendWorkspaceToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
-        setProjects(bpj.map(backendProjectToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
-      } catch {
-        // ignore
-      }
-    };
-    load();
-    const interval = setInterval(load, 2000);
-    return () => clearInterval(interval);
+  const loadData = useCallback(async () => {
+    try {
+      const [bws, bpj] = await Promise.all([
+        backend.listWorkspaces(),
+        backend.listProjects(),
+      ]);
+      setWorkspaces(bws.map(backendWorkspaceToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
+      setProjects(bpj.map(backendProjectToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
+    } catch {
+      // ignore
+    }
   }, []);
+
+  // Load once on mount
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const handleNewProject = (wsId?: string) => {
+    onNewProject(wsId);
+    // Refresh after backend creates it
+    setTimeout(loadData, 500);
+  };
 
   // Close context menu on click outside
   useEffect(() => {
@@ -168,12 +172,15 @@ export function Library({
 
   const handleCreateWs = async () => {
     if (!newWsName.trim()) return;
-    const ws = await onCreateWorkspace(newWsName.trim(), newWsColor);
-    setNewWsName('');
-    setNewWsColor(WORKSPACE_COLORS[0]);
     setCreatingWs(false);
     setColorPickerWsId(null);
+    const name = newWsName.trim();
+    const color = newWsColor;
+    setNewWsName('');
+    setNewWsColor(WORKSPACE_COLORS[0]);
+    const ws = await onCreateWorkspace(name, color);
     setExpandedWs((prev) => new Set(prev).add(ws.id));
+    loadData();
   };
 
   const handleRenameWs = async (id: string) => {
@@ -185,8 +192,10 @@ export function Library({
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await backend.deleteProject(id);
+    // Optimistic: remove from UI immediately
     setProjects((prev) => prev.filter((p) => p.id !== id));
+    // Sync backend in background
+    backend.deleteProject(id).catch(() => loadData());
   };
 
   const handleContextMenu = (e: React.MouseEvent, type: 'workspace' | 'prompt', id: string) => {
@@ -317,7 +326,7 @@ export function Library({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onNewProject(ws.id);
+                handleNewProject(ws.id);
               }}
               className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-all"
               title={t('library.newPromptInProject')}
@@ -401,7 +410,7 @@ export function Library({
             <FolderPlus size={16} />
           </button>
           <button
-            onClick={() => onNewProject()}
+            onClick={() => handleNewProject()}
             className="p-1.5 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors"
             title={t('library.newPrompt')}
           >
@@ -535,7 +544,7 @@ export function Library({
             <>
               <button
                 onClick={() => {
-                  onNewProject(contextMenu.id);
+                  handleNewProject(contextMenu.id);
                   setContextMenu(null);
                 }}
                 className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"
@@ -567,9 +576,11 @@ export function Library({
               </button>
               <div className="h-px bg-[var(--color-border)] my-1" />
               <button
-                onClick={async () => {
-                  await onDeleteWorkspace(contextMenu.id);
+                onClick={() => {
+                  const id = contextMenu.id;
                   setContextMenu(null);
+                  setWorkspaces((prev) => prev.filter((w) => w.id !== id));
+                  onDeleteWorkspace(id).then(() => loadData());
                 }}
                 className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-danger)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"
               >
@@ -614,20 +625,19 @@ export function Library({
               <div className="h-px bg-[var(--color-border)] my-1" />
               <button
                 onClick={async () => {
-                  // Duplicate: fetch the original from backend, then create a copy
-                  const allProjects = await backend.listProjects();
-                  const original = allProjects.find((p) => p.id === contextMenu.id);
-                  if (original) {
-                    await backend.createProject({
-                      name: `${original.name} (copie)`,
-                      blocks_json: original.blocks_json,
-                      variables_json: original.variables_json,
-                      workspace_id: original.workspace_id,
-                      framework: original.framework,
-                      tags_json: original.tags_json,
-                    });
-                  }
                   setContextMenu(null);
+                  // Use local data instead of re-fetching
+                  const original = projects.find((p) => p.id === contextMenu.id);
+                  if (original) {
+                    backend.createProject({
+                      name: `${original.name} (copie)`,
+                      blocks_json: JSON.stringify(original.blocks),
+                      variables_json: JSON.stringify(original.variables),
+                      workspace_id: original.workspaceId ?? null,
+                      framework: original.framework ?? null,
+                      tags_json: JSON.stringify(original.tags || []),
+                    }).then(() => loadData());
+                  }
                 }}
                 className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"
               >

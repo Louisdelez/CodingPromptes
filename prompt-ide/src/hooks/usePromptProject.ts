@@ -181,21 +181,17 @@ export function usePromptProject(_userId: string) {
     }
   }, []);
 
-  const newProject = useCallback(async (workspaceId?: string) => {
+  const newProject = useCallback((workspaceId?: string) => {
     const p = createDefaultPrompt(workspaceId);
     setProject(p);
-    // Create on backend immediately
-    try {
-      await backend.createProject({
-        id: p.id,
-        name: p.name,
-        blocks_json: JSON.stringify(p.blocks),
-        variables_json: JSON.stringify(p.variables),
-        workspace_id: workspaceId ?? null,
-      });
-    } catch {
-      // ignore
-    }
+    // Create on backend in background (don't await)
+    backend.createProject({
+      id: p.id,
+      name: p.name,
+      blocks_json: JSON.stringify(p.blocks),
+      variables_json: JSON.stringify(p.variables),
+      workspace_id: workspaceId ?? null,
+    }).catch(() => {});
   }, []);
 
   const movePromptToWorkspace = useCallback(

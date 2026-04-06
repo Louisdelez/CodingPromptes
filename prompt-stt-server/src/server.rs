@@ -19,6 +19,7 @@ use crate::database::Database;
 use crate::api_routes;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct AppState {
     pub engine: WhisperEngine,
     pub ollama: OllamaState,

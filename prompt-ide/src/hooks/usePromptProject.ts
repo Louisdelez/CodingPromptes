@@ -38,6 +38,7 @@ function createDefaultPrompt(workspaceId?: string): PromptProject {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function usePromptProject(_userId: string) {
   const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt());
   const [isSaving, setIsSaving] = useState(false);
@@ -61,6 +62,7 @@ export function usePromptProject(_userId: string) {
     };
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {
     // No update endpoint yet — the Library will reload from backend
   }, []);

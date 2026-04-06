@@ -4,6 +4,7 @@ use std::io::Write;
 use tokio::sync::watch;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DownloadProgress {
     pub model_id: String,
     pub downloaded_bytes: u64,

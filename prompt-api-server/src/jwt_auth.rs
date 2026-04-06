@@ -31,6 +31,7 @@ pub fn verify_token(token: &str) -> Result<Claims, String> {
 
 /// Axum extractor: extracts authenticated user_id from Bearer token
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AuthUser {
     pub user_id: String,
     pub email: String,

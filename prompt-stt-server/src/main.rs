@@ -27,21 +27,18 @@ fn main() -> iced::Result {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum Message {
-    // Server
     ServerToggle(bool),
-    // Whisper STT
     SelectModel(String),
     LoadModel,
     ModelLoaded(Result<(), String>),
     DownloadModel(String),
     DownloadDone(Result<(), String>),
-    // Ollama
     OllamaUrlChanged(String),
     OllamaToggle(bool),
     OllamaRefreshed(OllamaStatus),
     RefreshOllama,
-    // General
     Tick,
 }
 
@@ -302,7 +299,7 @@ impl App {
         )
     }
 
-    fn view(&self) -> Element<Message> {
+    fn view(&self) -> Element<'_, Message> {
         let installed: Vec<String> = self
             .all_models
             .iter()

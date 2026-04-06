@@ -14,13 +14,12 @@ import {
 } from 'lucide-react';
 import type { PromptBlock, CustomFramework, BlockType } from '../lib/types';
 import { FRAMEWORKS, BLOCK_CONFIG } from '../lib/types';
-import { db } from '../lib/db';
+import * as backend from '../lib/backend';
 import { useT } from '../lib/i18n';
 
 const BLOCK_TYPES: BlockType[] = ['role', 'context', 'task', 'examples', 'constraints', 'format'];
 
 interface FrameworkSelectorProps {
-  userId: string;
   currentFramework?: string;
   onSelect: (frameworkId: string, blocks: Omit<PromptBlock, 'id'>[]) => void;
   onCreateFramework: (name: string, description: string, blocks: Omit<PromptBlock, 'id'>[]) => Promise<CustomFramework>;
@@ -38,8 +37,19 @@ interface BlockDraft {
   enabled: boolean;
 }
 
+function backendFrameworkToLocal(bf: backend.BackendFramework): CustomFramework {
+  return {
+    id: bf.id,
+    name: bf.name,
+    description: bf.description,
+    blocks: JSON.parse(bf.blocks_json),
+    userId: bf.user_id,
+    createdAt: bf.created_at,
+    updatedAt: bf.updated_at,
+  };
+}
+
 export function FrameworkSelector({
-  userId,
   currentFramework,
   onSelect,
   onCreateFramework,
@@ -63,13 +73,17 @@ export function FrameworkSelector({
 
   useEffect(() => {
     const load = async () => {
-      const all = await db.frameworks.where('userId').equals(userId).reverse().sortBy('updatedAt');
-      setCustomFrameworks(all);
+      try {
+        const all = await backend.listFrameworks();
+        setCustomFrameworks(all.map(backendFrameworkToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
+      } catch {
+        // ignore
+      }
     };
     load();
     const interval = setInterval(load, 3000);
     return () => clearInterval(interval);
-  }, [userId]);
+  }, []);
 
   const resetForm = () => {
     setMode('browse');

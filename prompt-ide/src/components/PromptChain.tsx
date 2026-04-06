@@ -4,12 +4,9 @@ import type { PromptProject, Workspace } from '../lib/types';
 import { MODELS } from '../lib/types';
 import { compilePrompt } from '../lib/prompt';
 import { callLLM } from '../lib/api';
-import { db, getApiKeys } from '../lib/db';
+import { getApiKeys } from '../lib/db';
+import * as backend from '../lib/backend';
 import { useT } from '../lib/i18n';
-
-interface PromptChainProps {
-  userId: string;
-}
 
 interface StepResult {
   stepIndex: number;
@@ -18,7 +15,34 @@ interface StepResult {
   error?: string;
 }
 
-export function PromptChain({ userId }: PromptChainProps) {
+function backendProjectToLocal(bp: backend.BackendProject): PromptProject {
+  return {
+    id: bp.id,
+    name: bp.name,
+    userId: bp.user_id,
+    workspaceId: bp.workspace_id ?? undefined,
+    blocks: JSON.parse(bp.blocks_json),
+    variables: JSON.parse(bp.variables_json),
+    tags: JSON.parse(bp.tags_json || '[]'),
+    createdAt: bp.created_at,
+    updatedAt: bp.updated_at,
+    framework: bp.framework ?? undefined,
+  };
+}
+
+function backendWorkspaceToLocal(bw: backend.BackendWorkspace): Workspace {
+  return {
+    id: bw.id,
+    name: bw.name,
+    description: bw.description,
+    color: bw.color,
+    userId: bw.user_id,
+    createdAt: bw.created_at,
+    updatedAt: bw.updated_at,
+  };
+}
+
+export function PromptChain() {
   const t = useT();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [projects, setProjects] = useState<PromptProject[]>([]);
@@ -28,12 +52,15 @@ export function PromptChain({ userId }: PromptChainProps) {
   const [results, setResults] = useState<StepResult[]>([]);
 
   useEffect(() => {
-    db.workspaces.where('userId').equals(userId).toArray().then(setWorkspaces);
-  }, [userId]);
+    backend.listWorkspaces().then((ws) => setWorkspaces(ws.map(backendWorkspaceToLocal))).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (selectedWorkspaceId) {
-      db.projects.where('workspaceId').equals(selectedWorkspaceId).toArray().then(setProjects);
+      backend.listProjects().then((all) => {
+        const filtered = all.filter((p) => p.workspace_id === selectedWorkspaceId);
+        setProjects(filtered.map(backendProjectToLocal));
+      }).catch(() => {});
     } else {
       setProjects([]);
     }

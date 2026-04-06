@@ -1,4 +1,7 @@
+mod api_routes;
+mod database;
 mod downloader;
+mod jwt_auth;
 mod models;
 mod ollama;
 mod server;
@@ -141,7 +144,8 @@ impl App {
                     ));
 
                     tokio::spawn(async move {
-                        server::start_server(port, engine, ollama, status_tx).await;
+                        let db = database::Database::open().expect("Failed to open database");
+                        server::start_server(port, engine, ollama, status_tx, db).await;
                     });
                 }
                 IcedTask::none()

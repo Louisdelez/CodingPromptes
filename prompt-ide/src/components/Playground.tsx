@@ -6,7 +6,8 @@ import { MODELS, getLocalServerUrl, setLocalServerUrl } from '../lib/types';
 import { compilePrompt } from '../lib/prompt';
 import { callLLMStream, fetchLocalModels } from '../lib/api';
 import { estimateCost, formatCost, formatTokens } from '../lib/tokens';
-import { db, getApiKeys, setApiKeys } from '../lib/db';
+import { getApiKeys, setApiKeys } from '../lib/db';
+import * as backend from '../lib/backend';
 import { useT } from '../lib/i18n';
 import { renderMarkdown } from '../lib/markdown';
 
@@ -132,7 +133,18 @@ export function Playground({ blocks, variables, projectId, triggerExecute, onExe
           temperature, maxTokens, createdAt: Date.now(),
         };
 
-        await db.executions.add(execution);
+        // Save to backend
+        backend.createExecution(projectId, {
+          model: modelId,
+          provider: model.provider,
+          prompt: compiled,
+          response: result.text,
+          tokens_in: result.tokensIn,
+          tokens_out: result.tokensOut,
+          cost,
+          latency_ms: result.latencyMs,
+        }).catch(() => {});
+
         // Update the entry with final data (tokens, cost, latency)
         setResults((prev) =>
           prev.map((r) =>

@@ -24,11 +24,10 @@ import {
 } from 'lucide-react';
 import type { PromptProject, Workspace } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
-import { db } from '../lib/db';
+import * as backend from '../lib/backend';
 import { useT } from '../lib/i18n';
 
 interface LibraryProps {
-  userId: string;
   currentProjectId: string;
   onLoadProject: (id: string) => void;
   onNewProject: (workspaceId?: string) => void;
@@ -37,6 +36,33 @@ interface LibraryProps {
   onDeleteWorkspace: (id: string) => Promise<void>;
   onMovePrompt: (workspaceId: string | undefined) => void;
   currentWorkspaceId?: string;
+}
+
+function backendProjectToLocal(bp: backend.BackendProject): PromptProject {
+  return {
+    id: bp.id,
+    name: bp.name,
+    userId: bp.user_id,
+    workspaceId: bp.workspace_id ?? undefined,
+    blocks: JSON.parse(bp.blocks_json),
+    variables: JSON.parse(bp.variables_json),
+    tags: JSON.parse(bp.tags_json || '[]'),
+    createdAt: bp.created_at,
+    updatedAt: bp.updated_at,
+    framework: bp.framework ?? undefined,
+  };
+}
+
+function backendWorkspaceToLocal(bw: backend.BackendWorkspace): Workspace {
+  return {
+    id: bw.id,
+    name: bw.name,
+    description: bw.description,
+    color: bw.color,
+    userId: bw.user_id,
+    createdAt: bw.created_at,
+    updatedAt: bw.updated_at,
+  };
 }
 
 function DraggablePromptItem({ prompt, children }: { prompt: PromptProject; children: React.ReactNode }) {
@@ -58,7 +84,6 @@ function DroppableWorkspace({ wsId, children }: { wsId: string; children: React.
 }
 
 export function Library({
-  userId,
   currentProjectId,
   onLoadProject,
   onNewProject,
@@ -85,19 +110,21 @@ export function Library({
 
   useEffect(() => {
     const load = async () => {
-      const [ws, pj] = await Promise.all([
-        db.workspaces.where('userId').equals(userId).reverse().sortBy('updatedAt'),
-        db.projects.where('userId').equals(userId).reverse().sortBy('updatedAt'),
-      ]);
-      setWorkspaces(ws);
-      setProjects(pj);
+      try {
+        const [bws, bpj] = await Promise.all([
+          backend.listWorkspaces(),
+          backend.listProjects(),
+        ]);
+        setWorkspaces(bws.map(backendWorkspaceToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
+        setProjects(bpj.map(backendProjectToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
+      } catch {
+        // ignore
+      }
     };
     load();
     const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
-  }, [userId]);
-
-  // The current workspace is always considered expanded (merged at read time, not via setState)
+  }, []);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -151,9 +178,7 @@ export function Library({
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await db.projects.delete(id);
-    await db.versions.where('projectId').equals(id).delete();
-    await db.executions.where('projectId').equals(id).delete();
+    await backend.deleteProject(id);
     setProjects((prev) => prev.filter((p) => p.id !== id));
   };
 
@@ -172,8 +197,8 @@ export function Library({
     const targetId = over.id as string;
     const newWorkspaceId = targetId === '__free__' ? undefined : targetId;
 
-    // Update in DB
-    db.projects.update(promptId, { workspaceId: newWorkspaceId });
+    // Update in backend
+    backend.updateProject(promptId, { workspace_id: newWorkspaceId ?? null });
 
     // If it's the currently active prompt, update state too
     if (promptId === currentProjectId) {
@@ -554,10 +579,7 @@ export function Library({
                 <button
                   key={ws.id}
                   onClick={() => {
-                    // We need to update this specific prompt's workspaceId
-                    // Since it may not be the current prompt, update via db directly
-                    db.projects.update(contextMenu.id, { workspaceId: ws.id });
-                    // If it's the current prompt, also update state
+                    backend.updateProject(contextMenu.id, { workspace_id: ws.id });
                     if (contextMenu.id === currentProjectId) {
                       onMovePrompt(ws.id);
                     }
@@ -571,7 +593,7 @@ export function Library({
               ))}
               <button
                 onClick={() => {
-                  db.projects.update(contextMenu.id, { workspaceId: undefined });
+                  backend.updateProject(contextMenu.id, { workspace_id: null });
                   if (contextMenu.id === currentProjectId) {
                     onMovePrompt(undefined);
                   }
@@ -584,16 +606,18 @@ export function Library({
               <div className="h-px bg-[var(--color-border)] my-1" />
               <button
                 onClick={async () => {
-                  const original = await db.projects.get(contextMenu.id);
+                  // Duplicate: fetch the original from backend, then create a copy
+                  const allProjects = await backend.listProjects();
+                  const original = allProjects.find((p) => p.id === contextMenu.id);
                   if (original) {
-                    const copy: PromptProject = {
-                      ...original,
-                      id: crypto.randomUUID(),
+                    await backend.createProject({
                       name: `${original.name} (copie)`,
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    };
-                    await db.projects.add(copy);
+                      blocks_json: original.blocks_json,
+                      variables_json: original.variables_json,
+                      workspace_id: original.workspace_id,
+                      framework: original.framework,
+                      tags_json: original.tags_json,
+                    });
                   }
                   setContextMenu(null);
                 }}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { History, Save, RotateCcw, ChevronDown, ChevronRight, ArrowLeftRight } from 'lucide-react';
 import type { PromptVersion, PromptBlock } from '../lib/types';
-import { db } from '../lib/db';
+import * as backend from '../lib/backend';
 import { useT } from '../lib/i18n';
 import { compilePrompt } from '../lib/prompt';
 
@@ -32,6 +32,17 @@ function computeDiff(oldText: string, newText: string): { type: 'same' | 'added'
   return result;
 }
 
+function backendVersionToLocal(bv: backend.BackendVersion): PromptVersion {
+  return {
+    id: bv.id,
+    projectId: bv.project_id,
+    blocks: JSON.parse(bv.blocks_json),
+    variables: JSON.parse(bv.variables_json),
+    label: bv.label,
+    createdAt: bv.created_at,
+  };
+}
+
 export function VersionHistory({ projectId, currentBlocks, variables, onSaveVersion, onRestoreVersion }: VersionHistoryProps) {
   const t = useT();
   const [versions, setVersions] = useState<PromptVersion[]>([]);
@@ -41,8 +52,12 @@ export function VersionHistory({ projectId, currentBlocks, variables, onSaveVers
 
   useEffect(() => {
     const load = async () => {
-      const all = await db.versions.where('projectId').equals(projectId).reverse().sortBy('createdAt');
-      setVersions(all);
+      try {
+        const all = await backend.listVersions(projectId);
+        setVersions(all.map(backendVersionToLocal).sort((a, b) => b.createdAt - a.createdAt));
+      } catch {
+        // ignore
+      }
     };
     load();
     const interval = setInterval(load, 3000);

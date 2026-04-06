@@ -15,12 +15,15 @@ use tower_http::cors::CorsLayer;
 use crate::models;
 use crate::ollama::OllamaState;
 use crate::whisper_engine::WhisperEngine;
+use crate::database::Database;
+use crate::api_routes;
 
 #[derive(Clone)]
 pub struct AppState {
     pub engine: WhisperEngine,
     pub ollama: OllamaState,
     pub status_tx: watch::Sender<ServerStatus>,
+    pub db: Arc<tokio::sync::Mutex<Database>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,11 +319,13 @@ pub async fn start_server(
     engine: WhisperEngine,
     ollama: OllamaState,
     status_tx: watch::Sender<ServerStatus>,
+    db: Database,
 ) {
     let state = Arc::new(AppState {
         engine,
         ollama: ollama.clone(),
         status_tx: status_tx.clone(),
+        db: Arc::new(tokio::sync::Mutex::new(db)),
     });
 
     // Background task: refresh Ollama status every 5s
@@ -345,6 +350,8 @@ pub async fn start_server(
         .route("/v1/models", get(proxy_list_models))
         // Ollama info
         .route("/ollama/status", get(ollama_status))
+        // Data API (JWT auth)
+        .nest("/api", api_routes::router())
         .layer(cors)
         .with_state(state);
 

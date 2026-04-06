@@ -2,17 +2,31 @@ import { useState, useEffect, useMemo } from 'react';
 import { BarChart3, Activity, Zap, Coins, Clock, Hash } from 'lucide-react';
 import type { ExecutionResult } from '../lib/types';
 import { MODELS } from '../lib/types';
-import { db } from '../lib/db';
+import * as backend from '../lib/backend';
 import { formatCost, formatTokens } from '../lib/tokens';
 import { useT } from '../lib/i18n';
 
 type TimeRange = '7days' | '30days' | 'allTime';
 
-interface AnalyticsPanelProps {
-  userId: string;
+function backendExecutionToLocal(be: backend.BackendExecution): ExecutionResult {
+  return {
+    id: be.id,
+    projectId: be.project_id,
+    prompt: be.prompt,
+    model: be.model,
+    provider: be.provider,
+    response: be.response,
+    tokensIn: be.tokens_in,
+    tokensOut: be.tokens_out,
+    costEstimate: be.cost,
+    latencyMs: be.latency_ms,
+    temperature: 0,
+    maxTokens: 0,
+    createdAt: be.created_at,
+  };
 }
 
-export function AnalyticsPanel({ userId }: AnalyticsPanelProps) {
+export function AnalyticsPanel() {
   const t = useT();
   const [executions, setExecutions] = useState<ExecutionResult[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>('allTime');
@@ -20,23 +34,26 @@ export function AnalyticsPanel({ userId }: AnalyticsPanelProps) {
   // Load all executions for the user's projects
   useEffect(() => {
     const load = async () => {
-      const projects = await db.projects.where('userId').equals(userId).toArray();
-      const projectIds = projects.map((p) => p.id);
-      if (projectIds.length === 0) {
-        setExecutions([]);
-        return;
+      try {
+        const projects = await backend.listProjects();
+        if (projects.length === 0) {
+          setExecutions([]);
+          return;
+        }
+        const allExecs: ExecutionResult[] = [];
+        for (const p of projects) {
+          const execs = await backend.listExecutions(p.id);
+          allExecs.push(...execs.map(backendExecutionToLocal));
+        }
+        setExecutions(allExecs);
+      } catch {
+        // ignore
       }
-      const allExecs: ExecutionResult[] = [];
-      for (const pid of projectIds) {
-        const execs = await db.executions.where('projectId').equals(pid).toArray();
-        allExecs.push(...execs);
-      }
-      setExecutions(allExecs);
     };
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, [userId]);
+  }, []);
 
   // Filter by time range
   const filtered = useMemo(() => {

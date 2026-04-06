@@ -470,7 +470,6 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
             <div className="flex-1 overflow-auto">
               {leftTab === 'library' && (
                 <Library
-                  userId={session.userId}
                   currentProjectId={project.id}
                   currentWorkspaceId={project.workspaceId}
                   onLoadProject={loadProject}
@@ -483,7 +482,6 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
               )}
               {leftTab === 'frameworks' && (
                 <FrameworkSelector
-                  userId={session.userId}
                   currentFramework={project.framework}
                   onSelect={loadFramework}
                   onCreateFramework={createFramework}
@@ -625,8 +623,8 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
                 <PromptOptimizer blocks={project.blocks} variables={project.variables} onApply={handleOptimizedApply} />
               )}
               {rightTab === 'lint' && <LintingPanel blocks={project.blocks} variables={project.variables} />}
-              {rightTab === 'analytics' && <AnalyticsPanel userId={session.userId} />}
-              {rightTab === 'chain' && <PromptChain userId={session.userId} />}
+              {rightTab === 'analytics' && <AnalyticsPanel />}
+              {rightTab === 'chain' && <PromptChain />}
               {rightTab === 'chat' && <ConversationMode blocks={project.blocks} variables={project.variables} />}
             </div>
           </div>

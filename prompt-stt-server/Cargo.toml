@@ -1,6 +1,6 @@
 [package]
 name = "prompt-ai-server"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Local AI server (STT + LLM proxy) with Iced GUI for Prompt IDE"
 
@@ -29,3 +29,10 @@ bytemuck = "1"
 base64 = "0.22"
 http = "1"
 axum-extra = { version = "0.10", features = ["typed-header"] }
+
+# Backend data
+rusqlite = { version = "0.32", features = ["bundled"] }
+jsonwebtoken = "9"
+argon2 = "0.5"
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"

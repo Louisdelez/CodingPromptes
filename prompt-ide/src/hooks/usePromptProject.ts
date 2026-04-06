@@ -1,16 +1,30 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
-import { db } from '../lib/db';
+import * as backend from '../lib/backend';
 import type { PromptProject, PromptBlock, BlockType, Workspace, CustomFramework } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
 import { getLang } from '../lib/i18n';
 
-function createDefaultPrompt(userId: string, workspaceId?: string): PromptProject {
+function backendProjectToLocal(bp: backend.BackendProject): PromptProject {
+  return {
+    id: bp.id,
+    name: bp.name,
+    userId: bp.user_id,
+    workspaceId: bp.workspace_id ?? undefined,
+    blocks: JSON.parse(bp.blocks_json),
+    variables: JSON.parse(bp.variables_json),
+    tags: JSON.parse(bp.tags_json || '[]'),
+    createdAt: bp.created_at,
+    updatedAt: bp.updated_at,
+    framework: bp.framework ?? undefined,
+  };
+}
+
+function createDefaultPrompt(workspaceId?: string): PromptProject {
   const lang = getLang();
   return {
     id: uuid(),
     name: lang === 'en' ? 'New prompt' : 'Nouveau prompt',
-    userId,
     workspaceId,
     blocks: [
       { id: uuid(), type: 'role', content: '', enabled: true },
@@ -24,47 +38,67 @@ function createDefaultPrompt(userId: string, workspaceId?: string): PromptProjec
   };
 }
 
-export function usePromptProject(userId: string) {
-  const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt(userId));
+export function usePromptProject(_userId: string) {
+  const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt());
   const [isSaving, setIsSaving] = useState(false);
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // --- Workspace management ---
 
   const createWorkspace = useCallback(async (name: string, color?: string): Promise<Workspace> => {
-    const ws: Workspace = {
-      id: uuid(),
+    const bw = await backend.createWorkspace({
       name,
-      description: '',
       color: color ?? WORKSPACE_COLORS[Math.floor(Math.random() * WORKSPACE_COLORS.length)],
-      userId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+    });
+    return {
+      id: bw.id,
+      name: bw.name,
+      description: bw.description,
+      color: bw.color,
+      userId: bw.user_id,
+      createdAt: bw.created_at,
+      updatedAt: bw.updated_at,
     };
-    await db.workspaces.add(ws);
-    return ws;
-  }, [userId]);
+  }, []);
 
-  const updateWorkspace = useCallback(async (id: string, changes: Partial<Workspace>) => {
-    await db.workspaces.update(id, { ...changes, updatedAt: Date.now() });
+  const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {
+    // No update endpoint yet — the Library will reload from backend
   }, []);
 
   const deleteWorkspace = useCallback(async (id: string) => {
-    const prompts = await db.projects.where('workspaceId').equals(id).toArray();
-    for (const p of prompts) {
-      await db.projects.update(p.id, { workspaceId: undefined });
-    }
-    await db.workspaces.delete(id);
+    await backend.deleteWorkspace(id);
   }, []);
 
   // --- Prompt management ---
 
   const saveProject = useCallback(async (p: PromptProject) => {
     setIsSaving(true);
-    const updated = { ...p, userId, updatedAt: Date.now() };
-    await db.projects.put(updated);
+    try {
+      await backend.updateProject(p.id, {
+        name: p.name,
+        blocks_json: JSON.stringify(p.blocks),
+        variables_json: JSON.stringify(p.variables),
+        workspace_id: p.workspaceId ?? null,
+        framework: p.framework ?? null,
+        tags_json: JSON.stringify(p.tags ?? []),
+      });
+    } catch (err) {
+      // If the project doesn't exist yet (first save), create it
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('404') || msg.includes('not found') || msg.includes('Not Found')) {
+        await backend.createProject({
+          id: p.id,
+          name: p.name,
+          blocks_json: JSON.stringify(p.blocks),
+          variables_json: JSON.stringify(p.variables),
+          workspace_id: p.workspaceId ?? null,
+          framework: p.framework ?? null,
+          tags_json: JSON.stringify(p.tags ?? []),
+        });
+      }
+    }
     setIsSaving(false);
-  }, [userId]);
+  }, []);
 
   const updateProject = useCallback(
     (updater: (prev: PromptProject) => PromptProject) => {
@@ -136,14 +170,31 @@ export function usePromptProject(userId: string) {
   );
 
   const loadProject = useCallback(async (id: string) => {
-    const p = await db.projects.get(id);
-    if (p) setProject(p);
+    try {
+      const all = await backend.listProjects();
+      const bp = all.find((p) => p.id === id);
+      if (bp) setProject(backendProjectToLocal(bp));
+    } catch {
+      // ignore
+    }
   }, []);
 
-  const newProject = useCallback((workspaceId?: string) => {
-    const p = createDefaultPrompt(userId, workspaceId);
+  const newProject = useCallback(async (workspaceId?: string) => {
+    const p = createDefaultPrompt(workspaceId);
     setProject(p);
-  }, [userId]);
+    // Create on backend immediately
+    try {
+      await backend.createProject({
+        id: p.id,
+        name: p.name,
+        blocks_json: JSON.stringify(p.blocks),
+        variables_json: JSON.stringify(p.variables),
+        workspace_id: workspaceId ?? null,
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const movePromptToWorkspace = useCallback(
     (workspaceId: string | undefined) => {
@@ -165,13 +216,10 @@ export function usePromptProject(userId: string) {
 
   const saveVersion = useCallback(
     async (label: string) => {
-      await db.versions.add({
-        id: uuid(),
-        projectId: project.id,
-        blocks: JSON.parse(JSON.stringify(project.blocks)),
-        variables: { ...project.variables },
+      await backend.createVersion(project.id, {
+        blocks_json: JSON.stringify(project.blocks),
+        variables_json: JSON.stringify(project.variables),
         label,
-        createdAt: Date.now(),
       });
     },
     [project]
@@ -180,25 +228,32 @@ export function usePromptProject(userId: string) {
   // --- Custom framework management ---
 
   const createFramework = useCallback(async (name: string, description: string, blocks: Omit<PromptBlock, 'id'>[]): Promise<CustomFramework> => {
-    const fw: CustomFramework = {
-      id: uuid(),
+    const bf = await backend.createFramework({
       name,
       description,
-      blocks,
-      userId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      blocks_json: JSON.stringify(blocks),
+    });
+    return {
+      id: bf.id,
+      name: bf.name,
+      description: bf.description,
+      blocks: JSON.parse(bf.blocks_json),
+      userId: bf.user_id,
+      createdAt: bf.created_at,
+      updatedAt: bf.updated_at,
     };
-    await db.frameworks.add(fw);
-    return fw;
-  }, [userId]);
+  }, []);
 
   const updateFramework = useCallback(async (id: string, changes: Partial<CustomFramework>) => {
-    await db.frameworks.update(id, { ...changes, updatedAt: Date.now() });
+    const data: Parameters<typeof backend.updateFramework>[1] = {};
+    if (changes.name !== undefined) data.name = changes.name;
+    if (changes.description !== undefined) data.description = changes.description;
+    if (changes.blocks !== undefined) data.blocks_json = JSON.stringify(changes.blocks);
+    await backend.updateFramework(id, data);
   }, []);
 
   const deleteFramework = useCallback(async (id: string) => {
-    await db.frameworks.delete(id);
+    await backend.deleteFramework(id);
   }, []);
 
   const saveCurrentAsFramework = useCallback(async (name: string, description: string): Promise<CustomFramework> => {
@@ -210,21 +265,30 @@ export function usePromptProject(userId: string) {
     return createFramework(name, description, blocks);
   }, [project.blocks, createFramework]);
 
-  // Load most recent prompt for this user on mount
+  // Load most recent prompt on mount
   useEffect(() => {
-    db.projects
-      .where('userId')
-      .equals(userId)
-      .reverse()
-      .sortBy('updatedAt')
+    backend.listProjects()
       .then((all) => {
         if (all.length > 0) {
-          setProject(all[0]);
+          // Sort by updated_at descending
+          all.sort((a, b) => b.updated_at - a.updated_at);
+          setProject(backendProjectToLocal(all[0]));
         } else {
-          setProject(createDefaultPrompt(userId));
+          const p = createDefaultPrompt();
+          setProject(p);
+          // Create on backend
+          backend.createProject({
+            id: p.id,
+            name: p.name,
+            blocks_json: JSON.stringify(p.blocks),
+            variables_json: JSON.stringify(p.variables),
+          }).catch(() => {});
         }
+      })
+      .catch(() => {
+        setProject(createDefaultPrompt());
       });
-  }, [userId]);
+  }, []);
 
   return {
     project,

@@ -2,12 +2,30 @@ import { useState, useEffect } from 'react';
 import { Trash2, Clock, Hash, Coins, ChevronDown, ChevronRight } from 'lucide-react';
 import type { ExecutionResult } from '../lib/types';
 import { MODELS } from '../lib/types';
-import { db } from '../lib/db';
+import * as backend from '../lib/backend';
 import { formatCost, formatTokens } from '../lib/tokens';
 import { useT } from '../lib/i18n';
 
 interface ExecutionHistoryProps {
   projectId: string;
+}
+
+function backendExecutionToLocal(be: backend.BackendExecution): ExecutionResult {
+  return {
+    id: be.id,
+    projectId: be.project_id,
+    prompt: be.prompt,
+    model: be.model,
+    provider: be.provider,
+    response: be.response,
+    tokensIn: be.tokens_in,
+    tokensOut: be.tokens_out,
+    costEstimate: be.cost,
+    latencyMs: be.latency_ms,
+    temperature: 0,
+    maxTokens: 0,
+    createdAt: be.created_at,
+  };
 }
 
 export function ExecutionHistory({ projectId }: ExecutionHistoryProps) {
@@ -17,21 +35,20 @@ export function ExecutionHistory({ projectId }: ExecutionHistoryProps) {
 
   useEffect(() => {
     const load = async () => {
-      const results = await db.executions
-        .where('projectId')
-        .equals(projectId)
-        .reverse()
-        .sortBy('createdAt');
-      setExecutions(results);
+      try {
+        const results = await backend.listExecutions(projectId);
+        setExecutions(results.map(backendExecutionToLocal).sort((a, b) => b.createdAt - a.createdAt));
+      } catch {
+        // ignore
+      }
     };
     load();
-    // Re-check periodically so new executions show up
     const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
   }, [projectId]);
 
-  const clearHistory = async () => {
-    await db.executions.where('projectId').equals(projectId).delete();
+  const clearHistory = () => {
+    // No bulk delete endpoint; just clear local state
     setExecutions([]);
   };
 

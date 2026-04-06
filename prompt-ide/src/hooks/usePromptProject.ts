@@ -292,6 +292,20 @@ export function usePromptProject(_userId: string) {
       });
   }, []);
 
+  const addTag = useCallback((tag: string) => {
+    updateProject((p) => ({
+      ...p,
+      tags: [...(p.tags || []), tag].filter((v, i, a) => a.indexOf(v) === i),
+    }));
+  }, [updateProject]);
+
+  const removeTag = useCallback((tag: string) => {
+    updateProject((p) => ({
+      ...p,
+      tags: (p.tags || []).filter((t) => t !== tag),
+    }));
+  }, [updateProject]);
+
   return {
     project,
     isSaving,
@@ -314,5 +328,7 @@ export function usePromptProject(_userId: string) {
     updateFramework,
     deleteFramework,
     saveCurrentAsFramework,
+    addTag,
+    removeTag,
   };
 }

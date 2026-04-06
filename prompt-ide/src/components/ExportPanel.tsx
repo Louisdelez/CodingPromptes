@@ -1,7 +1,9 @@
 import { useState, useRef } from 'react';
-import { Download, Check, Upload, AlertCircle } from 'lucide-react';
+import { Download, Check, Upload, AlertCircle, Archive } from 'lucide-react';
+import JSZip from 'jszip';
 import type { PromptProject, PromptBlock } from '../lib/types';
 import { compilePrompt } from '../lib/prompt';
+import * as backend from '../lib/backend';
 import { useT } from '../lib/i18n';
 
 interface ExportPanelProps {
@@ -15,7 +17,9 @@ export function ExportPanel({ project, onImport }: ExportPanelProps) {
   const t = useT();
   const [exported, setExported] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [zipImportStatus, setZipImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -112,6 +116,67 @@ export function ExportPanel({ project, onImport }: ExportPanelProps) {
     { id: 'json-anthropic', label: t('export.anthropic'), desc: t('export.apiDesc') },
   ];
 
+  const handleExportWorkspace = async () => {
+    try {
+      const allProjects = await backend.listProjects();
+      const wsProjects = allProjects.filter(p => p.workspace_id === project.workspaceId);
+
+      const zip = new JSZip();
+      for (const p of wsProjects) {
+        const data = {
+          name: p.name,
+          blocks: JSON.parse(p.blocks_json),
+          variables: JSON.parse(p.variables_json),
+          framework: p.framework,
+        };
+        zip.file(`${p.name}.json`, JSON.stringify(data, null, 2));
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workspace-export.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setExported('zip');
+      setTimeout(() => setExported(null), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleImportZip = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const jsonFiles = Object.keys(zip.files).filter(name => name.endsWith('.json'));
+
+      for (const name of jsonFiles) {
+        const content = await zip.files[name].async('text');
+        const data = JSON.parse(content);
+        if (data.blocks && Array.isArray(data.blocks)) {
+          await backend.createProject({
+            name: data.name || name.replace('.json', ''),
+            blocks_json: JSON.stringify(data.blocks),
+            variables_json: JSON.stringify(data.variables || {}),
+            workspace_id: project.workspaceId ?? null,
+            framework: data.framework ?? null,
+          });
+        }
+      }
+
+      setZipImportStatus('success');
+      setTimeout(() => setZipImportStatus('idle'), 3000);
+    } catch {
+      setZipImportStatus('error');
+      setTimeout(() => setZipImportStatus('idle'), 3000);
+    }
+    e.target.value = '';
+  };
+
   return (
     <div className="p-4 space-y-3">
       {/* Import section */}
@@ -176,6 +241,69 @@ export function ExportPanel({ project, onImport }: ExportPanelProps) {
             )}
           </button>
         ))}
+      </div>
+
+      {/* Workspace ZIP export */}
+      {project.workspaceId && (
+        <>
+          <div className="h-px bg-[var(--color-border)]" />
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+            <Archive size={14} />
+            <span>{t('export.workspace')}</span>
+          </div>
+          <button
+            onClick={handleExportWorkspace}
+            className="w-full flex items-center justify-between p-2.5 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] transition-colors text-left"
+          >
+            <div>
+              <div className="text-sm text-[var(--color-text-primary)]">{t('export.workspace')}</div>
+              <div className="text-xs text-[var(--color-text-muted)]">{t('export.workspaceDesc')}</div>
+            </div>
+            {exported === 'zip' ? (
+              <Check size={16} className="text-[var(--color-success)]" />
+            ) : (
+              <Archive size={14} className="text-[var(--color-text-muted)]" />
+            )}
+          </button>
+        </>
+      )}
+
+      {/* Import ZIP */}
+      <div className="h-px bg-[var(--color-border)]" />
+      <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+        <Upload size={14} />
+        <span>{t('import.zip')}</span>
+      </div>
+      <div>
+        <input
+          ref={zipInputRef}
+          type="file"
+          accept=".zip"
+          onChange={handleImportZip}
+          className="hidden"
+        />
+        <button
+          onClick={() => zipInputRef.current?.click()}
+          className="w-full flex items-center justify-between p-2.5 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] transition-colors text-left"
+        >
+          <div>
+            <div className="text-sm text-[var(--color-text-primary)]">{t('import.zip')}</div>
+            <div className="text-xs text-[var(--color-text-muted)]">.zip</div>
+          </div>
+          {zipImportStatus === 'success' ? (
+            <Check size={16} className="text-[var(--color-success)]" />
+          ) : zipImportStatus === 'error' ? (
+            <AlertCircle size={16} className="text-[var(--color-danger)]" />
+          ) : (
+            <Upload size={14} className="text-[var(--color-text-muted)]" />
+          )}
+        </button>
+        {zipImportStatus === 'success' && (
+          <p className="text-xs text-[var(--color-success)] mt-1">{t('import.zipSuccess')}</p>
+        )}
+        {zipImportStatus === 'error' && (
+          <p className="text-xs text-[var(--color-danger)] mt-1">{t('import.error')}</p>
+        )}
       </div>
     </div>
   );

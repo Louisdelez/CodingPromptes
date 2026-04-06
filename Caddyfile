@@ -1,0 +1,10 @@
+# === Production (with domain + auto HTTPS) ===
+# Replace :80 with your domain to enable automatic HTTPS:
+#   inkwell.example.com {
+#     reverse_proxy inkwell:80
+#   }
+
+# === Development / Local (HTTP only) ===
+:80 {
+    reverse_proxy inkwell:80
+}

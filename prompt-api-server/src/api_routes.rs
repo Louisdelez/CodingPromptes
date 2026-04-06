@@ -49,6 +49,18 @@ pub struct UpdateFrameworkReq { pub name: Option<String>, pub description: Optio
 #[derive(Deserialize)]
 pub struct ConfigReq { pub config: std::collections::HashMap<String, String> }
 
+#[derive(Deserialize)]
+pub struct OAuthGoogleReq { pub token: String }
+
+#[derive(Deserialize)]
+pub struct OAuthGithubReq { pub code: String }
+
+#[derive(Deserialize)]
+pub struct PresenceReq { pub project_id: String }
+
+#[derive(Serialize)]
+pub struct PresenceUser { pub user_id: String, pub display_name: String }
+
 fn now() -> i64 { chrono::Utc::now().timestamp_millis() }
 fn new_id() -> String { uuid::Uuid::new_v4().to_string() }
 
@@ -108,6 +120,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/frameworks", get(list_frameworks).post(create_framework))
         .route("/frameworks/{id}", put(update_framework).delete(delete_framework))
         .route("/config", get(get_config).put(set_config))
+        // OAuth (no JWT required)
+        .route("/auth/oauth/google", post(oauth_google))
+        .route("/auth/oauth/github", post(oauth_github))
+        // Presence (JWT required)
+        .route("/presence", post(set_presence))
+        .route("/presence/{project_id}", get(get_presence))
 }
 
 // --- Auth handlers ---
@@ -289,4 +307,155 @@ async fn set_config(State(state): State<Arc<AppState>>, auth: AuthUser, Json(req
         db.set_config(&auth.user_id, key, value);
     }
     StatusCode::OK
+}
+
+// --- OAuth handlers ---
+
+async fn oauth_google(State(state): State<Arc<AppState>>, Json(req): Json<OAuthGoogleReq>) -> Result<Json<AuthResp>, (StatusCode, String)> {
+    let google_client_id = std::env::var("GOOGLE_CLIENT_ID").unwrap_or_default();
+    if google_client_id.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Google OAuth is not configured".into()));
+    }
+
+    // Verify the Google ID token
+    let client = reqwest::Client::new();
+    let verify_url = format!("https://oauth2.googleapis.com/tokeninfo?id_token={}", req.token);
+    let resp = client.get(&verify_url).send().await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to verify Google token: {e}")))?;
+
+    if !resp.status().is_success() {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid Google token".into()));
+    }
+
+    let info: serde_json::Value = resp.json().await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to parse Google response: {e}")))?;
+
+    // Verify audience matches our client ID
+    let aud = info.get("aud").and_then(|v| v.as_str()).unwrap_or_default();
+    if aud != google_client_id {
+        return Err((StatusCode::UNAUTHORIZED, "Token audience mismatch".into()));
+    }
+
+    let email = info.get("email").and_then(|v| v.as_str())
+        .ok_or((StatusCode::BAD_REQUEST, "No email in Google token".into()))?
+        .to_lowercase();
+    let name = info.get("name").and_then(|v| v.as_str()).unwrap_or(&email).to_string();
+
+    // Find or create user
+    let db = state.db.lock().await;
+    let user = if let Some(existing) = db.get_user_by_email(&email) {
+        existing
+    } else {
+        let random_pw = uuid::Uuid::new_v4().to_string();
+        let hash = hash_pw(&random_pw).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let new_user = DbUser {
+            id: new_id(), email: email.clone(), display_name: name.clone(),
+            password_hash: hash, avatar: avatar_from_name(&name), created_at: now(),
+        };
+        db.create_user(&new_user).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        new_user
+    };
+
+    let token = create_token(&user.id, &user.email).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(AuthResp { token, user: UserResp { id: user.id, email: user.email, display_name: user.display_name, avatar: user.avatar } }))
+}
+
+async fn oauth_github(State(state): State<Arc<AppState>>, Json(req): Json<OAuthGithubReq>) -> Result<Json<AuthResp>, (StatusCode, String)> {
+    let github_client_id = std::env::var("GITHUB_CLIENT_ID").unwrap_or_default();
+    let github_client_secret = std::env::var("GITHUB_CLIENT_SECRET").unwrap_or_default();
+    if github_client_id.is_empty() || github_client_secret.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "GitHub OAuth is not configured".into()));
+    }
+
+    // Exchange code for access token
+    let client = reqwest::Client::new();
+    let token_resp = client.post("https://github.com/login/oauth/access_token")
+        .header("Accept", "application/json")
+        .json(&serde_json::json!({
+            "client_id": github_client_id,
+            "client_secret": github_client_secret,
+            "code": req.code,
+        }))
+        .send().await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to exchange GitHub code: {e}")))?;
+
+    let token_data: serde_json::Value = token_resp.json().await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to parse GitHub token response: {e}")))?;
+
+    let access_token = token_data.get("access_token").and_then(|v| v.as_str())
+        .ok_or((StatusCode::UNAUTHORIZED, format!("GitHub OAuth failed: {}", token_data.get("error_description").and_then(|v| v.as_str()).unwrap_or("no access token"))))?;
+
+    // Get user info from GitHub
+    let user_resp = client.get("https://api.github.com/user")
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("User-Agent", "Inkwell-Server")
+        .send().await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to get GitHub user: {e}")))?;
+
+    let user_data: serde_json::Value = user_resp.json().await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Failed to parse GitHub user: {e}")))?;
+
+    let name = user_data.get("name").and_then(|v| v.as_str())
+        .or_else(|| user_data.get("login").and_then(|v| v.as_str()))
+        .unwrap_or("GitHub User").to_string();
+
+    // Try to get email — may need separate call if private
+    let mut email = user_data.get("email").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if email.is_empty() {
+        let emails_resp = client.get("https://api.github.com/user/emails")
+            .header("Authorization", format!("Bearer {access_token}"))
+            .header("User-Agent", "Inkwell-Server")
+            .send().await.ok();
+        if let Some(resp) = emails_resp {
+            if let Ok(emails) = resp.json::<Vec<serde_json::Value>>().await {
+                email = emails.iter()
+                    .find(|e| e.get("primary").and_then(|v| v.as_bool()).unwrap_or(false))
+                    .or(emails.first())
+                    .and_then(|e| e.get("email").and_then(|v| v.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+            }
+        }
+    }
+
+    if email.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "Could not retrieve email from GitHub. Make sure your email is public or grant email scope.".into()));
+    }
+
+    let email = email.to_lowercase();
+
+    // Find or create user
+    let db = state.db.lock().await;
+    let user = if let Some(existing) = db.get_user_by_email(&email) {
+        existing
+    } else {
+        let random_pw = uuid::Uuid::new_v4().to_string();
+        let hash = hash_pw(&random_pw).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let new_user = DbUser {
+            id: new_id(), email: email.clone(), display_name: name.clone(),
+            password_hash: hash, avatar: avatar_from_name(&name), created_at: now(),
+        };
+        db.create_user(&new_user).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        new_user
+    };
+
+    let token = create_token(&user.id, &user.email).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(AuthResp { token, user: UserResp { id: user.id, email: user.email, display_name: user.display_name, avatar: user.avatar } }))
+}
+
+// --- Presence handlers ---
+
+async fn set_presence(State(state): State<Arc<AppState>>, auth: AuthUser, Json(req): Json<PresenceReq>) -> Result<StatusCode, (StatusCode, String)> {
+    let db = state.db.lock().await;
+    let user = db.get_user_by_id(&auth.user_id).ok_or((StatusCode::NOT_FOUND, "User not found".into()))?;
+    db.set_presence(&auth.user_id, &req.project_id, &user.display_name)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::OK)
+}
+
+async fn get_presence(State(state): State<Arc<AppState>>, _auth: AuthUser, Path(project_id): Path<String>) -> Json<Vec<PresenceUser>> {
+    let db = state.db.lock().await;
+    let since = chrono::Utc::now().timestamp_millis() - 30_000; // last 30 seconds
+    let users = db.get_presence(&project_id, since);
+    Json(users.into_iter().map(|(user_id, display_name)| PresenceUser { user_id, display_name }).collect())
 }

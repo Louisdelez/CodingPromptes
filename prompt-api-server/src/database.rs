@@ -121,6 +121,13 @@ impl Database {
                 user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
                 PRIMARY KEY (user_id, key)
             );
+            CREATE TABLE IF NOT EXISTS presence (
+                user_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (user_id, project_id)
+            );
         ").map_err(|e| e.to_string())
     }
 
@@ -223,6 +230,25 @@ impl Database {
     }
     pub fn set_config(&self, user_id: &str, key: &str, value: &str) {
         self.conn.execute("INSERT OR REPLACE INTO config (user_id,key,value) VALUES (?1,?2,?3)", params![user_id,key,value]).ok();
+    }
+
+    // --- Presence ---
+    pub fn set_presence(&self, user_id: &str, project_id: &str, display_name: &str) -> Result<(), String> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO presence (user_id, project_id, display_name, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            params![user_id, project_id, display_name, now],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn get_presence(&self, project_id: &str, since_ms: i64) -> Vec<(String, String)> {
+        let mut s = self.conn.prepare(
+            "SELECT user_id, display_name FROM presence WHERE project_id = ?1 AND updated_at > ?2"
+        ).unwrap();
+        s.query_map(params![project_id, since_ms], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
     // --- Helpers ---

@@ -38,10 +38,12 @@ import {
   BarChart3,
   Link,
   MessageSquare,
+  Users,
 } from 'lucide-react';
 import { PromptBlockComponent } from './components/PromptBlock';
 import { TokenCounter } from './components/TokenCounter';
 import { VariablesPanel } from './components/VariablesPanel';
+import { TagsEditor } from './components/TagsEditor';
 import { PreviewPanel } from './components/PreviewPanel';
 import { Playground } from './components/Playground';
 import { FrameworkSelector } from './components/FrameworkSelector';
@@ -55,6 +57,7 @@ import { ExecutionHistory } from './components/ExecutionHistory';
 import { AnalyticsPanel } from './components/AnalyticsPanel';
 import { PromptChain } from './components/PromptChain';
 import { ConversationMode } from './components/ConversationMode';
+import { CollaborationPanel } from './components/CollaborationPanel';
 import { usePromptProject } from './hooks/usePromptProject';
 import { AuthPage } from './components/AuthPage';
 import { UserMenu } from './components/UserMenu';
@@ -66,7 +69,7 @@ import { I18nContext, getLang, setLang, useT, type Lang } from './lib/i18n';
 import { ThemeContext, getThemeMode, setThemeMode, resolveTheme, applyTheme, type ThemeMode, type ResolvedTheme } from './lib/theme';
 
 type LeftTab = 'library' | 'frameworks' | 'versions';
-type RightTab = 'preview' | 'playground' | 'history' | 'stt' | 'export' | 'optimize' | 'lint' | 'analytics' | 'chain' | 'chat';
+type RightTab = 'preview' | 'playground' | 'history' | 'stt' | 'export' | 'optimize' | 'lint' | 'analytics' | 'chain' | 'chat' | 'collab';
 
 const BLOCK_TYPES: BlockType[] = ['role', 'context', 'task', 'examples', 'constraints', 'format'];
 
@@ -155,6 +158,8 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     updateFramework,
     deleteFramework,
     saveCurrentAsFramework,
+    addTag,
+    removeTag,
   } = usePromptProject(session.userId);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -292,6 +297,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     { id: 'analytics', icon: BarChart3, label: t('tab.analytics') },
     { id: 'chain', icon: Link, label: t('tab.chain') },
     { id: 'chat', icon: MessageSquare, label: t('tab.chat') },
+    { id: 'collab', icon: Users, label: t('tab.collab') },
   ];
 
   // Block labels for the add menu
@@ -552,6 +558,11 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
               )}
             </div>
 
+            {/* Tags */}
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+              <TagsEditor tags={project.tags || []} onAddTag={addTag} onRemoveTag={removeTag} />
+            </div>
+
             {/* Variables */}
             <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
               <VariablesPanel blocks={project.blocks} variables={project.variables} onSetVariable={setVariable} />
@@ -623,6 +634,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
               {rightTab === 'analytics' && <AnalyticsPanel />}
               {rightTab === 'chain' && <PromptChain />}
               {rightTab === 'chat' && <ConversationMode blocks={project.blocks} variables={project.variables} />}
+              {rightTab === 'collab' && <CollaborationPanel projectId={project.id} currentUserId={session.userId} />}
             </div>
           </div>
         )}

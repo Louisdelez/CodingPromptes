@@ -36,6 +36,20 @@ export async function login(email: string, password: string): Promise<AuthSessio
   return session;
 }
 
+export async function oauthGoogle(token: string): Promise<AuthSession> {
+  const resp = await backend.oauthGoogle(token);
+  const session = toSession(resp.user);
+  saveSession(session);
+  return session;
+}
+
+export async function oauthGithub(code: string): Promise<AuthSession> {
+  const resp = await backend.oauthGithub(code);
+  const session = toSession(resp.user);
+  saveSession(session);
+  return session;
+}
+
 export function logout(): void {
   backend.logout();
   localStorage.removeItem(SESSION_KEY);

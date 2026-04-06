@@ -2,14 +2,30 @@ services:
   inkwell:
     build: .
     container_name: inkwell
-    ports:
-      - "3000:80"
+    expose:
+      - "80"
     volumes:
       - inkwell-data:/root/.local/share/inkwell-server
     environment:
-      - JWT_SECRET=change-me-in-production
-      - OLLAMA_URL=http://host.docker.internal:11434
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production-min-32-chars}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: inkwell-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - inkwell
     restart: unless-stopped
 
 volumes:
   inkwell-data:
+  caddy-data:
+  caddy-config:

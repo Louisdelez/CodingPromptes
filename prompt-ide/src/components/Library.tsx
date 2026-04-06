@@ -247,12 +247,12 @@ export function Library({
                 {p.framework.toUpperCase()}
               </span>
             )}
-            {p.tags.length > 0 && (
-              <span className="text-[10px] text-[var(--color-text-muted)] flex items-center gap-0.5">
+            {p.tags.length > 0 && p.tags.map((tag) => (
+              <span key={tag} className="text-[10px] px-1 py-px rounded bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)] flex items-center gap-0.5">
                 <Tag size={9} />
-                {p.tags[0]}
+                {tag}
               </span>
-            )}
+            ))}
           </div>
         </div>
         <button

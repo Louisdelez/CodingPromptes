@@ -250,6 +250,18 @@ export const translations = {
   'auth.save': { fr: 'Enregistrer', en: 'Save' },
   'auth.close': { fr: 'Fermer', en: 'Close' },
 
+  // Collaboration
+  'tab.collab': { fr: 'Collab', en: 'Collab' },
+  'collab.title': { fr: 'Collaboration', en: 'Collaboration' },
+  'collab.active': { fr: 'Utilisateurs actifs', en: 'Active users' },
+  'collab.alone': { fr: 'Vous etes seul sur ce prompt', en: 'You are alone on this prompt' },
+  'collab.refresh': { fr: 'Actualiser', en: 'Refresh' },
+
+  // OAuth
+  'auth.google': { fr: 'Continuer avec Google', en: 'Continue with Google' },
+  'auth.github': { fr: 'Continuer avec GitHub', en: 'Continue with GitHub' },
+  'auth.or': { fr: 'ou', en: 'or' },
+
   // Analytics
   'tab.analytics': { fr: 'Stats', en: 'Stats' },
   'analytics.title': { fr: 'Statistiques', en: 'Statistics' },
@@ -281,6 +293,18 @@ export const translations = {
   'chat.send': { fr: 'Envoyer', en: 'Send' },
   'chat.clear': { fr: 'Effacer la conversation', en: 'Clear conversation' },
   'chat.useCurrentPrompt': { fr: 'Utiliser le prompt actuel comme systeme', en: 'Use current prompt as system' },
+
+  // Tags
+  'tags.title': { fr: 'Tags', en: 'Tags' },
+  'tags.add': { fr: 'Ajouter un tag...', en: 'Add a tag...' },
+
+  // Export workspace
+  'export.workspace': { fr: 'Exporter le projet (.zip)', en: 'Export project (.zip)' },
+  'export.workspaceDesc': { fr: 'Tous les prompts du projet', en: 'All prompts in the project' },
+
+  // Import zip
+  'import.zip': { fr: 'Importer un .zip', en: 'Import a .zip' },
+  'import.zipSuccess': { fr: 'Prompts importes !', en: 'Prompts imported!' },
 
   // Misc
   'misc.newPrompt': { fr: 'Nouveau prompt', en: 'New prompt' },

@@ -85,6 +85,35 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
+// --- OAuth ---
+
+export async function oauthGoogle(token: string): Promise<AuthResponse> {
+  const resp = await request<AuthResponse>('POST', '/auth/oauth/google', { token });
+  setToken(resp.token);
+  return resp;
+}
+
+export async function oauthGithub(code: string): Promise<AuthResponse> {
+  const resp = await request<AuthResponse>('POST', '/auth/oauth/github', { code });
+  setToken(resp.token);
+  return resp;
+}
+
+// --- Presence ---
+
+export interface PresenceUser {
+  user_id: string;
+  display_name: string;
+}
+
+export async function setPresence(projectId: string): Promise<void> {
+  return request('POST', '/presence', { project_id: projectId });
+}
+
+export async function getPresence(projectId: string): Promise<PresenceUser[]> {
+  return request('GET', `/presence/${projectId}`);
+}
+
 // --- Workspaces ---
 
 export interface BackendWorkspace {

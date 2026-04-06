@@ -81,6 +81,13 @@ class InkwellLocalDB extends Dexie {
 
 export const localdb = new InkwellLocalDB();
 
+// Track locally deleted IDs so pull doesn't recreate them
+const deletedIds = new Set<string>();
+
+export function markDeleted(id: string) {
+  deletedIds.add(id);
+}
+
 // --- Sync engine ---
 
 import * as backend from './backend';
@@ -117,6 +124,15 @@ async function syncAll() {
 
 // Push local dirty records to backend
 async function pushDirty() {
+  // Push deletes to backend first
+  for (const id of deletedIds) {
+    try {
+      await backend.deleteProject(id).catch(() => {});
+      await backend.deleteWorkspace(id).catch(() => {});
+    } catch { /* ignore */ }
+  }
+  deletedIds.clear();
+
   // Push dirty workspaces
   const dirtyWs = await localdb.workspaces.where('dirty').equals(1).toArray();
   for (const ws of dirtyWs) {
@@ -198,8 +214,13 @@ async function pullFromBackend() {
       backend.listFrameworks(),
     ]);
 
-    // Merge workspaces
+    const backendWsIds = new Set(bws.map((w) => w.id));
+    const backendPjIds = new Set(bpj.map((p) => p.id));
+    const backendFwIds = new Set(bfw.map((f) => f.id));
+
+    // Merge workspaces (skip deleted)
     for (const bw of bws) {
+      if (deletedIds.has(bw.id)) continue;
       const local = await localdb.workspaces.get(bw.id);
       if (!local || (local.dirty === 0 && bw.updated_at > local.updatedAt)) {
         await localdb.workspaces.put({
@@ -208,9 +229,15 @@ async function pullFromBackend() {
         });
       }
     }
+    // Remove local workspaces deleted on backend (only if not dirty)
+    const localWs = await localdb.workspaces.where('dirty').equals(0).toArray();
+    for (const lw of localWs) {
+      if (!backendWsIds.has(lw.id)) await localdb.workspaces.delete(lw.id);
+    }
 
-    // Merge projects
+    // Merge projects (skip deleted)
     for (const bp of bpj) {
+      if (deletedIds.has(bp.id)) continue;
       const local = await localdb.projects.get(bp.id);
       if (!local || (local.dirty === 0 && bp.updated_at > local.updatedAt)) {
         await localdb.projects.put({
@@ -221,9 +248,15 @@ async function pullFromBackend() {
         });
       }
     }
+    // Remove local projects deleted on backend
+    const localPj = await localdb.projects.where('dirty').equals(0).toArray();
+    for (const lp of localPj) {
+      if (!backendPjIds.has(lp.id)) await localdb.projects.delete(lp.id);
+    }
 
-    // Merge frameworks
+    // Merge frameworks (skip deleted)
     for (const bf of bfw) {
+      if (deletedIds.has(bf.id)) continue;
       const local = await localdb.frameworks.get(bf.id);
       if (!local || (local.dirty === 0 && bf.updated_at > local.updatedAt)) {
         await localdb.frameworks.put({
@@ -231,6 +264,11 @@ async function pullFromBackend() {
           blocksJson: bf.blocks_json, createdAt: bf.created_at, updatedAt: bf.updated_at, dirty: 0,
         });
       }
+    }
+    // Remove local frameworks deleted on backend
+    const localFw = await localdb.frameworks.where('dirty').equals(0).toArray();
+    for (const lf of localFw) {
+      if (!backendFwIds.has(lf.id)) await localdb.frameworks.delete(lf.id);
     }
   } catch { /* offline */ }
 }

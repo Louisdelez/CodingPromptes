@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { v4 as uuid } from 'uuid';
-import { localdb, startSync, type LocalProject } from '../lib/localdb';
-import * as backend from '../lib/backend';
+import { localdb, startSync, markDeleted, type LocalProject } from '../lib/localdb';
+
 import type { PromptProject, PromptBlock, BlockType, Workspace, CustomFramework } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
 import { getLang } from '../lib/i18n';
@@ -161,6 +161,7 @@ export function usePromptProject(_userId: string) {
   const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {}, []);
 
   const deleteWorkspace = useCallback(async (id: string) => {
+    markDeleted(id);
     await localdb.workspaces.delete(id);
     const inWs = await localdb.projects.where('workspaceId').equals(id).toArray();
     for (const p of inWs) {
@@ -171,8 +172,8 @@ export function usePromptProject(_userId: string) {
   }, [triggerLibraryRefresh, flashSaved]);
 
   const deleteProject = useCallback(async (id: string) => {
+    markDeleted(id);
     await localdb.projects.delete(id);
-    backend.deleteProject(id).catch(() => {});
     triggerLibraryRefresh();
     flashSaved();
   }, [triggerLibraryRefresh, flashSaved]);

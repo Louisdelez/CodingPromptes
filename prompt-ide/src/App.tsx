@@ -29,7 +29,6 @@ import {
   Download,
   Sparkles,
   AlertTriangle,
-  Edit3,
   ChevronDown,
   Mic,
   Globe,
@@ -311,9 +310,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
       <header className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-              <Edit3 size={14} className="text-white" />
-            </div>
+            <img src="/favicon.png" alt="Inkwell" className="w-7 h-7 rounded-lg" />
             <span className="text-sm font-semibold text-[var(--color-text-primary)]">{t('app.title')}</span>
           </div>
           <div className="w-px h-5 bg-[var(--color-border)]" />

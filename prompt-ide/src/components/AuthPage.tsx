@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Edit3, Mail, Lock, User, AlertCircle, Loader2, Globe, Sun, Moon, Monitor, ChevronDown } from 'lucide-react';
+import { Mail, Lock, User, AlertCircle, Loader2, Globe, Sun, Moon, Monitor, ChevronDown } from 'lucide-react';
 import { login, register, type AuthSession } from '../lib/auth';
 import { useT } from '../lib/i18n';
 import type { Lang } from '../lib/i18n';
@@ -118,9 +118,7 @@ export function AuthPage({ onAuth, language, onLanguageChange, themeMode, onThem
         <div className="w-full max-w-sm space-y-6">
           {/* Logo */}
           <div className="text-center space-y-2">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center mx-auto shadow-lg">
-              <Edit3 size={24} className="text-white" />
-            </div>
+            <img src="/icon-192.png" alt="Inkwell" className="w-14 h-14 rounded-2xl mx-auto shadow-lg" />
             <h1 className="text-xl font-bold text-[var(--color-text-primary)]">{t('auth.welcome')}</h1>
             <p className="text-sm text-[var(--color-text-muted)]">{t('auth.subtitle')}</p>
           </div>

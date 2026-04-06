@@ -45,8 +45,8 @@ export function usePromptProject(_userId: string) {
     startSync();
     // Poll dirty count to show sync status
     const interval = setInterval(async () => {
-      const dirtyCount = await localdb.projects.where('dirty').equals(1).count()
-        + await localdb.workspaces.where('dirty').equals(1).count();
+      const dirtyCount = await localdb.projects.where('synced').equals(0).count()
+        + await localdb.workspaces.where('synced').equals(0).count();
       if (dirtyCount > 0 && saveStatus === 'idle') {
         setSaveStatus('syncing');
       } else if (dirtyCount === 0 && saveStatus === 'syncing') {
@@ -67,7 +67,7 @@ export function usePromptProject(_userId: string) {
       id: p.id, name: p.name, workspaceId: p.workspaceId,
       blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
       framework: p.framework, tagsJson: JSON.stringify(p.tags ?? []),
-      createdAt: p.createdAt, updatedAt: now, dirty: 1,
+      createdAt: p.createdAt, updatedAt: now, synced: 0,
     });
     setSaveStatus('saved');
     if (statusTimeout.current) clearTimeout(statusTimeout.current);
@@ -134,7 +134,7 @@ export function usePromptProject(_userId: string) {
       id: p.id, name: p.name, workspaceId: p.workspaceId,
       blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
       framework: undefined, tagsJson: '[]',
-      createdAt: p.createdAt, updatedAt: p.updatedAt, dirty: 1,
+      createdAt: p.createdAt, updatedAt: p.updatedAt, synced: 0,
     }).then(() => { triggerLibraryRefresh(); flashSaved(); });
   }, [triggerLibraryRefresh, flashSaved]);
 
@@ -154,7 +154,7 @@ export function usePromptProject(_userId: string) {
       color: color ?? WORKSPACE_COLORS[Math.floor(Math.random() * WORKSPACE_COLORS.length)],
       createdAt: now, updatedAt: now,
     };
-    await localdb.workspaces.put({ ...ws, dirty: 1 });
+    await localdb.workspaces.put({ ...ws, synced: 0 });
     triggerLibraryRefresh();
     flashSaved();
     return ws;
@@ -168,7 +168,7 @@ export function usePromptProject(_userId: string) {
     await localdb.workspaces.delete(id);
     const inWs = await localdb.projects.where('workspaceId').equals(id).toArray();
     for (const p of inWs) {
-      await localdb.projects.update(p.id, { workspaceId: undefined, dirty: 1 });
+      await localdb.projects.update(p.id, { workspaceId: undefined, synced: 0 });
     }
     // Delete from backend immediately
     backend.deleteWorkspace(id).catch(() => {});
@@ -191,7 +191,7 @@ export function usePromptProject(_userId: string) {
       id: uuid(), projectId: project.id,
       blocksJson: JSON.stringify(project.blocks),
       variablesJson: JSON.stringify(project.variables),
-      label, createdAt: Date.now(), dirty: 1,
+      label, createdAt: Date.now(), synced: 0,
     });
   }, [project]);
 
@@ -201,7 +201,7 @@ export function usePromptProject(_userId: string) {
     const fw: CustomFramework = { id: uuid(), name, description, blocks, createdAt: now, updatedAt: now };
     await localdb.frameworks.put({
       id: fw.id, name, description, blocksJson: JSON.stringify(blocks),
-      createdAt: now, updatedAt: now, dirty: 1,
+      createdAt: now, updatedAt: now, synced: 0,
     });
     return fw;
   }, []);
@@ -213,7 +213,7 @@ export function usePromptProject(_userId: string) {
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.description !== undefined ? { description: changes.description } : {}),
         ...(changes.blocks !== undefined ? { blocksJson: JSON.stringify(changes.blocks) } : {}),
-        updatedAt: Date.now(), dirty: 1,
+        updatedAt: Date.now(), synced: 0,
       });
     }
   }, []);
@@ -248,7 +248,7 @@ export function usePromptProject(_userId: string) {
           id: p.id, name: p.name, workspaceId: p.workspaceId,
           blocksJson: JSON.stringify(p.blocks), variablesJson: JSON.stringify(p.variables),
           framework: undefined, tagsJson: '[]',
-          createdAt: p.createdAt, updatedAt: p.updatedAt, dirty: 1,
+          createdAt: p.createdAt, updatedAt: p.updatedAt, synced: 0,
         });
       }
     });

@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie';
 
-// Local-first database — source of truth for UI, synced to backend in background
+// Local-first database — source of truth for UI
 
 export interface LocalProject {
   id: string;
@@ -12,7 +12,7 @@ export interface LocalProject {
   tagsJson: string;
   createdAt: number;
   updatedAt: number;
-  dirty: number; // 1 = needs sync, 0 = synced
+  synced: number; // 0 = needs push, 1 = synced with backend
 }
 
 export interface LocalWorkspace {
@@ -22,7 +22,7 @@ export interface LocalWorkspace {
   color: string;
   createdAt: number;
   updatedAt: number;
-  dirty: number;
+  synced: number;
 }
 
 export interface LocalVersion {
@@ -32,7 +32,7 @@ export interface LocalVersion {
   variablesJson: string;
   label: string;
   createdAt: number;
-  dirty: number;
+  synced: number;
 }
 
 export interface LocalExecution {
@@ -47,7 +47,7 @@ export interface LocalExecution {
   cost: number;
   latencyMs: number;
   createdAt: number;
-  dirty: number;
+  synced: number;
 }
 
 export interface LocalFramework {
@@ -57,7 +57,27 @@ export interface LocalFramework {
   blocksJson: string;
   createdAt: number;
   updatedAt: number;
-  dirty: number;
+  synced: number;
+}
+
+// Deleted IDs — persisted in localStorage so they survive page refresh
+const DELETED_KEY = 'inkwell-deleted-ids';
+
+function getDeletedIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function saveDeletedIds(ids: Set<string>) {
+  localStorage.setItem(DELETED_KEY, JSON.stringify([...ids]));
+}
+
+export function markDeleted(id: string) {
+  const ids = getDeletedIds();
+  ids.add(id);
+  saveDeletedIds(ids);
 }
 
 class InkwellLocalDB extends Dexie {
@@ -70,47 +90,38 @@ class InkwellLocalDB extends Dexie {
   constructor() {
     super('InkwellLocalDB');
     this.version(1).stores({
-      projects: 'id, workspaceId, updatedAt, dirty',
-      workspaces: 'id, updatedAt, dirty',
-      versions: 'id, projectId, createdAt, dirty',
-      executions: 'id, projectId, createdAt, dirty',
-      frameworks: 'id, updatedAt, dirty',
+      projects: 'id, workspaceId, updatedAt, synced',
+      workspaces: 'id, updatedAt, synced',
+      versions: 'id, projectId, createdAt, synced',
+      executions: 'id, projectId, createdAt, synced',
+      frameworks: 'id, updatedAt, synced',
     });
   }
 }
 
 export const localdb = new InkwellLocalDB();
 
-// Track locally deleted IDs so pull doesn't recreate them
-const deletedIds = new Set<string>();
-
-export function markDeleted(id: string) {
-  deletedIds.add(id);
-}
-
 // --- Sync engine ---
-
 import * as backend from './backend';
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
-let syncing = false;
-let initialPullDone = false;
+let hasPopulated = false;
 
 export function startSync() {
   if (syncInterval) return;
-  // Only pull from backend if local DB is completely empty (first login)
-  if (!initialPullDone) {
-    initialPullDone = true;
+
+  // Check if we need initial population (empty local DB)
+  if (!hasPopulated) {
+    hasPopulated = true;
     localdb.projects.count().then((count) => {
       if (count === 0) {
-        // Empty local = first time or after reset → pull from backend
-        pullFromBackend().catch(() => {});
+        populateFromBackend();
       }
-      // If local has data, trust it — don't overwrite with backend
     });
   }
-  // Push dirty records to backend every 3 seconds
-  syncInterval = setInterval(pushDirty, 3000);
+
+  // Only PUSH every 5 seconds — never pull
+  syncInterval = setInterval(pushToBackend, 5000);
 }
 
 export function stopSync() {
@@ -118,171 +129,110 @@ export function stopSync() {
     clearInterval(syncInterval);
     syncInterval = null;
   }
-  initialPullDone = false;
 }
 
-// Force a pull (called on login)
-export async function pullOnce() {
-  await pullFromBackend();
+// One-time population from backend (only when local is empty)
+async function populateFromBackend() {
+  if (!backend.getToken()) return;
+  try {
+    const [bws, bpj] = await Promise.all([
+      backend.listWorkspaces(),
+      backend.listProjects(),
+    ]);
+    const deletedIds = getDeletedIds();
+
+    for (const bw of bws) {
+      if (deletedIds.has(bw.id)) continue;
+      await localdb.workspaces.put({
+        id: bw.id, name: bw.name, description: bw.description, color: bw.color,
+        createdAt: bw.created_at, updatedAt: bw.updated_at, synced: 1,
+      });
+    }
+    for (const bp of bpj) {
+      if (deletedIds.has(bp.id)) continue;
+      await localdb.projects.put({
+        id: bp.id, name: bp.name, workspaceId: bp.workspace_id ?? undefined,
+        blocksJson: bp.blocks_json, variablesJson: bp.variables_json,
+        framework: bp.framework ?? undefined, tagsJson: bp.tags_json,
+        createdAt: bp.created_at, updatedAt: bp.updated_at, synced: 1,
+      });
+    }
+  } catch { /* offline */ }
 }
 
-// Push local dirty records to backend
-async function pushDirty() {
-  // Push deletes to backend first
+// Push unsynced local records to backend
+async function pushToBackend() {
+  if (!backend.getToken()) return;
+
+  // 1. Push deletes first
+  const deletedIds = getDeletedIds();
   for (const id of deletedIds) {
-    try {
-      await backend.deleteProject(id).catch(() => {});
-      await backend.deleteWorkspace(id).catch(() => {});
-    } catch { /* ignore */ }
+    await backend.deleteProject(id).catch(() => {});
+    await backend.deleteWorkspace(id).catch(() => {});
   }
-  deletedIds.clear();
+  if (deletedIds.size > 0) {
+    deletedIds.clear();
+    saveDeletedIds(deletedIds);
+  }
 
-  // Push dirty workspaces
-  const dirtyWs = await localdb.workspaces.where('dirty').equals(1).toArray();
-  for (const ws of dirtyWs) {
+  // 2. Push unsynced workspaces
+  const unsyncedWs = await localdb.workspaces.where('synced').equals(0).toArray();
+  for (const ws of unsyncedWs) {
     try {
       await backend.createWorkspace({ name: ws.name, color: ws.color, description: ws.description });
-      await localdb.workspaces.update(ws.id, { dirty: 0 });
+      await localdb.workspaces.update(ws.id, { synced: 1 });
     } catch {
-      // Might already exist, try update
       try {
         await backend.updateWorkspace(ws.id, { name: ws.name, color: ws.color });
-        await localdb.workspaces.update(ws.id, { dirty: 0 });
+        await localdb.workspaces.update(ws.id, { synced: 1 });
       } catch { /* ignore */ }
     }
   }
 
-  // Push dirty projects
-  const dirtyPj = await localdb.projects.where('dirty').equals(1).toArray();
-  for (const p of dirtyPj) {
+  // 3. Push unsynced projects
+  const unsyncedPj = await localdb.projects.where('synced').equals(0).toArray();
+  for (const p of unsyncedPj) {
+    // Don't push if it was deleted
+    if (getDeletedIds().has(p.id)) continue;
     try {
       await backend.updateProject(p.id, {
         name: p.name, blocks_json: p.blocksJson, variables_json: p.variablesJson,
-        workspace_id: p.workspaceId ?? null, framework: p.framework ?? null,
-        tags_json: p.tagsJson,
+        workspace_id: p.workspaceId ?? null, framework: p.framework ?? null, tags_json: p.tagsJson,
       });
-      await localdb.projects.update(p.id, { dirty: 0 });
+      await localdb.projects.update(p.id, { synced: 1 });
     } catch {
       try {
         await backend.createProject({
-          id: p.id, name: p.name, blocks_json: p.blocksJson,
-          variables_json: p.variablesJson, workspace_id: p.workspaceId ?? null,
-          framework: p.framework ?? null, tags_json: p.tagsJson,
+          id: p.id, name: p.name, blocks_json: p.blocksJson, variables_json: p.variablesJson,
+          workspace_id: p.workspaceId ?? null, framework: p.framework ?? null, tags_json: p.tagsJson,
         });
-        await localdb.projects.update(p.id, { dirty: 0 });
+        await localdb.projects.update(p.id, { synced: 1 });
       } catch { /* ignore */ }
     }
   }
 
-  // Push dirty versions
-  const dirtyVer = await localdb.versions.where('dirty').equals(1).toArray();
-  for (const v of dirtyVer) {
+  // 4. Push unsynced versions
+  const unsyncedVer = await localdb.versions.where('synced').equals(0).toArray();
+  for (const v of unsyncedVer) {
     try {
-      await backend.createVersion(v.projectId, {
-        blocks_json: v.blocksJson, variables_json: v.variablesJson, label: v.label,
-      });
-      await localdb.versions.update(v.id, { dirty: 0 });
+      await backend.createVersion(v.projectId, { blocks_json: v.blocksJson, variables_json: v.variablesJson, label: v.label });
+      await localdb.versions.update(v.id, { synced: 1 });
     } catch { /* ignore */ }
   }
 
-  // Push dirty executions
-  const dirtyEx = await localdb.executions.where('dirty').equals(1).toArray();
-  for (const e of dirtyEx) {
+  // 5. Push unsynced executions
+  const unsyncedEx = await localdb.executions.where('synced').equals(0).toArray();
+  for (const e of unsyncedEx) {
     try {
       await backend.createExecution(e.projectId, {
         model: e.model, provider: e.provider, prompt: e.prompt, response: e.response,
         tokens_in: e.tokensIn, tokens_out: e.tokensOut, cost: e.cost, latency_ms: e.latencyMs,
       });
-      await localdb.executions.update(e.id, { dirty: 0 });
-    } catch { /* ignore */ }
-  }
-
-  // Push dirty frameworks
-  const dirtyFw = await localdb.frameworks.where('dirty').equals(1).toArray();
-  for (const f of dirtyFw) {
-    try {
-      await backend.createFramework({
-        name: f.name, description: f.description, blocks_json: f.blocksJson,
-      });
-      await localdb.frameworks.update(f.id, { dirty: 0 });
+      await localdb.executions.update(e.id, { synced: 1 });
     } catch { /* ignore */ }
   }
 }
 
-// Pull from backend and merge into local
-async function pullFromBackend() {
-  try {
-    const [bws, bpj, bfw] = await Promise.all([
-      backend.listWorkspaces(),
-      backend.listProjects(),
-      backend.listFrameworks(),
-    ]);
-
-    const backendWsIds = new Set(bws.map((w) => w.id));
-    const backendPjIds = new Set(bpj.map((p) => p.id));
-    const backendFwIds = new Set(bfw.map((f) => f.id));
-
-    // Merge workspaces (skip deleted)
-    for (const bw of bws) {
-      if (deletedIds.has(bw.id)) continue;
-      const local = await localdb.workspaces.get(bw.id);
-      if (!local || (local.dirty === 0 && bw.updated_at > local.updatedAt)) {
-        await localdb.workspaces.put({
-          id: bw.id, name: bw.name, description: bw.description, color: bw.color,
-          createdAt: bw.created_at, updatedAt: bw.updated_at, dirty: 0,
-        });
-      }
-    }
-    // Remove local workspaces deleted on backend (only if not dirty)
-    const localWs = await localdb.workspaces.where('dirty').equals(0).toArray();
-    for (const lw of localWs) {
-      if (!backendWsIds.has(lw.id)) await localdb.workspaces.delete(lw.id);
-    }
-
-    // Merge projects (skip deleted)
-    for (const bp of bpj) {
-      if (deletedIds.has(bp.id)) continue;
-      const local = await localdb.projects.get(bp.id);
-      if (!local || (local.dirty === 0 && bp.updated_at > local.updatedAt)) {
-        await localdb.projects.put({
-          id: bp.id, name: bp.name, workspaceId: bp.workspace_id ?? undefined,
-          blocksJson: bp.blocks_json, variablesJson: bp.variables_json,
-          framework: bp.framework ?? undefined, tagsJson: bp.tags_json,
-          createdAt: bp.created_at, updatedAt: bp.updated_at, dirty: 0,
-        });
-      }
-    }
-    // Remove local projects deleted on backend
-    const localPj = await localdb.projects.where('dirty').equals(0).toArray();
-    for (const lp of localPj) {
-      if (!backendPjIds.has(lp.id)) await localdb.projects.delete(lp.id);
-    }
-
-    // Merge frameworks (skip deleted)
-    for (const bf of bfw) {
-      if (deletedIds.has(bf.id)) continue;
-      const local = await localdb.frameworks.get(bf.id);
-      if (!local || (local.dirty === 0 && bf.updated_at > local.updatedAt)) {
-        await localdb.frameworks.put({
-          id: bf.id, name: bf.name, description: bf.description,
-          blocksJson: bf.blocks_json, createdAt: bf.created_at, updatedAt: bf.updated_at, dirty: 0,
-        });
-      }
-    }
-    // Remove local frameworks deleted on backend
-    const localFw = await localdb.frameworks.where('dirty').equals(0).toArray();
-    for (const lf of localFw) {
-      if (!backendFwIds.has(lf.id)) await localdb.frameworks.delete(lf.id);
-    }
-  } catch { /* offline */ }
-}
-
-// Force a full sync now
 export async function syncNow() {
-  if (syncing) return;
-  syncing = true;
-  try {
-    await pushDirty();
-  } catch { /* ignore */ }
-  syncing = false;
+  await pushToBackend();
 }

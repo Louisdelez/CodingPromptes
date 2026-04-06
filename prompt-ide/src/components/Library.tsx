@@ -32,6 +32,7 @@ import { useT } from '../lib/i18n';
 
 interface LibraryProps {
   currentProjectId: string;
+  refreshKey?: number;
   onLoadProject: (id: string) => void;
   onNewProject: (workspaceId?: string) => void;
   onCreateWorkspace: (name: string, color?: string) => Promise<Workspace>;
@@ -88,6 +89,7 @@ const DroppableWorkspace = memo(function DroppableWorkspace({ wsId, children }: 
 
 export function Library({
   currentProjectId,
+  refreshKey,
   onLoadProject,
   onNewProject,
   onCreateWorkspace,
@@ -127,8 +129,8 @@ export function Library({
     }
   }, []);
 
-  // Load once on mount
-  useEffect(() => { const t = setTimeout(loadData, 0); return () => clearTimeout(t); }, [loadData]);
+  // Load on mount + when refreshKey changes (triggered by hook mutations)
+  useEffect(() => { const t = setTimeout(loadData, 0); return () => clearTimeout(t); }, [loadData, refreshKey]);
 
   const handleNewProject = (wsId?: string) => {
     // Optimistic: add to local list immediately

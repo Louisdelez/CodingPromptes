@@ -165,6 +165,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     saveCurrentAsFramework,
     addTag,
     removeTag,
+    libraryRefreshKey,
   } = usePromptProject(session.userId);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -481,6 +482,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
                 <Library
                   currentProjectId={project.id}
                   currentWorkspaceId={project.workspaceId}
+                  refreshKey={libraryRefreshKey}
                   onLoadProject={loadProject}
                   onNewProject={newProject}
                   onCreateWorkspace={createWorkspace}

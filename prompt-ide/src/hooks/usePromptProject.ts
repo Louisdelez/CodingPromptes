@@ -42,6 +42,8 @@ function createDefaultPrompt(workspaceId?: string): PromptProject {
 export function usePromptProject(_userId: string) {
   const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt());
   const [isSaving, setIsSaving] = useState(false);
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
+  const triggerLibraryRefresh = useCallback(() => setLibraryRefreshKey((k) => k + 1), []);
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // --- Workspace management ---
@@ -51,16 +53,13 @@ export function usePromptProject(_userId: string) {
       name,
       color: color ?? WORKSPACE_COLORS[Math.floor(Math.random() * WORKSPACE_COLORS.length)],
     });
+    triggerLibraryRefresh();
     return {
-      id: bw.id,
-      name: bw.name,
-      description: bw.description,
-      color: bw.color,
-      userId: bw.user_id,
-      createdAt: bw.created_at,
-      updatedAt: bw.updated_at,
+      id: bw.id, name: bw.name, description: bw.description,
+      color: bw.color, userId: bw.user_id,
+      createdAt: bw.created_at, updatedAt: bw.updated_at,
     };
-  }, []);
+  }, [triggerLibraryRefresh]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {
@@ -69,7 +68,8 @@ export function usePromptProject(_userId: string) {
 
   const deleteWorkspace = useCallback(async (id: string) => {
     await backend.deleteWorkspace(id);
-  }, []);
+    triggerLibraryRefresh();
+  }, [triggerLibraryRefresh]);
 
   // --- Prompt management ---
 
@@ -184,15 +184,15 @@ export function usePromptProject(_userId: string) {
   const newProject = useCallback((workspaceId?: string) => {
     const p = createDefaultPrompt(workspaceId);
     setProject(p);
-    // Create on backend in background (don't await)
+    // Create on backend in background, then tell Library to refresh
     backend.createProject({
       id: p.id,
       name: p.name,
       blocks_json: JSON.stringify(p.blocks),
       variables_json: JSON.stringify(p.variables),
       workspace_id: workspaceId ?? null,
-    }).catch(() => {});
-  }, []);
+    }).then(() => triggerLibraryRefresh()).catch(() => {});
+  }, [triggerLibraryRefresh]);
 
   const movePromptToWorkspace = useCallback(
     (workspaceId: string | undefined) => {
@@ -305,6 +305,7 @@ export function usePromptProject(_userId: string) {
   return {
     project,
     isSaving,
+    libraryRefreshKey,
     addBlock,
     removeBlock,
     updateBlock,

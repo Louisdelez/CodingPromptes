@@ -1,15 +1,15 @@
 services:
-  prompt-ide:
+  inkwell:
     build: .
-    container_name: prompt-ide
+    container_name: inkwell
     ports:
       - "3000:80"
     volumes:
-      - prompt-data:/root/.local/share/prompt-ai-server
+      - inkwell-data:/root/.local/share/inkwell-server
     environment:
       - JWT_SECRET=change-me-in-production
       - OLLAMA_URL=http://host.docker.internal:11434
     restart: unless-stopped
 
 volumes:
-  prompt-data:
+  inkwell-data:

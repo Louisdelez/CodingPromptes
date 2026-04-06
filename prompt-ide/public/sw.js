@@ -1,4 +1,4 @@
-const CACHE_NAME = 'prompt-ide-v1';
+const CACHE_NAME = 'inkwell-v1';
 const STATIC_ASSETS = ['/'];
 
 self.addEventListener('install', (event) => {

@@ -66,7 +66,7 @@ pub fn available_models() -> Vec<ModelInfo> {
 
 pub fn models_dir() -> PathBuf {
     let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("prompt-stt-server").join("models")
+    base.join("inkwell-server").join("models")
 }
 
 pub fn model_path(model: &ModelInfo) -> PathBuf {

@@ -1,6 +1,6 @@
 {
-  "name": "Prompt IDE",
-  "short_name": "PromptIDE",
+  "name": "Inkwell",
+  "short_name": "Inkwell",
   "description": "AI Prompt Engineering Workshop",
   "start_url": "/",
   "display": "standalone",

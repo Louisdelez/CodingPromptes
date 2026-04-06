@@ -99,7 +99,7 @@ async fn main() {
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
-    println!("Prompt API Server v{} listening on {addr}", env!("CARGO_PKG_VERSION"));
+    println!("Inkwell API Server v{} listening on {addr}", env!("CARGO_PKG_VERSION"));
     println!("  API:     http://0.0.0.0:{port}/api/");
     println!("  LLM:     http://0.0.0.0:{port}/v1/chat/completions");
     println!("  Health:  http://0.0.0.0:{port}/health");

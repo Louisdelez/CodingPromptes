@@ -1,8 +1,8 @@
 [package]
-name = "prompt-api-server"
+name = "inkwell-api-server"
 version = "1.0.0"
 edition = "2024"
-description = "Prompt IDE — Backend API server (SQLite + JWT + LLM proxy)"
+description = "Inkwell — Backend API server (SQLite + JWT + LLM proxy)"
 
 [dependencies]
 axum = "0.8"

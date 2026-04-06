@@ -3,7 +3,7 @@ import { createContext, useContext } from 'react';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 
-const THEME_KEY = 'prompt-ide-theme';
+const THEME_KEY = 'inkwell-theme';
 
 export function getThemeMode(): ThemeMode {
   return (localStorage.getItem(THEME_KEY) as ThemeMode) || 'system';

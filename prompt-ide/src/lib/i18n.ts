@@ -16,7 +16,7 @@ export function setLang(lang: Lang): void {
 
 export const translations = {
   // Header
-  'app.title': { fr: 'Prompt IDE', en: 'Prompt IDE' },
+  'app.title': { fr: 'Inkwell', en: 'Inkwell' },
   'app.saving': { fr: 'Sauvegarde...', en: 'Saving...' },
 
   // Left tabs
@@ -87,7 +87,7 @@ export const translations = {
   'playground.cloudModels': { fr: 'Modeles cloud (API)', en: 'Cloud models (API)' },
   'playground.localServer': { fr: 'Serveur local (STT + LLM)', en: 'Local server (STT + LLM)' },
   'playground.connected': { fr: 'Connecte', en: 'Connected' },
-  'playground.notConnected': { fr: 'Non connecte — lancez prompt-ai-server', en: 'Not connected — launch prompt-ai-server' },
+  'playground.notConnected': { fr: 'Non connecte — lancez inkwell-server', en: 'Not connected — launch inkwell-server' },
   'playground.modelsDetected': { fr: 'modele(s) Ollama detecte(s)', en: 'Ollama model(s) detected' },
   'playground.temperature': { fr: 'Temperature', en: 'Temperature' },
   'playground.maxTokens': { fr: 'Max tokens', en: 'Max tokens' },
@@ -241,7 +241,7 @@ export const translations = {
   'auth.invalidCredentials': { fr: 'Email ou mot de passe incorrect.', en: 'Invalid email or password.' },
   'auth.passwordTooShort': { fr: 'Le mot de passe doit faire au moins 6 caracteres.', en: 'Password must be at least 6 characters.' },
   'auth.passwordMismatch': { fr: 'Les mots de passe ne correspondent pas.', en: 'Passwords do not match.' },
-  'auth.welcome': { fr: 'Bienvenue sur Prompt IDE', en: 'Welcome to Prompt IDE' },
+  'auth.welcome': { fr: 'Bienvenue sur Inkwell', en: 'Welcome to Inkwell' },
   'auth.subtitle': { fr: 'Votre atelier de creation de prompts IA', en: 'Your AI prompt engineering workshop' },
   'auth.changePassword': { fr: 'Changer le mot de passe', en: 'Change password' },
   'auth.currentPassword': { fr: 'Mot de passe actuel', en: 'Current password' },

@@ -87,7 +87,7 @@ export interface ModelConfig {
   maxContext: number;
 }
 
-export const LOCAL_SERVER_URL_KEY = 'prompt-ide-local-server-url';
+export const LOCAL_SERVER_URL_KEY = 'inkwell-local-server-url';
 
 export function getLocalServerUrl(): string {
   return localStorage.getItem(LOCAL_SERVER_URL_KEY) || 'http://localhost:8910';

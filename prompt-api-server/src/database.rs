@@ -233,5 +233,5 @@ impl Database {
 
 fn db_path() -> PathBuf {
     let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
-    base.join("prompt-ai-server").join("data.db")
+    base.join("inkwell-server").join("data.db")
 }

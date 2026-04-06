@@ -4,16 +4,16 @@ FROM rust:1.83-slim-bookworm AS rust-build
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY prompt-api-server/ ./
+COPY inkwell-api-server/ ./
 RUN cargo build --release
 
 # === Stage 2: Build Web frontend ===
 FROM node:22-alpine AS web-build
 
 WORKDIR /app
-COPY prompt-ide/package.json prompt-ide/package-lock.json ./
+COPY inkwell/package.json inkwell/package-lock.json ./
 RUN npm ci
-COPY prompt-ide/ ./
+COPY inkwell/ ./
 RUN npm run build
 
 # === Stage 3: Runtime ===
@@ -22,7 +22,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y nginx ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Copy API server binary
-COPY --from=rust-build /build/target/release/prompt-api-server /usr/local/bin/prompt-api-server
+COPY --from=rust-build /build/target/release/inkwell-api-server /usr/local/bin/inkwell-api-server
 
 # Copy web frontend
 COPY --from=web-build /app/dist /usr/share/nginx/html
@@ -70,8 +70,8 @@ NGINX
 # Startup script: launch API server + nginx
 RUN cat > /start.sh <<'EOF'
 #!/bin/sh
-echo "Starting Prompt API Server..."
-prompt-api-server &
+echo "Starting Inkwell API Server..."
+inkwell-api-server &
 sleep 1
 echo "Starting Nginx..."
 nginx -g "daemon off;"
@@ -79,7 +79,7 @@ EOF
 RUN chmod +x /start.sh
 
 # Data volume for SQLite
-VOLUME /root/.local/share/prompt-ai-server
+VOLUME /root/.local/share/inkwell-server
 
 EXPOSE 80
 

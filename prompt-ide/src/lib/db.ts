@@ -1,6 +1,6 @@
 import type { ApiKeys } from './types';
 
-const API_KEYS_STORAGE_KEY = 'prompt-ide-api-keys';
+const API_KEYS_STORAGE_KEY = 'inkwell-api-keys';
 
 export function getApiKeys(): ApiKeys {
   try {

@@ -1,7 +1,7 @@
 {
-  "productName": "Prompt IDE",
+  "productName": "Inkwell",
   "version": "1.0.0",
-  "identifier": "com.promptide.desktop",
+  "identifier": "com.inkwell.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
@@ -9,7 +9,7 @@
   "app": {
     "windows": [
       {
-        "title": "Prompt IDE",
+        "title": "Inkwell",
         "width": 1280,
         "height": 800,
         "resizable": true,

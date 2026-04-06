@@ -7,7 +7,7 @@ export interface AuthSession {
   avatar: string;
 }
 
-const SESSION_KEY = 'prompt-ide-session';
+const SESSION_KEY = 'inkwell-session';
 
 function toSession(user: backend.BackendUser): AuthSession {
   return {

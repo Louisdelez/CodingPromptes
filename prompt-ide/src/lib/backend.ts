@@ -1,6 +1,6 @@
 import { getLocalServerUrl } from './types';
 
-const TOKEN_KEY = 'prompt-ide-jwt-token';
+const TOKEN_KEY = 'inkwell-jwt-token';
 
 // --- Token management ---
 

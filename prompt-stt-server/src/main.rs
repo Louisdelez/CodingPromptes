@@ -20,7 +20,7 @@ use tokio::sync::watch;
 use whisper_engine::WhisperEngine;
 
 fn main() -> iced::Result {
-    iced::application("Prompt AI Server", App::update, App::view)
+    iced::application("Inkwell GPU Server", App::update, App::view)
         .theme(|_| Theme::Dark)
         .window_size((560.0, 750.0))
         .run_with(App::new)
@@ -109,7 +109,7 @@ impl App {
             ollama_connected: false,
             ollama_models: vec![],
             ollama_error: None,
-            log_messages: vec!["Prompt AI Server demarre.".into()],
+            log_messages: vec!["Inkwell GPU Server demarre.".into()],
         };
 
         // Auto-start HTTP server
@@ -307,8 +307,8 @@ impl App {
             .map(|m| m.id.clone())
             .collect();
 
-        let title = text!("Prompt AI Server").size(22);
-        let subtitle = text!("STT (Whisper) + LLM (Ollama) pour Prompt IDE")
+        let title = text!("Inkwell GPU Server").size(22);
+        let subtitle = text!("STT (Whisper) + LLM (Ollama) pour Inkwell")
             .size(12)
             .color(iced::Color::from_rgb(0.6, 0.6, 0.65));
 

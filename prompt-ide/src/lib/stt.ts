@@ -8,7 +8,7 @@ export interface SttConfig {
   language: string;       // "auto", "fr", "en", etc.
 }
 
-const STT_CONFIG_KEY = 'prompt-ide-stt-config';
+const STT_CONFIG_KEY = 'inkwell-stt-config';
 
 export function getSttConfig(): SttConfig {
   try {

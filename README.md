@@ -1,4 +1,4 @@
-# Prompt IDE
+# Inkwell
 
 A complete AI prompt engineering platform — build, test, optimize, and manage your prompts with a powerful web editor and optional local AI inference.
 
@@ -90,9 +90,9 @@ A Rust desktop app that runs Whisper (STT) and proxies Ollama (LLM) locally. The
 ### Build & Run
 
 ```bash
-cd prompt-stt-server
+cd inkwell-gpu-server
 cargo build --release
-./target/release/prompt-ai-server
+./target/release/inkwell-server
 ```
 
 ### Install Ollama Models
@@ -107,7 +107,7 @@ ollama pull qwen2.5:7b          # Fast, lightweight
 
 ```
 ┌──────────────────────────────────┐
-│  prompt-ai-server (Rust/Iced)    │
+│  inkwell-server (Rust/Iced)    │
 │  http://0.0.0.0:8910             │
 │                                  │
 │  /transcribe     → Whisper STT   │
@@ -194,8 +194,8 @@ Any Ollama model works. Recommended:
 
 ## Documentation
 
-- [Technical Documentation](prompt-ide/docs/DOCUMENTATION.md) — 31 sections, architecture, API reference, types
-- [User Guide](prompt-ide/docs/GUIDE_UTILISATEUR.md) — 28 sections, step-by-step tutorials, FAQ
+- [Technical Documentation](inkwell/docs/DOCUMENTATION.md) — 31 sections, architecture, API reference, types
+- [User Guide](inkwell/docs/GUIDE_UTILISATEUR.md) — 28 sections, step-by-step tutorials, FAQ
 
 ---
 
@@ -203,7 +203,7 @@ Any Ollama model works. Recommended:
 
 ```
 CodingPromptes/
-├── prompt-ide/                 # Web app (React + TypeScript)
+├── inkwell/                 # Web app (React + TypeScript)
 │   ├── src/
 │   │   ├── components/         # 20 React components
 │   │   ├── hooks/              # usePromptProject hook
@@ -213,7 +213,7 @@ CodingPromptes/
 │   ├── docker-compose.yml
 │   └── nginx.conf
 │
-├── prompt-stt-server/          # Rust desktop app (STT + LLM proxy)
+├── inkwell-gpu-server/          # Rust desktop app (STT + LLM proxy)
 │   └── src/
 │       ├── main.rs             # Iced GUI
 │       ├── server.rs           # axum HTTP server

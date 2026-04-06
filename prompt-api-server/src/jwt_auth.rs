@@ -13,7 +13,7 @@ pub struct Claims {
 }
 
 pub fn jwt_secret() -> String {
-    std::env::var("JWT_SECRET").unwrap_or_else(|_| "prompt-ide-dev-secret-change-in-production".into())
+    std::env::var("JWT_SECRET").unwrap_or_else(|_| "inkwell-dev-secret-change-in-production".into())
 }
 
 pub fn create_token(user_id: &str, email: &str) -> Result<String, String> {

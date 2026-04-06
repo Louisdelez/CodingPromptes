@@ -2,8 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import {
   DndContext,
   DragOverlay,
+  PointerSensor,
   useDraggable,
   useDroppable,
+  useSensor,
+  useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
 import {
@@ -107,6 +110,10 @@ export function Library({
   const [newWsColor, setNewWsColor] = useState<string>(WORKSPACE_COLORS[0]);
   const newWsInputRef = useRef<HTMLInputElement>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 10 } })
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -460,6 +467,7 @@ export function Library({
       {/* Tree */}
       <div className="flex-1 overflow-auto">
         <DndContext
+          sensors={sensors}
           onDragStart={(event) => setActiveDragId(event.active.id as string)}
           onDragEnd={handleDragEnd}
           onDragCancel={() => setActiveDragId(null)}

@@ -28,6 +28,7 @@ import {
 import type { PromptProject, Workspace } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
 import * as backend from '../lib/backend';
+import { localdb } from '../lib/localdb';
 import { useT } from '../lib/i18n';
 
 interface LibraryProps {
@@ -42,32 +43,7 @@ interface LibraryProps {
   currentWorkspaceId?: string;
 }
 
-function backendProjectToLocal(bp: backend.BackendProject): PromptProject {
-  return {
-    id: bp.id,
-    name: bp.name,
-    userId: bp.user_id,
-    workspaceId: bp.workspace_id ?? undefined,
-    blocks: JSON.parse(bp.blocks_json),
-    variables: JSON.parse(bp.variables_json),
-    tags: JSON.parse(bp.tags_json || '[]'),
-    createdAt: bp.created_at,
-    updatedAt: bp.updated_at,
-    framework: bp.framework ?? undefined,
-  };
-}
 
-function backendWorkspaceToLocal(bw: backend.BackendWorkspace): Workspace {
-  return {
-    id: bw.id,
-    name: bw.name,
-    description: bw.description,
-    color: bw.color,
-    userId: bw.user_id,
-    createdAt: bw.created_at,
-    updatedAt: bw.updated_at,
-  };
-}
 
 const DraggablePromptItem = memo(function DraggablePromptItem({ prompt, children }: { prompt: PromptProject; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: prompt.id });
@@ -117,16 +93,20 @@ export function Library({
   );
 
   const loadData = useCallback(async () => {
-    try {
-      const [bws, bpj] = await Promise.all([
-        backend.listWorkspaces(),
-        backend.listProjects(),
-      ]);
-      setWorkspaces(bws.map(backendWorkspaceToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
-      setProjects(bpj.map(backendProjectToLocal).sort((a, b) => b.updatedAt - a.updatedAt));
-    } catch {
-      // ignore
-    }
+    // Read from LOCAL IndexedDB — instant (< 1ms)
+    const lws = await localdb.workspaces.orderBy('updatedAt').reverse().toArray();
+    const lpj = await localdb.projects.orderBy('updatedAt').reverse().toArray();
+    setWorkspaces(lws.map((w) => ({
+      id: w.id, name: w.name, description: w.description, color: w.color,
+      createdAt: w.createdAt, updatedAt: w.updatedAt,
+    })));
+    setProjects(lpj.map((p) => ({
+      id: p.id, name: p.name, workspaceId: p.workspaceId,
+      blocks: JSON.parse(p.blocksJson || '[]'),
+      variables: JSON.parse(p.variablesJson || '{}'),
+      tags: JSON.parse(p.tagsJson || '[]'),
+      framework: p.framework, createdAt: p.createdAt, updatedAt: p.updatedAt,
+    })));
   }, []);
 
   // Load on mount + when refreshKey changes (triggered by hook mutations)
@@ -210,9 +190,10 @@ export function Library({
 
   const handleDeletePrompt = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Optimistic: remove from UI immediately
+    // Remove from local DB (instant) + UI
     setProjects((prev) => prev.filter((p) => p.id !== id));
-    // Sync backend in background
+    localdb.projects.delete(id);
+    // Backend sync in background
     backend.deleteProject(id).catch(() => {});
   };
 
@@ -232,7 +213,7 @@ export function Library({
     const newWorkspaceId = targetId === '__free__' ? undefined : targetId;
 
     // Update in backend
-    backend.updateProject(promptId, { workspace_id: newWorkspaceId ?? null });
+    localdb.projects.update(promptId, { workspaceId: newWorkspaceId, dirty: 1 });
 
     // If it's the currently active prompt, update state too
     if (promptId === currentProjectId) {
@@ -619,7 +600,7 @@ export function Library({
                 <button
                   key={ws.id}
                   onClick={() => {
-                    backend.updateProject(contextMenu.id, { workspace_id: ws.id });
+                    localdb.projects.update(contextMenu.id, { workspaceId: ws.id, dirty: 1 });
                     if (contextMenu.id === currentProjectId) {
                       onMovePrompt(ws.id);
                     }
@@ -633,7 +614,7 @@ export function Library({
               ))}
               <button
                 onClick={() => {
-                  backend.updateProject(contextMenu.id, { workspace_id: null });
+                  localdb.projects.update(contextMenu.id, { workspaceId: undefined, dirty: 1 });
                   if (contextMenu.id === currentProjectId) {
                     onMovePrompt(undefined);
                   }
@@ -650,25 +631,22 @@ export function Library({
                   // Use local data instead of re-fetching
                   const original = projects.find((p) => p.id === contextMenu.id);
                   if (original) {
-                    // Optimistic: add copy to local list immediately
+                    const copyId = crypto.randomUUID();
+                    const now = Date.now();
                     const copy: PromptProject = {
-                      ...original,
-                      id: `temp-${Date.now()}`,
+                      ...original, id: copyId,
                       name: `${original.name} (copie)`,
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
+                      createdAt: now, updatedAt: now,
                     };
+                    // Write to local DB (instant) + update UI
                     setProjects((prev) => [copy, ...prev]);
-                    // Backend in background
-                    backend.createProject({
-                      name: copy.name,
-                      blocks_json: JSON.stringify(original.blocks),
-                      variables_json: JSON.stringify(original.variables),
-                      workspace_id: original.workspaceId ?? null,
-                      framework: original.framework ?? null,
-                      tags_json: JSON.stringify(original.tags || []),
-                    }).catch(() => {});
-                    setTimeout(loadData, 1500);
+                    localdb.projects.put({
+                      id: copyId, name: copy.name, workspaceId: copy.workspaceId,
+                      blocksJson: JSON.stringify(original.blocks),
+                      variablesJson: JSON.stringify(original.variables),
+                      framework: original.framework, tagsJson: JSON.stringify(original.tags || []),
+                      createdAt: now, updatedAt: now, dirty: 1,
+                    });
                   }
                 }}
                 className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"

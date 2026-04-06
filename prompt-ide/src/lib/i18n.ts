@@ -18,6 +18,9 @@ export const translations = {
   // Header
   'app.title': { fr: 'Inkwell', en: 'Inkwell' },
   'app.saving': { fr: 'Sauvegarde...', en: 'Saving...' },
+  'app.saved': { fr: 'Sauvegarde', en: 'Saved' },
+  'app.syncing': { fr: 'Synchronisation...', en: 'Syncing...' },
+  'app.synced': { fr: 'Synchronise', en: 'Synced' },
 
   // Left tabs
   'tab.library': { fr: 'Bibliotheque', en: 'Library' },

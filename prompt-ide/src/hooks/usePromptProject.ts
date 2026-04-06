@@ -32,16 +32,32 @@ function createDefaultPrompt(workspaceId?: string): PromptProject {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function usePromptProject(_userId: string) {
   const [project, setProject] = useState<PromptProject>(() => createDefaultPrompt());
-  const [isSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'syncing' | 'synced'>('idle');
   const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const triggerLibraryRefresh = useCallback(() => setLibraryRefreshKey((k) => k + 1), []);
   const saveTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const statusTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  // Start sync engine on mount
-  useEffect(() => { startSync(); }, []);
+  // Start sync engine on mount + listen to sync events
+  useEffect(() => {
+    startSync();
+    // Poll dirty count to show sync status
+    const interval = setInterval(async () => {
+      const dirtyCount = await localdb.projects.where('dirty').equals(1).count();
+      if (dirtyCount > 0) {
+        setSaveStatus('syncing');
+      } else if (saveStatus === 'syncing') {
+        setSaveStatus('synced');
+        if (statusTimeout.current) clearTimeout(statusTimeout.current);
+        statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 2000);
+      }
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [saveStatus]);
 
   // --- Save to local DB (instant) ---
   const saveProject = useCallback(async (p: PromptProject) => {
+    setSaveStatus('saving');
     const now = Date.now();
     await localdb.projects.put({
       id: p.id, name: p.name, workspaceId: p.workspaceId,
@@ -49,6 +65,9 @@ export function usePromptProject(_userId: string) {
       framework: p.framework, tagsJson: JSON.stringify(p.tags ?? []),
       createdAt: p.createdAt, updatedAt: now, dirty: 1,
     });
+    setSaveStatus('saved');
+    if (statusTimeout.current) clearTimeout(statusTimeout.current);
+    statusTimeout.current = setTimeout(() => setSaveStatus('idle'), 1500);
   }, []);
 
   const updateProject = useCallback(
@@ -211,7 +230,7 @@ export function usePromptProject(_userId: string) {
   }, []);
 
   return {
-    project, isSaving, libraryRefreshKey,
+    project, saveStatus, libraryRefreshKey,
     addBlock, removeBlock, updateBlock, toggleBlock, reorderBlocks, setVariable,
     loadProject, newProject, movePromptToWorkspace, loadFramework,
     saveVersion, updateProject,

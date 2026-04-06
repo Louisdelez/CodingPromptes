@@ -143,7 +143,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
   const t = useT();
   const {
     project,
-    isSaving,
+    saveStatus,
     addBlock,
     removeBlock,
     updateBlock,
@@ -343,8 +343,18 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
               {project.name}
             </button>
           )}
-          {isSaving && (
-            <span className="text-xs text-[var(--color-text-muted)] animate-pulse">{t('app.saving')}</span>
+          {saveStatus !== 'idle' && (
+            <span className={`text-xs transition-opacity ${
+              saveStatus === 'saving' ? 'text-[var(--color-warning)] animate-pulse' :
+              saveStatus === 'saved' ? 'text-[var(--color-success)]' :
+              saveStatus === 'syncing' ? 'text-[var(--color-accent)] animate-pulse' :
+              'text-[var(--color-success)]'
+            }`}>
+              {saveStatus === 'saving' ? t('app.saving') :
+               saveStatus === 'saved' ? `✓ ${t('app.saved')}` :
+               saveStatus === 'syncing' ? `↑ ${t('app.syncing')}` :
+               `✓ ${t('app.synced')}`}
+            </span>
           )}
         </div>
 

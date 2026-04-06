@@ -74,6 +74,15 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--color-bg-primary);
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
 body {
   margin: 0;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;

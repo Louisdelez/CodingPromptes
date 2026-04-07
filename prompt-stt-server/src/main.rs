@@ -1,6 +1,7 @@
 mod api_routes;
 mod database;
 mod downloader;
+mod i18n;
 mod jwt_auth;
 mod models;
 mod ollama;
@@ -8,8 +9,9 @@ mod server;
 mod whisper_engine;
 
 use downloader::DownloadProgress;
+use i18n::{Lang, T};
 use iced::widget::{
-    button, column, container, horizontal_rule, image, pick_list, progress_bar, row, scrollable,
+    button, column, container, image, pick_list, progress_bar, row, scrollable,
     text, text_input, toggler, Space,
 };
 use iced::{border, Color, Element, Length, Task as IcedTask, Theme};
@@ -57,6 +59,7 @@ enum Message {
     OllamaToggle(bool),
     OllamaRefreshed(OllamaStatus),
     RefreshOllama,
+    LangChanged(Lang),
     Tick,
 }
 
@@ -81,6 +84,7 @@ struct App {
     ollama_models: Vec<ollama::OllamaModel>,
     ollama_error: Option<String>,
     log_messages: Vec<String>,
+    lang: Lang,
 }
 
 impl App {
@@ -96,6 +100,7 @@ impl App {
         let selected = installed.first().map(|m| m.id.clone());
         let ollama_state = OllamaState::new();
 
+        let lang = i18n::detect_system_lang();
         let mut app = Self {
             engine, server_running: true, port: 8910,
             selected_model: selected, all_models,
@@ -106,7 +111,8 @@ impl App {
             ollama_url: "http://localhost:11434".into(),
             ollama_enabled: true, ollama_connected: false,
             ollama_models: vec![], ollama_error: None,
-            log_messages: vec!["Inkwell GPU Server started".into()],
+            log_messages: vec![T::server_started(lang).into()],
+            lang,
         };
 
         // Auto-start HTTP server
@@ -115,7 +121,7 @@ impl App {
             let engine = app.engine.clone();
             let ollama = app.ollama_state.clone();
             let status_tx = app.server_status_tx.clone();
-            app.log_messages.push(format!("Listening on port {port}"));
+            app.log_messages.push(T::listening_on(app.lang, port));
             tokio::spawn(async move {
                 let db = database::Database::open().expect("Failed to open database");
                 server::start_server(port, engine, ollama, status_tx, db).await;
@@ -143,7 +149,7 @@ impl App {
                     let ollama = self.ollama_state.clone();
                     let status_tx = self.server_status_tx.clone();
                     self.server_running = true;
-                    self.log_messages.push(format!("Server started on port {port}"));
+                    self.log_messages.push(T::server_started_on(self.lang, port));
                     tokio::spawn(async move {
                         let db = database::Database::open().expect("Failed to open database");
                         server::start_server(port, engine, ollama, status_tx, db).await;
@@ -160,7 +166,7 @@ impl App {
                             self.load_error = None;
                             let engine = self.engine.clone();
                             let path = models::model_path(&model);
-                            self.log_messages.push(format!("Loading {}...", model.name));
+                            self.log_messages.push(T::loading_model(self.lang, &model.name));
                             return IcedTask::perform(
                                 async move { tokio::task::spawn_blocking(move || engine.load_model(&path)).await.unwrap_or_else(|e| Err(format!("{e}"))) },
                                 Message::ModelLoaded,
@@ -173,7 +179,7 @@ impl App {
             Message::ModelLoaded(result) => {
                 self.loading_model = false;
                 match result {
-                    Ok(()) => { self.model_loaded = true; self.load_error = None; self.log_messages.push("Whisper model loaded".into()); }
+                    Ok(()) => { self.model_loaded = true; self.load_error = None; self.log_messages.push(T::model_loaded(self.lang).into()); }
                     Err(e) => { self.load_error = Some(e.clone()); self.log_messages.push(format!("Error: {e}")); }
                 }
                 IcedTask::none()
@@ -181,14 +187,14 @@ impl App {
             Message::DownloadModel(id) => {
                 if let Some(model) = self.all_models.iter().find(|m| m.id == id).cloned() {
                     let tx = self.download_progress_tx.clone();
-                    self.log_messages.push(format!("Downloading {}...", model.name));
+                    self.log_messages.push(T::downloading_model(self.lang, &model.name));
                     return IcedTask::perform(async move { downloader::download_model(model, tx).await }, Message::DownloadDone);
                 }
                 IcedTask::none()
             }
             Message::DownloadDone(result) => {
                 match &result {
-                    Ok(()) => self.log_messages.push("Download complete".into()),
+                    Ok(()) => self.log_messages.push(T::download_complete(self.lang).into()),
                     Err(e) => self.log_messages.push(format!("Error: {e}")),
                 }
                 self.download_progress = None;
@@ -207,6 +213,7 @@ impl App {
                 if enabled { return self.refresh_ollama(); }
                 IcedTask::none()
             }
+            Message::LangChanged(lang) => { self.lang = lang; IcedTask::none() }
             Message::RefreshOllama => self.refresh_ollama(),
             Message::OllamaRefreshed(status) => {
                 self.ollama_connected = status.connected;
@@ -215,8 +222,8 @@ impl App {
                 if self.ollama_connected {
                     let count = self.ollama_models.len();
                     let last = self.log_messages.last().cloned().unwrap_or_default();
-                    if !last.contains("Ollama connected") {
-                        self.log_messages.push(format!("Ollama connected ({count} models)"));
+                    if !last.contains("Ollama") {
+                        self.log_messages.push(T::ollama_connected(self.lang, count));
                     }
                 }
                 IcedTask::none()
@@ -241,6 +248,7 @@ impl App {
     }
 
     fn view(&self) -> Element<'_, Message> {
+        let l = self.lang;
         let installed: Vec<String> = self.all_models.iter()
             .filter(|m| models::is_model_installed(m))
             .map(|m| m.id.clone()).collect();
@@ -253,14 +261,16 @@ impl App {
                 logo,
                 column![
                     text!("Inkwell").size(24).color(Color::WHITE),
-                    text!("GPU Server").size(12).color(ACCENT),
+                    text(T::gpu_server(l)).size(12).color(ACCENT),
                 ].spacing(2),
                 Space::with_width(Length::Fill),
+                // Lang selector
+                pick_list(Lang::ALL.as_slice(), Some(self.lang), Message::LangChanged),
                 // Status badge
                 container(
                     row![
                         text!("*").size(10).color(if self.server_running { SUCCESS } else { DANGER }),
-                        text(if self.server_running { "Online" } else { "Offline" }).size(11).color(Color::WHITE),
+                        text(if self.server_running { T::online(l) } else { T::offline(l) }).size(11).color(Color::WHITE),
                     ].spacing(4).align_y(iced::Alignment::Center)
                 ).padding(6)
                 .style(|_theme: &Theme| container::Style {
@@ -268,7 +278,7 @@ impl App {
                     border: border::rounded(20),
                     ..Default::default()
                 }),
-            ].align_y(iced::Alignment::Center)
+            ].spacing(8).align_y(iced::Alignment::Center)
         ).padding(18);
 
         // === Server Card ===
@@ -276,7 +286,7 @@ impl App {
             column![
                 row![
                     text!("S").size(14).color(ACCENT),
-                    text!("Server").size(14).color(Color::WHITE),
+                    text(T::server(l)).size(14).color(Color::WHITE),
                     Space::with_width(Length::Fill),
                     toggler(self.server_running).on_toggle(Message::ServerToggle),
                 ].spacing(8).align_y(iced::Alignment::Center),
@@ -284,7 +294,7 @@ impl App {
                 row![
                     text!("STT").size(9).color(MUTED),
                     text!("|").size(9).color(MUTED),
-                    text!("LLM Proxy").size(9).color(MUTED),
+                    text(T::proxy_llm(l)).size(9).color(MUTED),
                     text!("|").size(9).color(MUTED),
                     text!("API").size(9).color(MUTED),
                 ].spacing(4),
@@ -293,10 +303,10 @@ impl App {
 
         // === Ollama Card ===
         let ollama_status_color = if self.ollama_connected { SUCCESS } else if self.ollama_enabled { DANGER } else { MUTED };
-        let ollama_status_text = if !self.ollama_enabled { "Disabled".to_string() }
-            else if self.ollama_connected { format!("Connected — {} model(s)", self.ollama_models.len()) }
+        let ollama_status_text = if !self.ollama_enabled { T::disabled(l).to_string() }
+            else if self.ollama_connected { T::connected_models(l, self.ollama_models.len()) }
             else if let Some(ref e) = self.ollama_error { format!("Error: {}", &e[..e.len().min(40)]) }
-            else { "Disconnected".to_string() };
+            else { T::disconnected(l).to_string() };
 
         let mut ollama_card_content = column![
             row![
@@ -312,7 +322,7 @@ impl App {
             row![
                 text_input("http://localhost:11434", &self.ollama_url)
                     .on_input(Message::OllamaUrlChanged).size(11),
-                button(text!("Test").size(10)).on_press(Message::RefreshOllama).style(button::secondary),
+                button(text(T::test(l)).size(10)).on_press(Message::RefreshOllama).style(button::secondary),
             ].spacing(6),
         ].spacing(8);
 
@@ -340,10 +350,10 @@ impl App {
         let ollama_card = container(ollama_card_content.padding(14)).style(card_style);
 
         // === Whisper Card ===
-        let whisper_status = if self.model_loaded { ("*", "Ready", SUCCESS) }
-            else if self.loading_model { ("-", "Loading...", WARNING) }
-            else if let Some(ref e) = self.load_error { ("x", e.as_str(), DANGER) }
-            else { ("-", "No model loaded", MUTED) };
+        let whisper_status = if self.model_loaded { ("*", T::ready(l), SUCCESS) }
+            else if self.loading_model { ("-", T::loading(l), WARNING) }
+            else if self.load_error.is_some() { ("x", T::no_model_loaded(l), DANGER) }
+            else { ("-", T::no_model_loaded(l), MUTED) };
 
         let whisper_card = container(
             column![
@@ -356,11 +366,11 @@ impl App {
                 ].spacing(6).align_y(iced::Alignment::Center),
                 row![
                     pick_list(installed, self.selected_model.clone(), |id| Message::SelectModel(id))
-                        .placeholder("Select model..."),
+                        .placeholder(T::select_model(l)),
                     if self.loading_model {
                         button(text!("...").size(12))
                     } else {
-                        button(text!("Load").size(12)).on_press(Message::LoadModel).style(button::primary)
+                        button(text(T::load(l)).size(12)).on_press(Message::LoadModel).style(button::primary)
                     },
                 ].spacing(6),
             ].spacing(8).padding(14)
@@ -370,7 +380,7 @@ impl App {
         let mut dl_content = column![
             row![
                 text!("D").size(14).color(ACCENT),
-                text!("Whisper Models").size(14).color(Color::WHITE),
+                text(T::whisper_models(l)).size(14).color(Color::WHITE),
             ].spacing(8),
         ].spacing(6);
 
@@ -378,23 +388,36 @@ impl App {
             let is_installed = models::is_model_installed(model);
             let name = model.name.clone();
             let size = format!("{}MB", model.size_mb);
+            let params = model.params;
+            let vram = model.vram_gpu;
+            let ram = model.ram_cpu;
 
             dl_content = dl_content.push(
-                row![
-                    if is_installed {
-                        text!("ok").size(11).color(SUCCESS)
-                    } else {
-                        text!("-").size(11).color(MUTED)
-                    },
-                    text!("{name}").size(11).color(if is_installed { Color::WHITE } else { SUBTLE }),
-                    Space::with_width(Length::Fill),
-                    text!("{size}").size(10).color(MUTED),
-                    if !is_installed {
-                        button(text!("Download").size(9)).on_press(Message::DownloadModel(model.id.clone())).style(button::secondary)
-                    } else {
-                        button(text!("Installed").size(9)).style(button::text)
-                    },
-                ].spacing(8).align_y(iced::Alignment::Center)
+                column![
+                    row![
+                        if is_installed {
+                            text!("ok").size(11).color(SUCCESS)
+                        } else {
+                            text!("-").size(11).color(MUTED)
+                        },
+                        text!("{name}").size(11).color(if is_installed { Color::WHITE } else { SUBTLE }),
+                        Space::with_width(Length::Fill),
+                        text!("{size}").size(10).color(MUTED),
+                        if !is_installed {
+                            button(text(T::download(l)).size(9)).on_press(Message::DownloadModel(model.id.clone())).style(button::secondary)
+                        } else {
+                            button(text(T::installed(l)).size(9)).style(button::text)
+                        },
+                    ].spacing(8).align_y(iced::Alignment::Center),
+                    row![
+                        Space::with_width(20),
+                        text!("{params} params").size(9).color(MUTED),
+                        text!("|").size(9).color(CARD_BORDER),
+                        text!("GPU: {vram}").size(9).color(MUTED),
+                        text!("|").size(9).color(CARD_BORDER),
+                        text!("CPU: {ram}").size(9).color(MUTED),
+                    ].spacing(6),
+                ].spacing(2)
             );
         }
 
@@ -411,7 +434,7 @@ impl App {
 
         // === Log Card ===
         let mut log_content = column![
-            text!("Activity").size(12).color(SUBTLE),
+            text(T::activity(l)).size(12).color(SUBTLE),
         ].spacing(3);
         for msg in self.log_messages.iter().rev().take(5) {
             log_content = log_content.push(

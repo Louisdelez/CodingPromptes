@@ -6,7 +6,7 @@ description = "Local AI server (STT + LLM proxy) with Iced GUI for Inkwell"
 
 [dependencies]
 # GUI
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.13", features = ["tokio", "image"] }
 
 # HTTP server
 axum = "0.8"

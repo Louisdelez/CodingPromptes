@@ -9,8 +9,8 @@ mod whisper_engine;
 
 use downloader::DownloadProgress;
 use iced::widget::{
-    button, column, container, horizontal_rule, pick_list, progress_bar, row, scrollable, text,
-    text_input, toggler, Space,
+    button, column, container, horizontal_rule, image, pick_list, progress_bar, row, scrollable,
+    text, text_input, toggler, Space,
 };
 use iced::{border, Color, Element, Length, Task as IcedTask, Theme};
 use models::ModelInfo;
@@ -246,8 +246,11 @@ impl App {
             .map(|m| m.id.clone()).collect();
 
         // === Header ===
+        let logo_handle = image::Handle::from_bytes(include_bytes!("../assets/logo-96.png").to_vec());
+        let logo = image(logo_handle).width(64).height(64);
         let header = container(
             row![
+                logo,
                 column![
                     text!("Inkwell").size(24).color(Color::WHITE),
                     text!("GPU Server").size(12).color(ACCENT),

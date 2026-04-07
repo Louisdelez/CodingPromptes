@@ -256,7 +256,7 @@ impl App {
                 // Status badge
                 container(
                     row![
-                        text!("●").size(10).color(if self.server_running { SUCCESS } else { DANGER }),
+                        text!("*").size(10).color(if self.server_running { SUCCESS } else { DANGER }),
                         text(if self.server_running { "Online" } else { "Offline" }).size(11).color(Color::WHITE),
                     ].spacing(4).align_y(iced::Alignment::Center)
                 ).padding(6)
@@ -280,9 +280,9 @@ impl App {
                 text(format!("http://0.0.0.0:{}", self.port)).size(11).color(ACCENT),
                 row![
                     text!("STT").size(9).color(MUTED),
-                    text!("·").size(9).color(MUTED),
+                    text!("|").size(9).color(MUTED),
                     text!("LLM Proxy").size(9).color(MUTED),
-                    text!("·").size(9).color(MUTED),
+                    text!("|").size(9).color(MUTED),
                     text!("API").size(9).color(MUTED),
                 ].spacing(4),
             ].spacing(6).padding(14)
@@ -303,7 +303,7 @@ impl App {
                 toggler(self.ollama_enabled).on_toggle(Message::OllamaToggle),
             ].spacing(8).align_y(iced::Alignment::Center),
             row![
-                text!("●").size(8).color(ollama_status_color),
+                text!("*").size(8).color(ollama_status_color),
                 text!("{ollama_status_text}").size(11).color(ollama_status_color),
             ].spacing(4).align_y(iced::Alignment::Center),
             row![
@@ -337,10 +337,10 @@ impl App {
         let ollama_card = container(ollama_card_content.padding(14)).style(card_style);
 
         // === Whisper Card ===
-        let whisper_status = if self.model_loaded { ("●", "Ready", SUCCESS) }
-            else if self.loading_model { ("◌", "Loading...", WARNING) }
-            else if let Some(ref e) = self.load_error { ("✗", e.as_str(), DANGER) }
-            else { ("○", "No model loaded", MUTED) };
+        let whisper_status = if self.model_loaded { ("*", "Ready", SUCCESS) }
+            else if self.loading_model { ("-", "Loading...", WARNING) }
+            else if let Some(ref e) = self.load_error { ("x", e.as_str(), DANGER) }
+            else { ("-", "No model loaded", MUTED) };
 
         let whisper_card = container(
             column![
@@ -379,9 +379,9 @@ impl App {
             dl_content = dl_content.push(
                 row![
                     if is_installed {
-                        text!("✓").size(11).color(SUCCESS)
+                        text!("ok").size(11).color(SUCCESS)
                     } else {
-                        text!("○").size(11).color(MUTED)
+                        text!("-").size(11).color(MUTED)
                     },
                     text!("{name}").size(11).color(if is_installed { Color::WHITE } else { SUBTLE }),
                     Space::with_width(Length::Fill),
@@ -412,7 +412,7 @@ impl App {
         ].spacing(3);
         for msg in self.log_messages.iter().rev().take(5) {
             log_content = log_content.push(
-                text!("› {msg}").size(10).color(MUTED)
+                text!("- {msg}").size(10).color(MUTED)
             );
         }
         let log_card = container(log_content.padding(12)).style(card_style);

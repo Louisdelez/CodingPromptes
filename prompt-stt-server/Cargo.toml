@@ -33,7 +33,7 @@ axum-extra = { version = "0.10", features = ["typed-header"] }
 # Backend data
 rusqlite = { version = "0.32", features = ["bundled"] }
 jsonwebtoken = "9"
-argon2 = "0.5"
+argon2 = { version = "0.5", features = ["std"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 

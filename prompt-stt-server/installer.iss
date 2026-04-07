@@ -11,7 +11,6 @@ Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
-SetupIconFile=assets\logo-96.png
 UninstallDisplayIcon={app}\inkwell-gpu-server.exe
 PrivilegesRequired=lowest
 

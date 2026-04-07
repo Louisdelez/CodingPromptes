@@ -2,6 +2,8 @@ mod api_routes;
 mod database;
 mod downloader;
 mod fleet;
+mod hardware;
+mod hw_widgets;
 mod i18n;
 mod jwt_auth;
 mod models;
@@ -13,7 +15,7 @@ mod whisper_engine;
 use downloader::DownloadProgress;
 use i18n::{Lang, T};
 use iced::widget::{
-    button, column, container, image, pick_list, progress_bar, row, scrollable,
+    button, column, container, horizontal_rule, image, pick_list, progress_bar, row, scrollable,
     text, text_input, toggler, Space,
 };
 use iced::{border, Color, Element, Length, Task as IcedTask, Theme};
@@ -43,6 +45,7 @@ fn card_style(_theme: &Theme) -> container::Style {
 
 fn main() -> iced::Result {
     iced::application("Inkwell GPU Server", App::update, App::view)
+        .subscription(App::subscription)
         .theme(|_| Theme::Dark)
         .window_size((600.0, 800.0))
         .run_with(App::new)
@@ -53,6 +56,7 @@ fn main() -> iced::Result {
 enum Message {
     ServerToggle(bool),
     SelectModel(String),
+    WhisperUseGpu(bool),
     LoadModel,
     ModelLoaded(Result<(), String>),
     DownloadModel(String),
@@ -62,6 +66,8 @@ enum Message {
     OllamaRefreshed(OllamaStatus),
     RefreshOllama,
     LangChanged(Lang),
+    // Hardware
+    RefreshHardware,
     // Fleet
     FleetApiUrlChanged(String),
     FleetEmailChanged(String),
@@ -81,6 +87,7 @@ struct App {
     all_models: Vec<ModelInfo>,
     model_loaded: bool,
     loading_model: bool,
+    whisper_use_gpu: bool,
     load_error: Option<String>,
     download_progress: Option<DownloadProgress>,
     download_progress_rx: watch::Receiver<Option<DownloadProgress>>,
@@ -95,6 +102,11 @@ struct App {
     ollama_error: Option<String>,
     log_messages: Vec<String>,
     lang: Lang,
+    hw: hardware::HardwareInfo,
+    cpu_history: std::collections::VecDeque<f32>,
+    ram_history: std::collections::VecDeque<f32>,
+    gpu_history: std::collections::VecDeque<f32>,
+    vram_history: std::collections::VecDeque<f32>,
     // Fleet
     fleet: fleet::FleetState,
     fleet_api_url: String,
@@ -120,6 +132,7 @@ impl App {
         let ollama_state = OllamaState::new();
 
         let lang = i18n::detect_system_lang();
+        let hw = hardware::HardwareInfo::detect();
         let fleet = fleet::FleetState::new();
         let fleet_config_snapshot = {
             let rt = tokio::runtime::Handle::current();
@@ -130,7 +143,7 @@ impl App {
         let mut app = Self {
             engine, server_running: true, port: 8910,
             selected_model: selected, all_models,
-            model_loaded: false, loading_model: false, load_error: None,
+            model_loaded: false, loading_model: false, whisper_use_gpu: false, load_error: None,
             download_progress: None, download_progress_rx: dl_rx, download_progress_tx: dl_tx,
             server_status_tx: status_tx,
             ollama_state: ollama_state.clone(),
@@ -139,6 +152,11 @@ impl App {
             ollama_models: vec![], ollama_error: None,
             log_messages: vec![T::server_started(lang).into()],
             lang,
+            hw,
+            cpu_history: std::collections::VecDeque::with_capacity(60),
+            ram_history: std::collections::VecDeque::with_capacity(60),
+            gpu_history: std::collections::VecDeque::with_capacity(60),
+            vram_history: std::collections::VecDeque::with_capacity(60),
             fleet: fleet.clone(),
             fleet_api_url: fleet_config_snapshot.api_url.clone(),
             fleet_email: fleet_config_snapshot.user_email.clone(),
@@ -202,6 +220,8 @@ impl App {
                 IcedTask::none()
             }
             Message::SelectModel(id) => { self.selected_model = Some(id); IcedTask::none() }
+            Message::RefreshHardware => { self.hw = hardware::HardwareInfo::detect(); IcedTask::none() }
+            Message::WhisperUseGpu(v) => { self.whisper_use_gpu = v; IcedTask::none() }
             Message::LoadModel => {
                 if let Some(ref id) = self.selected_model {
                     if let Some(model) = self.all_models.iter().find(|m| m.id == *id).cloned() {
@@ -210,9 +230,11 @@ impl App {
                             self.load_error = None;
                             let engine = self.engine.clone();
                             let path = models::model_path(&model);
-                            self.log_messages.push(T::loading_model(self.lang, &model.name));
+                            let use_gpu = self.whisper_use_gpu;
+                            let device_label = if use_gpu { "GPU" } else { "CPU" };
+                            self.log_messages.push(format!("{} ({})", T::loading_model(self.lang, &model.name), device_label));
                             return IcedTask::perform(
-                                async move { tokio::task::spawn_blocking(move || engine.load_model(&path)).await.unwrap_or_else(|e| Err(format!("{e}"))) },
+                                async move { tokio::task::spawn_blocking(move || engine.load_model(&path, use_gpu)).await.unwrap_or_else(|e| Err(format!("{e}"))) },
                                 Message::ModelLoaded,
                             );
                         }
@@ -322,9 +344,25 @@ impl App {
                 if self.download_progress_rx.has_changed().unwrap_or(false) {
                     self.download_progress = self.download_progress_rx.borrow_and_update().clone();
                 }
+                self.hw.refresh();
+                // Push history (keep last 60 points)
+                if self.cpu_history.len() >= 60 { self.cpu_history.pop_front(); }
+                self.cpu_history.push_back(self.hw.cpu.usage_percent);
+                if self.ram_history.len() >= 60 { self.ram_history.pop_front(); }
+                self.ram_history.push_back(self.hw.ram.usage_percent);
+                if let Some(ref gpu) = self.hw.gpu {
+                    if self.gpu_history.len() >= 60 { self.gpu_history.pop_front(); }
+                    self.gpu_history.push_back(gpu.gpu_utilization as f32);
+                    if self.vram_history.len() >= 60 { self.vram_history.pop_front(); }
+                    self.vram_history.push_back(gpu.vram_usage_percent);
+                }
                 IcedTask::none()
             }
         }
+    }
+
+    fn subscription(&self) -> iced::Subscription<Message> {
+        iced::time::every(std::time::Duration::from_secs(2)).map(|_| Message::Tick)
     }
 
     fn refresh_ollama(&self) -> IcedTask<Message> {
@@ -391,6 +429,122 @@ impl App {
             ].spacing(6).padding(14)
         ).style(card_style);
 
+        // === Hardware Card ===
+        let cpu_usage = self.hw.cpu.usage_percent;
+        let ram_usage = self.hw.ram.usage_percent;
+        let cpu_dyn_color = hw_widgets::usage_color(cpu_usage, hw_widgets::CPU_COLOR);
+        let ram_dyn_color = hw_widgets::usage_color(ram_usage, hw_widgets::RAM_COLOR);
+
+        let mut hw_content = column![
+            // Header
+            row![
+                text!("H").size(14).color(ACCENT),
+                text!("Hardware").size(14).color(Color::WHITE),
+                Space::with_width(Length::Fill),
+                text!("{}", self.hw.os).size(9).color(MUTED),
+            ].spacing(6).align_y(iced::Alignment::Center),
+
+            // CPU
+            row![
+                hw_widgets::ring_gauge(cpu_usage, cpu_dyn_color, "CPU", 70.0),
+                column![
+                    row![
+                        text!("CPU").size(12).color(hw_widgets::CPU_COLOR),
+                        Space::with_width(Length::Fill),
+                        text!("{:.0}%", cpu_usage).size(16).color(cpu_dyn_color),
+                    ].align_y(iced::Alignment::Center),
+                    hw_widgets::sparkline(&self.cpu_history, hw_widgets::CPU_COLOR, 60, 40.0),
+                    text!("{}", self.hw.cpu.name).size(9).color(SUBTLE),
+                    text!("{} cores / {} threads", self.hw.cpu.cores, self.hw.cpu.threads).size(9).color(MUTED),
+                ].spacing(4).width(Length::Fill),
+            ].spacing(12).align_y(iced::Alignment::Center),
+
+            horizontal_rule(1),
+
+            // RAM
+            row![
+                hw_widgets::ring_gauge(ram_usage, ram_dyn_color, "RAM", 70.0),
+                column![
+                    row![
+                        text!("RAM").size(12).color(hw_widgets::RAM_COLOR),
+                        Space::with_width(Length::Fill),
+                        text!("{:.1} / {:.1} Go", self.hw.ram.used_gb, self.hw.ram.total_gb).size(11).color(Color::WHITE),
+                        text!("{:.0}%", ram_usage).size(16).color(ram_dyn_color),
+                    ].spacing(6).align_y(iced::Alignment::Center),
+                    hw_widgets::sparkline(&self.ram_history, hw_widgets::RAM_COLOR, 60, 40.0),
+                    row![
+                        text!("Disponible:").size(9).color(MUTED),
+                        text!("{:.1} Go", self.hw.ram.available_gb).size(9).color(SUCCESS),
+                    ].spacing(4),
+                ].spacing(4).width(Length::Fill),
+            ].spacing(12).align_y(iced::Alignment::Center),
+        ].spacing(14);
+
+        // GPU section
+        if let Some(ref gpu) = self.hw.gpu {
+            let gpu_load = gpu.gpu_utilization as f32;
+            let vram_pct = gpu.vram_usage_percent;
+            let gpu_dyn_color = hw_widgets::usage_color(gpu_load, hw_widgets::GPU_COLOR);
+            let vram_dyn_color = hw_widgets::usage_color(vram_pct, hw_widgets::VRAM_COLOR);
+            let temp_color = if gpu.temperature > 80 { DANGER } else if gpu.temperature > 60 { WARNING } else { hw_widgets::GPU_COLOR };
+
+            hw_content = hw_content
+                .push(horizontal_rule(1))
+                .push(
+                    row![
+                        hw_widgets::ring_gauge(gpu_load, gpu_dyn_color, "GPU", 70.0),
+                        column![
+                            row![
+                                text!("GPU").size(12).color(hw_widgets::GPU_COLOR),
+                                Space::with_width(Length::Fill),
+                                text!("{}C", gpu.temperature).size(11).color(temp_color),
+                                text!("{:.0}%", gpu_load).size(16).color(gpu_dyn_color),
+                            ].spacing(6).align_y(iced::Alignment::Center),
+                            hw_widgets::sparkline(&self.gpu_history, hw_widgets::GPU_COLOR, 60, 40.0),
+                            text!("{}", gpu.name).size(9).color(SUBTLE),
+                        ].spacing(4).width(Length::Fill),
+                    ].spacing(12).align_y(iced::Alignment::Center)
+                )
+                .push(horizontal_rule(1))
+                .push(
+                    row![
+                        hw_widgets::ring_gauge(vram_pct, vram_dyn_color, "VRAM", 70.0),
+                        column![
+                            row![
+                                text!("VRAM").size(12).color(hw_widgets::VRAM_COLOR),
+                                Space::with_width(Length::Fill),
+                                text!("{:.1} / {:.1} Go", gpu.vram_used_mb as f64 / 1024.0, gpu.vram_total_mb as f64 / 1024.0).size(11).color(Color::WHITE),
+                                text!("{:.0}%", vram_pct).size(16).color(vram_dyn_color),
+                            ].spacing(6).align_y(iced::Alignment::Center),
+                            hw_widgets::sparkline(&self.vram_history, hw_widgets::VRAM_COLOR, 60, 40.0),
+                            row![
+                                text!("Disponible:").size(9).color(MUTED),
+                                text!("{:.1} Go", gpu.vram_free_mb as f64 / 1024.0).size(9).color(SUCCESS),
+                                text!("|").size(9).color(CARD_BORDER),
+                                text!("Driver {}", gpu.driver_version).size(9).color(MUTED),
+                                text!("|").size(9).color(CARD_BORDER),
+                                text!("CUDA {}", gpu.cuda_version).size(9).color(MUTED),
+                            ].spacing(4),
+                        ].spacing(4).width(Length::Fill),
+                    ].spacing(12).align_y(iced::Alignment::Center)
+                );
+        } else {
+            hw_content = hw_content
+                .push(horizontal_rule(1))
+                .push(
+                    column![
+                        row![
+                            text!("GPU").size(12).color(DANGER),
+                            Space::with_width(Length::Fill),
+                            text!("Non detecte").size(10).color(DANGER),
+                        ].align_y(iced::Alignment::Center),
+                        text!("nvidia-smi introuvable — CPU uniquement").size(9).color(MUTED),
+                    ].spacing(4)
+                );
+        }
+
+        let hardware_card = container(hw_content.padding(16)).style(card_style);
+
         // === Ollama Card ===
         let ollama_status_color = if self.ollama_connected { SUCCESS } else if self.ollama_enabled { DANGER } else { MUTED };
         let ollama_status_text = if !self.ollama_enabled { T::disabled(l).to_string() }
@@ -445,26 +599,159 @@ impl App {
             else if self.load_error.is_some() { ("x", T::no_model_loaded(l), DANGER) }
             else { ("-", T::no_model_loaded(l), MUTED) };
 
-        let whisper_card = container(
-            column![
-                row![
-                    text!("W").size(14).color(ACCENT),
-                    text!("Whisper (STT)").size(14).color(Color::WHITE),
-                    Space::with_width(Length::Fill),
-                    text(whisper_status.0).size(10).color(whisper_status.2),
-                    text(whisper_status.1).size(10).color(whisper_status.2),
-                ].spacing(6).align_y(iced::Alignment::Center),
-                row![
-                    pick_list(installed, self.selected_model.clone(), |id| Message::SelectModel(id))
-                        .placeholder(T::select_model(l)),
-                    if self.loading_model {
-                        button(text!("...").size(12))
-                    } else {
-                        button(text(T::load(l)).size(12)).on_press(Message::LoadModel).style(button::primary)
-                    },
-                ].spacing(6),
-            ].spacing(8).padding(14)
-        ).style(card_style);
+        let gpu_available = self.hw.has_gpu();
+
+        // Find hardware reqs for selected model
+        let model_reqs = hardware::whisper_model_reqs();
+        let selected_reqs = self.selected_model.as_ref().and_then(|sel| {
+            let model = self.all_models.iter().find(|m| m.id == *sel)?;
+            model_reqs.iter().find(|r| r.model_name == model.name).cloned()
+        });
+
+        let cpu_ram_free = self.hw.ram.available_gb;
+        let gpu_vram_free = self.hw.gpu.as_ref().map(|g| g.vram_free_mb as f64 / 1024.0).unwrap_or(0.0);
+
+        let mut whisper_content = column![
+            // Header
+            row![
+                text!("W").size(14).color(ACCENT),
+                text!("Whisper (STT)").size(14).color(Color::WHITE),
+                Space::with_width(Length::Fill),
+                text(whisper_status.0).size(10).color(whisper_status.2),
+                text(whisper_status.1).size(10).color(whisper_status.2),
+            ].spacing(6).align_y(iced::Alignment::Center),
+
+            // Model selector
+            pick_list(installed, self.selected_model.clone(), |id| Message::SelectModel(id))
+                .placeholder(T::select_model(l)).width(Length::Fill),
+        ].spacing(10);
+
+        // Device selection (only show when a model is selected)
+        if let Some(ref reqs) = selected_reqs {
+            let can_cpu = cpu_ram_free >= reqs.cpu_ram_gb * 1.2;
+            let can_gpu = gpu_available && gpu_vram_free >= reqs.gpu_vram_gb * 0.9;
+
+            // CPU button
+            let cpu_selected = !self.whisper_use_gpu;
+            let cpu_border_color = if cpu_selected { ACCENT } else { CARD_BORDER };
+            let cpu_bg = if cpu_selected { Color::from_rgba(0.39, 0.40, 0.95, 0.08) } else { CARD_BG };
+
+            let cpu_card = container(
+                column![
+                    row![
+                        text!("CPU").size(13).color(if cpu_selected { ACCENT } else { Color::WHITE }),
+                        Space::with_width(Length::Fill),
+                        if can_cpu {
+                            text!("Compatible").size(9).color(SUCCESS)
+                        } else {
+                            text!("RAM insuffisante").size(9).color(DANGER)
+                        },
+                    ].spacing(6).align_y(iced::Alignment::Center),
+                    text!("{}", self.hw.cpu.name).size(9).color(SUBTLE),
+                    row![
+                        text!("Requis:").size(9).color(MUTED),
+                        text!("{:.1} Go RAM", reqs.cpu_ram_gb).size(9).color(Color::WHITE),
+                        text!("|").size(9).color(CARD_BORDER),
+                        text!("Dispo:").size(9).color(MUTED),
+                        text!("{:.1} Go", cpu_ram_free).size(9).color(if can_cpu { SUCCESS } else { DANGER }),
+                    ].spacing(4),
+                    text!("{}", reqs.cpu_note).size(8).color(MUTED),
+                ].spacing(4).padding(10)
+            ).style(move |_theme: &Theme| container::Style {
+                background: Some(iced::Background::Color(cpu_bg)),
+                border: border::rounded(8).color(cpu_border_color).width(if cpu_selected { 2 } else { 1 }),
+                ..Default::default()
+            });
+
+            let cpu_btn = button(cpu_card).on_press(Message::WhisperUseGpu(false)).width(Length::Fill)
+                .style(|_theme: &Theme, _status| button::Style::default());
+
+            // GPU button
+            let gpu_selected = self.whisper_use_gpu;
+            let gpu_border_color = if gpu_selected { SUCCESS } else { CARD_BORDER };
+            let gpu_bg = if gpu_selected { Color::from_rgba(0.20, 0.83, 0.60, 0.08) } else { CARD_BG };
+
+            let gpu_inner = if gpu_available {
+                let gpu = self.hw.gpu.as_ref().unwrap();
+                column![
+                    row![
+                        text!("GPU").size(13).color(if gpu_selected { SUCCESS } else { Color::WHITE }),
+                        Space::with_width(Length::Fill),
+                        if can_gpu {
+                            text!("Compatible").size(9).color(SUCCESS)
+                        } else {
+                            text!("VRAM insuffisante").size(9).color(DANGER)
+                        },
+                    ].spacing(6).align_y(iced::Alignment::Center),
+                    text!("{}", gpu.name).size(9).color(SUBTLE),
+                    row![
+                        text!("Requis:").size(9).color(MUTED),
+                        text!("{:.1} Go VRAM", reqs.gpu_vram_gb).size(9).color(Color::WHITE),
+                        text!("|").size(9).color(CARD_BORDER),
+                        text!("Dispo:").size(9).color(MUTED),
+                        text!("{:.1} Go", gpu_vram_free).size(9).color(if can_gpu { SUCCESS } else { DANGER }),
+                    ].spacing(4),
+                    text!("{}", reqs.gpu_note).size(8).color(MUTED),
+                ].spacing(4).padding(10)
+            } else {
+                column![
+                    row![
+                        text!("GPU").size(13).color(MUTED),
+                        Space::with_width(Length::Fill),
+                        text!("Non detecte").size(9).color(DANGER),
+                    ].spacing(6).align_y(iced::Alignment::Center),
+                    text!("Aucun GPU NVIDIA detecte").size(9).color(MUTED),
+                ].spacing(4).padding(10)
+            };
+
+            let gpu_card = container(gpu_inner).style(move |_theme: &Theme| container::Style {
+                background: Some(iced::Background::Color(gpu_bg)),
+                border: border::rounded(8).color(gpu_border_color).width(if gpu_selected { 2 } else { 1 }),
+                ..Default::default()
+            });
+
+            let gpu_btn = if gpu_available {
+                button(gpu_card).on_press(Message::WhisperUseGpu(true)).width(Length::Fill)
+                    .style(|_theme: &Theme, _status| button::Style::default())
+            } else {
+                button(gpu_card).width(Length::Fill)
+                    .style(|_theme: &Theme, _status| button::Style::default())
+            };
+
+            whisper_content = whisper_content
+                .push(cpu_btn)
+                .push(gpu_btn);
+
+            // Recommendation
+            let rec_text = match reqs.recommendation {
+                hardware::DeviceRecommendation::CpuOnly => "CPU suffisant pour ce modele",
+                hardware::DeviceRecommendation::GpuRecommended => "GPU recommande pour de meilleures performances",
+                hardware::DeviceRecommendation::GpuRequired => "GPU fortement recommande pour ce modele",
+            };
+            let rec_color = match reqs.recommendation {
+                hardware::DeviceRecommendation::CpuOnly => MUTED,
+                hardware::DeviceRecommendation::GpuRecommended => ACCENT,
+                hardware::DeviceRecommendation::GpuRequired => WARNING,
+            };
+            whisper_content = whisper_content.push(
+                text(rec_text).size(9).color(rec_color)
+            );
+        }
+
+        // Load button
+        whisper_content = whisper_content.push(
+            if self.loading_model {
+                button(text!("...").size(12)).width(Length::Fill)
+            } else {
+                button(text(T::load(l)).size(12)).on_press(Message::LoadModel).style(button::primary).width(Length::Fill)
+            }
+        );
+
+        if let Some(ref e) = self.load_error {
+            whisper_content = whisper_content.push(text!("{e}").size(9).color(DANGER));
+        }
+
+        let whisper_card = container(whisper_content.padding(14)).style(card_style);
 
         // === Downloads Card ===
         let mut dl_content = column![
@@ -595,6 +882,7 @@ impl App {
                 column![
                     fleet_card,
                     server_card,
+                    hardware_card,
                     ollama_card,
                     whisper_card,
                     download_card,

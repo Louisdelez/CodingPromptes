@@ -85,6 +85,8 @@ export interface ModelConfig {
   inputCostPer1k: number;
   outputCostPer1k: number;
   maxContext: number;
+  nodeAddress?: string;
+  nodeName?: string;
 }
 
 export const LOCAL_SERVER_URL_KEY = 'inkwell-local-server-url';

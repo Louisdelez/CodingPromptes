@@ -6,7 +6,7 @@ description = "Local AI server (STT + LLM proxy) with Iced GUI for Inkwell"
 
 [dependencies]
 # GUI
-iced = { version = "0.13", features = ["tokio", "image"] }
+iced = { version = "0.13", features = ["tokio", "image", "canvas"] }
 
 # HTTP server
 axum = { version = "0.8", features = ["ws"] }
@@ -43,3 +43,6 @@ bollard = "0.18"
 # Fleet (multi-node GPU)
 hostname = "0.4"
 local-ip-address = "0.6"
+
+# Hardware detection
+sysinfo = "0.35"

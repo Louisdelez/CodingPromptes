@@ -5,6 +5,8 @@ export type SttProvider = 'local' | 'openai' | 'deepgram' | 'groq';
 export interface SttConfig {
   provider: SttProvider;
   localServerUrl: string; // e.g. http://192.168.1.50:8910
+  nodeAddress?: string;   // GPU node address (overrides localServerUrl when set)
+  nodeName?: string;      // GPU node name for display
   language: string;       // "auto", "fr", "en", etc.
 }
 
@@ -163,7 +165,8 @@ export async function transcribe(audioBlob: Blob, config: SttConfig): Promise<st
 
 async function transcribeLocal(blob: Blob, config: SttConfig): Promise<string> {
   const audio = await blobToWavBase64(blob);
-  const url = `${config.localServerUrl.replace(/\/$/, '')}/transcribe`;
+  const serverUrl = (config.nodeAddress || config.localServerUrl).replace(/\/$/, '');
+  const url = `${serverUrl}/transcribe`;
   const lang = config.language === 'auto' ? undefined : config.language;
 
   const res = await fetch(url, {

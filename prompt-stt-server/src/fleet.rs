@@ -139,6 +139,10 @@ impl FleetState {
 
         // Build capabilities
         let stt_loaded = engine.is_loaded();
+        let stt_device = match engine.current_device() {
+            crate::whisper_engine::ComputeDevice::Gpu => "gpu",
+            crate::whisper_engine::ComputeDevice::Cpu => "cpu",
+        };
         let active_model = engine.current_model_path().and_then(|p| {
             crate::models::available_models().iter()
                 .find(|m| p.contains(&m.filename))
@@ -160,6 +164,7 @@ impl FleetState {
                 "model_loaded": stt_loaded,
                 "active_model": active_model,
                 "available_models": installed,
+                "device": stt_device,
             },
             "llm": {
                 "ollama_connected": ollama_status.connected,

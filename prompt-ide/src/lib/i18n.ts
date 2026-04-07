@@ -318,6 +318,8 @@ export const translations = {
   'fleet.empty': { fr: 'Aucun node GPU connecte. Lancez le serveur GPU Inkwell sur vos machines.', en: 'No GPU nodes connected. Start Inkwell GPU Server on your machines.' },
   'fleet.confirm_delete': { fr: 'Supprimer ce node ?', en: 'Delete this node?' },
   'fleet.no_capabilities': { fr: 'Aucun modele charge', en: 'No models loaded' },
+  'stt.selectNode': { fr: 'Node GPU pour Whisper', en: 'GPU node for Whisper' },
+  'stt.noSttNodes': { fr: 'Aucun serveur GPU avec Whisper charge. Lancez un serveur GPU et chargez un modele Whisper.', en: 'No GPU server with Whisper loaded. Start a GPU server and load a Whisper model.' },
 
   // Terminal
   'tab.terminal': { fr: 'Terminal', en: 'Terminal' },

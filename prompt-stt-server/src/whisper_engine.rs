@@ -2,9 +2,16 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputeDevice {
+    Cpu,
+    Gpu,
+}
+
 pub struct WhisperEngine {
     ctx: Arc<Mutex<Option<WhisperContext>>>,
     current_model: Arc<Mutex<Option<String>>>,
+    device: Arc<Mutex<ComputeDevice>>,
 }
 
 impl WhisperEngine {
@@ -12,21 +19,25 @@ impl WhisperEngine {
         Self {
             ctx: Arc::new(Mutex::new(None)),
             current_model: Arc::new(Mutex::new(None)),
+            device: Arc::new(Mutex::new(ComputeDevice::Cpu)),
         }
     }
 
-    pub fn load_model(&self, model_path: &Path) -> Result<(), String> {
+    pub fn load_model(&self, model_path: &Path, use_gpu: bool) -> Result<(), String> {
         let path_str = model_path
             .to_str()
             .ok_or("Invalid model path")?
             .to_string();
 
-        let params = WhisperContextParameters::default();
+        let mut params = WhisperContextParameters::default();
+        params.use_gpu(use_gpu);
+
         let ctx = WhisperContext::new_with_params(&path_str, params)
             .map_err(|e| format!("Failed to load model: {e}"))?;
 
         *self.ctx.lock().unwrap() = Some(ctx);
         *self.current_model.lock().unwrap() = Some(path_str);
+        *self.device.lock().unwrap() = if use_gpu { ComputeDevice::Gpu } else { ComputeDevice::Cpu };
         Ok(())
     }
 
@@ -38,6 +49,10 @@ impl WhisperEngine {
         self.current_model.lock().unwrap().clone()
     }
 
+    pub fn current_device(&self) -> ComputeDevice {
+        *self.device.lock().unwrap()
+    }
+
     pub fn transcribe(&self, audio_data: &[f32], language: Option<&str>) -> Result<String, String> {
         let ctx_guard = self.ctx.lock().unwrap();
         let ctx = ctx_guard.as_ref().ok_or("No model loaded")?;
@@ -46,7 +61,6 @@ impl WhisperEngine {
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
 
-        // Configure for dictation
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -90,6 +104,7 @@ impl Clone for WhisperEngine {
         Self {
             ctx: Arc::clone(&self.ctx),
             current_model: Arc::clone(&self.current_model),
+            device: Arc::clone(&self.device),
         }
     }
 }

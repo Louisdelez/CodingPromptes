@@ -150,7 +150,9 @@ async function callLocal(
   model: ModelConfig,
   opts: { temperature: number; maxTokens: number; systemPrompt?: string; start: number }
 ): Promise<ApiResponse> {
-  const baseUrl = getLocalServerUrl().replace(/\/$/, '');
+  const baseUrl = (model.nodeAddress || getLocalServerUrl()).replace(/\/$/, '');
+  // Strip node prefix from model ID (e.g. "node-uuid::qwen3.5:9b" -> "qwen3.5:9b")
+  const modelId = model.id.includes('::') ? model.id.split('::').slice(1).join('::') : model.id;
   const messages: ChatMessage[] = [];
   if (opts.systemPrompt) messages.push({ role: 'system', content: opts.systemPrompt });
   messages.push({ role: 'user', content: prompt });
@@ -159,7 +161,7 @@ async function callLocal(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: model.id,
+      model: modelId,
       messages,
       temperature: opts.temperature,
       max_tokens: opts.maxTokens,
@@ -214,7 +216,7 @@ async function callOpenAICompatibleStream(
 
   const isLocal = model.provider === 'local';
   const baseUrl = isLocal
-    ? getLocalServerUrl().replace(/\/$/, '') + '/v1/chat/completions'
+    ? (model.nodeAddress || getLocalServerUrl()).replace(/\/$/, '') + '/v1/chat/completions'
     : 'https://api.openai.com/v1/chat/completions';
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -222,11 +224,13 @@ async function callOpenAICompatibleStream(
     headers['Authorization'] = `Bearer ${apiKeys.openai!}`;
   }
 
+  const modelId = model.id.includes('::') ? model.id.split('::').slice(1).join('::') : model.id;
+
   const res = await fetch(baseUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      model: model.id,
+      model: modelId,
       messages,
       temperature,
       max_tokens: maxTokens,
@@ -353,7 +357,7 @@ export async function callLLMStreamMessages(
   // For openai and local: SSE streaming with full messages
   const isLocal = model.provider === 'local';
   const baseUrl = isLocal
-    ? getLocalServerUrl().replace(/\/$/, '') + '/v1/chat/completions'
+    ? (model.nodeAddress || getLocalServerUrl()).replace(/\/$/, '') + '/v1/chat/completions'
     : 'https://api.openai.com/v1/chat/completions';
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -361,11 +365,13 @@ export async function callLLMStreamMessages(
     headers['Authorization'] = `Bearer ${apiKeys.openai!}`;
   }
 
+  const modelId = model.id.includes('::') ? model.id.split('::').slice(1).join('::') : model.id;
+
   const res = await fetch(baseUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      model: model.id,
+      model: modelId,
       messages,
       temperature,
       max_tokens: maxTokens,
@@ -428,8 +434,8 @@ export async function callLLMStreamMessages(
 }
 
 // Fetch available models from local server (Ollama proxy)
-export async function fetchLocalModels(): Promise<{ id: string; name: string }[]> {
-  const baseUrl = getLocalServerUrl().replace(/\/$/, '');
+export async function fetchLocalModels(serverUrl?: string): Promise<{ id: string; name: string }[]> {
+  const baseUrl = (serverUrl || getLocalServerUrl()).replace(/\/$/, '');
   try {
     const res = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return [];

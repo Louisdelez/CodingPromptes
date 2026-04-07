@@ -31,32 +31,72 @@ export function Playground({ blocks, variables, projectId, triggerExecute, onExe
 
   // Local server
   const [localUrl, setLocalUrl] = useState(getLocalServerUrl);
-  const [localModels, setLocalModels] = useState<{ id: string; name: string }[]>([]);
+  const [localModels, setLocalModels] = useState<ModelConfig[]>([]);
   const [localConnected, setLocalConnected] = useState(false);
 
-  // Fetch local models on mount and when URL changes
+  // Fetch local models from all GPU nodes + fallback direct URL
   useEffect(() => {
     const check = async () => {
       setLocalServerUrl(localUrl);
-      const models = await fetchLocalModels();
-      setLocalModels(models);
-      setLocalConnected(models.length > 0);
+      const allLocalModels: ModelConfig[] = [];
+      let anyConnected = false;
+
+      // Try fetching from fleet nodes
+      try {
+        const nodes = await backend.listNodes();
+        const onlineNodes = nodes.filter(n => n.status === 'online');
+
+        for (const node of onlineNodes) {
+          try {
+            const models = await fetchLocalModels(node.address);
+            if (models.length > 0) {
+              anyConnected = true;
+              for (const m of models) {
+                allLocalModels.push({
+                  id: `${node.id}::${m.id}`,
+                  name: `${m.name} (${node.name})`,
+                  provider: 'local' as const,
+                  inputCostPer1k: 0,
+                  outputCostPer1k: 0,
+                  maxContext: 128000,
+                  nodeAddress: node.address,
+                  nodeName: node.name,
+                });
+              }
+            }
+          } catch { /* node unreachable */ }
+        }
+      } catch { /* fleet not available */ }
+
+      // Fallback: also try direct local server URL (for users without fleet)
+      if (allLocalModels.length === 0) {
+        const models = await fetchLocalModels();
+        if (models.length > 0) {
+          anyConnected = true;
+          for (const m of models) {
+            allLocalModels.push({
+              id: m.id,
+              name: m.name,
+              provider: 'local' as const,
+              inputCostPer1k: 0,
+              outputCostPer1k: 0,
+              maxContext: 128000,
+            });
+          }
+        }
+      }
+
+      setLocalModels(allLocalModels);
+      setLocalConnected(anyConnected);
     };
     check();
-    const interval = setInterval(check, 10000);
+    const interval = setInterval(check, 15000);
     return () => clearInterval(interval);
   }, [localUrl]);
 
   // Build combined model list: local models first, then cloud
   const allModels: ModelConfig[] = useMemo(() => [
-    ...localModels.map((m) => ({
-      id: m.id,
-      name: m.name,
-      provider: 'local' as const,
-      inputCostPer1k: 0,
-      outputCostPer1k: 0,
-      maxContext: 128000,
-    })),
+    ...localModels,
     ...MODELS,
   ], [localModels]);
 

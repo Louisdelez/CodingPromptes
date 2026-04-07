@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Mic, Wifi, WifiOff, Globe, Server } from 'lucide-react';
+import { Mic, Wifi, WifiOff, Globe, Cpu } from 'lucide-react';
 import { getSttConfig, setSttConfig, type SttConfig, type SttProvider } from '../lib/stt';
 import { useT, type TranslationKey } from '../lib/i18n';
+import { listNodes, parseCapabilities, type GpuNode } from '../lib/backend';
 
 const PROVIDER_ICONS: Record<SttProvider, React.ComponentType<{ size?: number }>> = {
-  local: Server,
+  local: Cpu,
   openai: Globe,
   groq: Globe,
   deepgram: Globe,
@@ -28,6 +29,26 @@ export function SttSettings() {
   }));
   const [config, setConfig] = useState<SttConfig>(getSttConfig);
   const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [sttNodes, setSttNodes] = useState<GpuNode[]>([]);
+
+  // Fetch GPU nodes with STT capability
+  useEffect(() => {
+    const fetchNodes = async () => {
+      try {
+        const nodes = await listNodes();
+        const withStt = nodes.filter(n => {
+          if (n.status !== 'online') return false;
+          const caps = parseCapabilities(n);
+          return caps.stt.model_loaded;
+        });
+        setSttNodes(withStt);
+      } catch { /* fleet not available */ }
+    };
+    fetchNodes();
+    const iv = setInterval(fetchNodes, 15000);
+    return () => clearInterval(iv);
+  }, []);
+
   const [apiKeys, setApiKeysLocal] = useState<Record<string, string>>(() => {
     try {
       const raw = localStorage.getItem('prompt-ide-stt-extra-keys');
@@ -109,26 +130,40 @@ export function SttSettings() {
         ))}
       </div>
 
-      {/* Local server URL */}
+      {/* Local STT: GPU node selector */}
       {config.provider === 'local' && (
-        <div className="space-y-1.5 animate-fadeIn">
-          <label className="text-xs text-[var(--color-text-muted)]">{t('stt.serverUrl')}</label>
-          <input
-            type="text"
-            value={config.localServerUrl}
-            onChange={(e) => updateConfig({ localServerUrl: e.target.value })}
-            placeholder="http://localhost:8910"
-            className="w-full px-2.5 py-2 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg focus:border-[var(--color-accent)] outline-none text-[var(--color-text-primary)] font-mono"
-          />
-          <div className="flex items-center gap-1.5 text-xs">
-            {serverStatus === 'online' ? (
-              <span className="text-[var(--color-success)]">{t('stt.connected')}</span>
-            ) : serverStatus === 'offline' ? (
-              <span className="text-[var(--color-danger)]">{t('stt.disconnected')}</span>
-            ) : (
-              <span className="text-[var(--color-text-muted)]">{t('stt.checking')}</span>
-            )}
-          </div>
+        <div className="space-y-2 animate-fadeIn">
+          <label className="text-xs text-[var(--color-text-muted)]">{t('stt.selectNode')}</label>
+          {sttNodes.length > 0 ? (
+            sttNodes.map(node => {
+              const caps = parseCapabilities(node);
+              const isSelected = config.nodeAddress === node.address;
+              return (
+                <button
+                  key={node.id}
+                  onClick={() => updateConfig({ nodeAddress: node.address, nodeName: node.name, localServerUrl: node.address })}
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-lg border transition-all text-left ${
+                    isSelected
+                      ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                      : 'border-[var(--color-border)] hover:border-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)]'
+                  }`}
+                >
+                  <Cpu size={14} className="text-[var(--color-accent)]" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-[var(--color-text-primary)]">{node.name}</div>
+                    <div className="text-[10px] text-[var(--color-text-muted)]">
+                      Whisper {caps.stt.active_model || '?'} — {node.gpu_info || node.address}
+                    </div>
+                  </div>
+                  {isSelected && <Wifi size={12} className="text-green-400" />}
+                </button>
+              );
+            })
+          ) : (
+            <div className="text-xs text-[var(--color-text-muted)] p-3 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)]">
+              {t('stt.noSttNodes')}
+            </div>
+          )}
         </div>
       )}
 

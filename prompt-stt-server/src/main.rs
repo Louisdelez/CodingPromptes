@@ -272,7 +272,7 @@ impl App {
         let server_card = container(
             column![
                 row![
-                    text!("▸").size(16),
+                    text!("S").size(14).color(ACCENT),
                     text!("Server").size(14).color(Color::WHITE),
                     Space::with_width(Length::Fill),
                     toggler(self.server_running).on_toggle(Message::ServerToggle),
@@ -297,7 +297,7 @@ impl App {
 
         let mut ollama_card_content = column![
             row![
-                text!("◈").size(16),
+                text!("O").size(14).color(ACCENT),
                 text!("Ollama (LLM)").size(14).color(Color::WHITE),
                 Space::with_width(Length::Fill),
                 toggler(self.ollama_enabled).on_toggle(Message::OllamaToggle),
@@ -322,7 +322,7 @@ impl App {
                 let quant = m.quantization_level.as_deref().unwrap_or("");
                 models_col = models_col.push(
                     row![
-                        text!("  ◆").size(8).color(ACCENT),
+                        text!("  >").size(8).color(ACCENT),
                         text!("{}", m.name).size(10).color(Color::WHITE),
                         Space::with_width(Length::Fill),
                         text!("{params}").size(9).color(MUTED),
@@ -345,7 +345,7 @@ impl App {
         let whisper_card = container(
             column![
                 row![
-                    text!("◉").size(16),
+                    text!("W").size(14).color(ACCENT),
                     text!("Whisper (STT)").size(14).color(Color::WHITE),
                     Space::with_width(Length::Fill),
                     text(whisper_status.0).size(10).color(whisper_status.2),
@@ -366,7 +366,7 @@ impl App {
         // === Downloads Card ===
         let mut dl_content = column![
             row![
-                text!("▦").size(16),
+                text!("D").size(14).color(ACCENT),
                 text!("Whisper Models").size(14).color(Color::WHITE),
             ].spacing(8),
         ].spacing(6);

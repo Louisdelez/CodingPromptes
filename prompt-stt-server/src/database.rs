@@ -67,6 +67,20 @@ pub struct DbExecution {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DbGpuNode {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub hostname: String,
+    pub gpu_info: String,
+    pub last_heartbeat: i64,
+    pub status: String,
+    pub capabilities_json: String,
+    pub address: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbFramework {
     pub id: String,
     pub name: String,
@@ -120,6 +134,18 @@ impl Database {
             CREATE TABLE IF NOT EXISTS config (
                 user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
                 PRIMARY KEY (user_id, key)
+            );
+            CREATE TABLE IF NOT EXISTS gpu_nodes (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                hostname TEXT NOT NULL DEFAULT '',
+                gpu_info TEXT NOT NULL DEFAULT '',
+                last_heartbeat INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'offline',
+                capabilities_json TEXT NOT NULL DEFAULT '{}',
+                address TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL
             );
         ").map_err(|e| e.to_string())
     }
@@ -223,6 +249,61 @@ impl Database {
     }
     pub fn set_config(&self, user_id: &str, key: &str, value: &str) {
         self.conn.execute("INSERT OR REPLACE INTO config (user_id,key,value) VALUES (?1,?2,?3)", params![user_id,key,value]).ok();
+    }
+
+    // --- GPU Nodes ---
+    pub fn register_node(&self, node: &DbGpuNode) -> Result<(), String> {
+        self.conn.execute(
+            "INSERT INTO gpu_nodes (id,user_id,name,hostname,gpu_info,last_heartbeat,status,capabilities_json,address,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+            params![node.id, node.user_id, node.name, node.hostname, node.gpu_info, node.last_heartbeat, node.status, node.capabilities_json, node.address, node.created_at],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn list_nodes(&self, user_id: &str) -> Vec<DbGpuNode> {
+        let mut s = self.conn.prepare("SELECT id,user_id,name,hostname,gpu_info,last_heartbeat,status,capabilities_json,address,created_at FROM gpu_nodes WHERE user_id=?1 ORDER BY name").unwrap();
+        s.query_map(params![user_id], |r| Ok(DbGpuNode {
+            id:r.get(0)?, user_id:r.get(1)?, name:r.get(2)?, hostname:r.get(3)?, gpu_info:r.get(4)?,
+            last_heartbeat:r.get(5)?, status:r.get(6)?, capabilities_json:r.get(7)?, address:r.get(8)?, created_at:r.get(9)?,
+        })).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_node(&self, node_id: &str, user_id: &str) -> Option<DbGpuNode> {
+        self.conn.query_row(
+            "SELECT id,user_id,name,hostname,gpu_info,last_heartbeat,status,capabilities_json,address,created_at FROM gpu_nodes WHERE id=?1 AND user_id=?2",
+            params![node_id, user_id], |r| Ok(DbGpuNode {
+                id:r.get(0)?, user_id:r.get(1)?, name:r.get(2)?, hostname:r.get(3)?, gpu_info:r.get(4)?,
+                last_heartbeat:r.get(5)?, status:r.get(6)?, capabilities_json:r.get(7)?, address:r.get(8)?, created_at:r.get(9)?,
+            }),
+        ).ok()
+    }
+
+    pub fn update_node_heartbeat(&self, node_id: &str, user_id: &str, status: &str, capabilities_json: &str, address: &str) -> Result<(), String> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            "UPDATE gpu_nodes SET last_heartbeat=?1, status=?2, capabilities_json=?3, address=?4 WHERE id=?5 AND user_id=?6",
+            params![now, status, capabilities_json, address, node_id, user_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn update_node_name(&self, node_id: &str, user_id: &str, name: &str) -> Result<(), String> {
+        self.conn.execute("UPDATE gpu_nodes SET name=?1 WHERE id=?2 AND user_id=?3", params![name, node_id, user_id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_node(&self, node_id: &str, user_id: &str) -> Result<(), String> {
+        self.conn.execute("DELETE FROM gpu_nodes WHERE id=?1 AND user_id=?2", params![node_id, user_id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn mark_stale_nodes_offline(&self, threshold_ms: i64) {
+        self.conn.execute(
+            "UPDATE gpu_nodes SET status='offline' WHERE last_heartbeat < ?1 AND status != 'offline'",
+            params![threshold_ms],
+        ).ok();
     }
 
     // --- Helpers ---

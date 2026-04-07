@@ -49,6 +49,18 @@ pub struct UpdateFrameworkReq { pub name: Option<String>, pub description: Optio
 #[derive(Deserialize)]
 pub struct ConfigReq { pub config: std::collections::HashMap<String, String> }
 
+#[derive(Deserialize)]
+pub struct RegisterNodeReq { pub name: String, pub address: String, pub hostname: Option<String>, pub gpu_info: Option<String> }
+
+#[derive(Deserialize)]
+pub struct HeartbeatReq { pub status: String, pub capabilities: serde_json::Value, pub address: Option<String> }
+
+#[derive(Deserialize)]
+pub struct UpdateNodeReq { pub name: Option<String> }
+
+#[derive(Deserialize)]
+pub struct RouteQuery { pub capability: Option<String>, pub model: Option<String> }
+
 fn now() -> i64 { chrono::Utc::now().timestamp_millis() }
 fn new_id() -> String { uuid::Uuid::new_v4().to_string() }
 
@@ -92,6 +104,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/frameworks", get(list_frameworks).post(create_framework))
         .route("/frameworks/{id}", put(update_framework).delete(delete_framework))
         .route("/config", get(get_config).put(set_config))
+        // GPU Nodes (Fleet)
+        .route("/nodes", get(list_nodes).post(register_node))
+        .route("/nodes/route", get(route_node))
+        .route("/nodes/{id}", put(update_node).delete(delete_node))
+        .route("/nodes/{id}/heartbeat", post(node_heartbeat))
 }
 
 // --- Auth handlers ---
@@ -273,4 +290,79 @@ async fn set_config(State(state): State<Arc<AppState>>, auth: AuthUser, Json(req
         db.set_config(&auth.user_id, key, value);
     }
     StatusCode::OK
+}
+
+// --- GPU Node handlers ---
+
+async fn register_node(State(state): State<Arc<AppState>>, auth: AuthUser, Json(req): Json<RegisterNodeReq>) -> Result<Json<DbGpuNode>, (StatusCode, String)> {
+    let node = DbGpuNode {
+        id: new_id(), user_id: auth.user_id, name: req.name,
+        hostname: req.hostname.unwrap_or_default(), gpu_info: req.gpu_info.unwrap_or_default(),
+        last_heartbeat: now(), status: "online".into(),
+        capabilities_json: "{}".into(), address: req.address, created_at: now(),
+    };
+    let db = state.db.lock().await;
+    db.register_node(&node).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(node))
+}
+
+async fn list_nodes(State(state): State<Arc<AppState>>, auth: AuthUser) -> Json<Vec<DbGpuNode>> {
+    let db = state.db.lock().await;
+    let threshold = now() - 60_000; // 60s stale
+    db.mark_stale_nodes_offline(threshold);
+    Json(db.list_nodes(&auth.user_id))
+}
+
+async fn node_heartbeat(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id): Path<String>, Json(req): Json<HeartbeatReq>) -> Result<StatusCode, (StatusCode, String)> {
+    let db = state.db.lock().await;
+    let capabilities_json = serde_json::to_string(&req.capabilities).unwrap_or_else(|_| "{}".into());
+    let node = db.get_node(&id, &auth.user_id).ok_or((StatusCode::NOT_FOUND, "Node not found".into()))?;
+    let address = req.address.unwrap_or(node.address);
+    db.update_node_heartbeat(&id, &auth.user_id, &req.status, &capabilities_json, &address)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::OK)
+}
+
+async fn update_node(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id): Path<String>, Json(req): Json<UpdateNodeReq>) -> Result<StatusCode, (StatusCode, String)> {
+    let db = state.db.lock().await;
+    if let Some(name) = req.name {
+        db.update_node_name(&id, &auth.user_id, &name).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    }
+    Ok(StatusCode::OK)
+}
+
+async fn delete_node(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id): Path<String>) -> Result<StatusCode, (StatusCode, String)> {
+    let db = state.db.lock().await;
+    db.delete_node(&id, &auth.user_id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn route_node(State(state): State<Arc<AppState>>, auth: AuthUser, axum::extract::Query(q): axum::extract::Query<RouteQuery>) -> Result<Json<DbGpuNode>, (StatusCode, String)> {
+    let db = state.db.lock().await;
+    let threshold = now() - 60_000;
+    db.mark_stale_nodes_offline(threshold);
+    let nodes = db.list_nodes(&auth.user_id);
+    let online: Vec<_> = nodes.into_iter().filter(|n| n.status == "online").collect();
+
+    let capability = q.capability.as_deref().unwrap_or("any");
+    let model_query = q.model.as_deref().unwrap_or("");
+
+    let found = online.into_iter().find(|n| {
+        let caps: serde_json::Value = serde_json::from_str(&n.capabilities_json).unwrap_or_default();
+        match capability {
+            "stt" => caps.get("stt").and_then(|s| s.get("model_loaded")).and_then(|v| v.as_bool()).unwrap_or(false),
+            "llm" => {
+                if model_query.is_empty() {
+                    caps.get("llm").and_then(|l| l.get("ollama_connected")).and_then(|v| v.as_bool()).unwrap_or(false)
+                } else {
+                    caps.get("llm").and_then(|l| l.get("models")).and_then(|m| m.as_array())
+                        .map(|models| models.iter().any(|m| m.get("name").and_then(|n| n.as_str()).unwrap_or("").contains(model_query)))
+                        .unwrap_or(false)
+                }
+            }
+            _ => true,
+        }
+    });
+
+    found.map(Json).ok_or((StatusCode::NOT_FOUND, "No suitable node found".into()))
 }

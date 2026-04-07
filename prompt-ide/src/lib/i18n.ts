@@ -229,6 +229,7 @@ export const translations = {
   'lang.nl': { fr: 'Neerlandais', en: 'Dutch' },
 
   // Auth
+  'auth.serverUrl': { fr: 'Serveur', en: 'Server' },
   'auth.login': { fr: 'Connexion', en: 'Sign in' },
   'auth.register': { fr: 'Inscription', en: 'Sign up' },
   'auth.email': { fr: 'Email', en: 'Email' },
@@ -310,6 +311,28 @@ export const translations = {
   // Import zip
   'import.zip': { fr: 'Importer un .zip', en: 'Import a .zip' },
   'import.zipSuccess': { fr: 'Prompts importes !', en: 'Prompts imported!' },
+
+  // Fleet (GPU Nodes)
+  'tab.fleet': { fr: 'GPU', en: 'GPU' },
+  'fleet.title': { fr: 'Nodes GPU', en: 'GPU Nodes' },
+  'fleet.empty': { fr: 'Aucun node GPU connecte. Lancez le serveur GPU Inkwell sur vos machines.', en: 'No GPU nodes connected. Start Inkwell GPU Server on your machines.' },
+  'fleet.confirm_delete': { fr: 'Supprimer ce node ?', en: 'Delete this node?' },
+  'fleet.no_capabilities': { fr: 'Aucun modele charge', en: 'No models loaded' },
+
+  // Terminal
+  'tab.terminal': { fr: 'Terminal', en: 'Terminal' },
+  'terminal.new': { fr: 'Nouvelle session', en: 'New session' },
+  'terminal.local': { fr: 'Terminal local', en: 'Local terminal' },
+  'terminal.ssh': { fr: 'Connexion SSH', en: 'SSH connection' },
+  'terminal.ssh_connect': { fr: 'Connexion SSH', en: 'SSH Connection' },
+  'terminal.host': { fr: 'Hote', en: 'Host' },
+  'terminal.username': { fr: 'Utilisateur', en: 'Username' },
+  'terminal.auth_method': { fr: 'Authentification', en: 'Authentication' },
+  'terminal.password': { fr: 'Mot de passe', en: 'Password' },
+  'terminal.ssh_key': { fr: 'Cle SSH', en: 'SSH Key' },
+  'terminal.key_path': { fr: 'Chemin de la cle', en: 'Key path' },
+  'terminal.connect': { fr: 'Se connecter', en: 'Connect' },
+  'terminal.search': { fr: 'Rechercher...', en: 'Search...' },
 
   // Misc
   'misc.newPrompt': { fr: 'Nouveau prompt', en: 'New prompt' },

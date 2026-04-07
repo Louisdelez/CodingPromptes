@@ -1,11 +1,13 @@
 mod api_routes;
 mod database;
 mod downloader;
+mod fleet;
 mod i18n;
 mod jwt_auth;
 mod models;
 mod ollama;
 mod server;
+mod terminal;
 mod whisper_engine;
 
 use downloader::DownloadProgress;
@@ -60,6 +62,14 @@ enum Message {
     OllamaRefreshed(OllamaStatus),
     RefreshOllama,
     LangChanged(Lang),
+    // Fleet
+    FleetApiUrlChanged(String),
+    FleetEmailChanged(String),
+    FleetPasswordChanged(String),
+    FleetNodeNameChanged(String),
+    FleetConnect,
+    FleetConnectResult(Result<String, String>),
+    FleetDisconnect,
     Tick,
 }
 
@@ -85,6 +95,15 @@ struct App {
     ollama_error: Option<String>,
     log_messages: Vec<String>,
     lang: Lang,
+    // Fleet
+    fleet: fleet::FleetState,
+    fleet_api_url: String,
+    fleet_email: String,
+    fleet_password: String,
+    fleet_node_name: String,
+    fleet_connected: bool,
+    fleet_connecting: bool,
+    fleet_error: Option<String>,
 }
 
 impl App {
@@ -101,6 +120,13 @@ impl App {
         let ollama_state = OllamaState::new();
 
         let lang = i18n::detect_system_lang();
+        let fleet = fleet::FleetState::new();
+        let fleet_config_snapshot = {
+            let rt = tokio::runtime::Handle::current();
+            rt.block_on(async { fleet.config.read().await.clone() })
+        };
+        let fleet_connected = !fleet_config_snapshot.jwt_token.is_empty();
+
         let mut app = Self {
             engine, server_running: true, port: 8910,
             selected_model: selected, all_models,
@@ -113,6 +139,18 @@ impl App {
             ollama_models: vec![], ollama_error: None,
             log_messages: vec![T::server_started(lang).into()],
             lang,
+            fleet: fleet.clone(),
+            fleet_api_url: fleet_config_snapshot.api_url.clone(),
+            fleet_email: fleet_config_snapshot.user_email.clone(),
+            fleet_password: String::new(),
+            fleet_node_name: if fleet_config_snapshot.node_name.is_empty() {
+                hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_else(|_| "GPU Node".into())
+            } else {
+                fleet_config_snapshot.node_name.clone()
+            },
+            fleet_connected,
+            fleet_connecting: false,
+            fleet_error: None,
         };
 
         // Auto-start HTTP server
@@ -126,6 +164,12 @@ impl App {
                 let db = database::Database::open().expect("Failed to open database");
                 server::start_server(port, engine, ollama, status_tx, db).await;
             });
+        }
+
+        // Auto-start fleet heartbeat if configured
+        if fleet_connected {
+            fleet.start_heartbeat_loop(app.engine.clone(), ollama_state.clone(), app.port);
+            app.log_messages.push("Fleet connected".into());
         }
 
         let ollama_check = ollama_state.clone();
@@ -214,6 +258,52 @@ impl App {
                 IcedTask::none()
             }
             Message::LangChanged(lang) => { self.lang = lang; IcedTask::none() }
+            Message::FleetApiUrlChanged(url) => { self.fleet_api_url = url; IcedTask::none() }
+            Message::FleetEmailChanged(email) => { self.fleet_email = email; IcedTask::none() }
+            Message::FleetPasswordChanged(pw) => { self.fleet_password = pw; IcedTask::none() }
+            Message::FleetNodeNameChanged(name) => { self.fleet_node_name = name; IcedTask::none() }
+            Message::FleetConnect => {
+                self.fleet_connecting = true;
+                self.fleet_error = None;
+                let fleet = self.fleet.clone();
+                let api_url = self.fleet_api_url.clone();
+                let email = self.fleet_email.clone();
+                let password = self.fleet_password.clone();
+                let node_name = self.fleet_node_name.clone();
+                let port = self.port;
+                let engine = self.engine.clone();
+                let ollama = self.ollama_state.clone();
+                IcedTask::perform(async move {
+                    let result = fleet.login(&api_url, &email, &password, &node_name, port).await;
+                    if result.is_ok() {
+                        fleet.start_heartbeat_loop(engine, ollama, port);
+                    }
+                    result
+                }, Message::FleetConnectResult)
+            }
+            Message::FleetConnectResult(result) => {
+                self.fleet_connecting = false;
+                match result {
+                    Ok(_id) => {
+                        self.fleet_connected = true;
+                        self.fleet_error = None;
+                        self.fleet_password.clear();
+                        self.log_messages.push("Fleet: connected".into());
+                    }
+                    Err(e) => {
+                        self.fleet_error = Some(e.clone());
+                        self.log_messages.push(format!("Fleet: {e}"));
+                    }
+                }
+                IcedTask::none()
+            }
+            Message::FleetDisconnect => {
+                let fleet = self.fleet.clone();
+                tokio::spawn(async move { fleet.disconnect().await; });
+                self.fleet_connected = false;
+                self.log_messages.push("Fleet: disconnected".into());
+                IcedTask::none()
+            }
             Message::RefreshOllama => self.refresh_ollama(),
             Message::OllamaRefreshed(status) => {
                 self.ollama_connected = status.connected;
@@ -382,7 +472,7 @@ impl App {
                 text!("D").size(14).color(ACCENT),
                 text(T::whisper_models(l)).size(14).color(Color::WHITE),
             ].spacing(8),
-        ].spacing(6);
+        ].spacing(10);
 
         for model in &self.all_models {
             let is_installed = models::is_model_installed(model);
@@ -400,7 +490,16 @@ impl App {
                         } else {
                             text!("-").size(11).color(MUTED)
                         },
-                        text!("{name}").size(11).color(if is_installed { Color::WHITE } else { SUBTLE }),
+                        column![
+                            text!("{name}").size(11).color(if is_installed { Color::WHITE } else { SUBTLE }),
+                            row![
+                                text!("{params}").size(9).color(MUTED),
+                                text!("·").size(9).color(CARD_BORDER),
+                                text!("GPU {vram}").size(9).color(MUTED),
+                                text!("·").size(9).color(CARD_BORDER),
+                                text!("CPU {ram}").size(9).color(MUTED),
+                            ].spacing(4),
+                        ].spacing(2),
                         Space::with_width(Length::Fill),
                         text!("{size}").size(10).color(MUTED),
                         if !is_installed {
@@ -409,14 +508,6 @@ impl App {
                             button(text(T::installed(l)).size(9)).style(button::text)
                         },
                     ].spacing(8).align_y(iced::Alignment::Center),
-                    row![
-                        Space::with_width(20),
-                        text!("{params} params").size(9).color(MUTED),
-                        text!("|").size(9).color(CARD_BORDER),
-                        text!("GPU: {vram}").size(9).color(MUTED),
-                        text!("|").size(9).color(CARD_BORDER),
-                        text!("CPU: {ram}").size(9).color(MUTED),
-                    ].spacing(6),
                 ].spacing(2)
             );
         }
@@ -431,6 +522,60 @@ impl App {
         }
 
         let download_card = container(dl_content.padding(14)).style(card_style);
+
+        // === Fleet / Account Card ===
+        let fleet_status_color = if self.fleet_connected { SUCCESS } else { MUTED };
+        let fleet_status_text = if self.fleet_connected { "Connected" } else { "Not linked" };
+
+        let mut fleet_content = column![
+            row![
+                text!("@").size(14).color(ACCENT),
+                text!("Account").size(14).color(Color::WHITE),
+                Space::with_width(Length::Fill),
+                text!("*").size(8).color(fleet_status_color),
+                text(fleet_status_text).size(10).color(fleet_status_color),
+            ].spacing(6).align_y(iced::Alignment::Center),
+        ].spacing(6);
+
+        if !self.fleet_connected {
+            fleet_content = fleet_content
+                .push(
+                    text_input("https://inkwell.example.com", &self.fleet_api_url)
+                        .on_input(Message::FleetApiUrlChanged).size(11)
+                )
+                .push(
+                    row![
+                        text_input("Email", &self.fleet_email)
+                            .on_input(Message::FleetEmailChanged).size(11),
+                        text_input("Password", &self.fleet_password)
+                            .on_input(Message::FleetPasswordChanged).size(11).secure(true),
+                    ].spacing(6)
+                )
+                .push(
+                    text_input("Node name (e.g. Bureau RTX 3060)", &self.fleet_node_name)
+                        .on_input(Message::FleetNodeNameChanged).size(11)
+                )
+                .push(
+                    if self.fleet_connecting {
+                        button(text!("...").size(11))
+                    } else {
+                        button(text!("Connect").size(11)).on_press(Message::FleetConnect).style(button::primary)
+                    }
+                );
+            if let Some(ref e) = self.fleet_error {
+                fleet_content = fleet_content.push(text!("{e}").size(10).color(DANGER));
+            }
+        } else {
+            fleet_content = fleet_content
+                .push(text!("{}", self.fleet_node_name).size(11).color(Color::WHITE))
+                .push(text!("{}", self.fleet_api_url).size(10).color(MUTED))
+                .push(text!("{}", self.fleet_email).size(10).color(MUTED))
+                .push(
+                    button(text!("Disconnect").size(10)).on_press(Message::FleetDisconnect).style(button::secondary)
+                );
+        }
+
+        let fleet_card = container(fleet_content.padding(14)).style(card_style);
 
         // === Log Card ===
         let mut log_content = column![
@@ -448,6 +593,7 @@ impl App {
             header,
             scrollable(
                 column![
+                    fleet_card,
                     server_card,
                     ollama_card,
                     whisper_card,

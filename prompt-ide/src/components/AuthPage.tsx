@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Mail, Lock, User, AlertCircle, Loader2, Globe, Sun, Moon, Monitor, ChevronDown } from 'lucide-react';
+import { Mail, Lock, User, AlertCircle, Loader2, Globe, Sun, Moon, Monitor, ChevronDown, Server } from 'lucide-react';
 import { login, register, oauthGoogle, oauthGithub, type AuthSession } from '../lib/auth';
 import { useT } from '../lib/i18n';
 import type { Lang } from '../lib/i18n';
 import type { ThemeMode } from '../lib/theme';
+import { getLocalServerUrl, setLocalServerUrl } from '../lib/types';
 
 interface AuthPageProps {
   onAuth: (session: AuthSession) => void;
@@ -25,6 +26,7 @@ export function AuthPage({ onAuth, language, onLanguageChange, themeMode, onThem
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [serverUrl, setServerUrl] = useState(getLocalServerUrl);
 
   const GITHUB_CLIENT_ID = (typeof import.meta !== 'undefined' && ((import.meta as unknown) as Record<string, Record<string, string>>).env?.VITE_GITHUB_CLIENT_ID) || '';
 
@@ -242,6 +244,21 @@ export function AuthPage({ onAuth, language, onLanguageChange, themeMode, onThem
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Server URL */}
+            <div className="space-y-1">
+              <label className="text-xs text-[var(--color-text-muted)]">{t('auth.serverUrl')}</label>
+              <div className="relative">
+                <Server size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
+                <input
+                  type="url"
+                  value={serverUrl}
+                  onChange={(e) => { setServerUrl(e.target.value); setLocalServerUrl(e.target.value); }}
+                  placeholder="http://192.168.1.x:8910"
+                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg focus:border-[var(--color-accent)] outline-none text-[var(--color-text-primary)]"
+                />
+              </div>
+            </div>
+
             {mode === 'register' && (
               <div className="space-y-1">
                 <label className="text-xs text-[var(--color-text-muted)]">{t('auth.displayName')}</label>

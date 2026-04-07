@@ -9,7 +9,7 @@ description = "Local AI server (STT + LLM proxy) with Iced GUI for Inkwell"
 iced = { version = "0.13", features = ["tokio", "image"] }
 
 # HTTP server
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
 tokio = { version = "1", features = ["full"] }
 
@@ -36,3 +36,10 @@ jsonwebtoken = "9"
 argon2 = "0.5"
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
+
+# Terminal / Docker containers
+bollard = "0.18"
+
+# Fleet (multi-node GPU)
+hostname = "0.4"
+local-ip-address = "0.6"

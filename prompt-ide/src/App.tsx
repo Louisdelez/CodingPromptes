@@ -39,6 +39,7 @@ import {
   Link,
   MessageSquare,
   Users,
+  Cpu,
 } from 'lucide-react';
 import { PromptBlockComponent } from './components/PromptBlock';
 import { TokenCounter } from './components/TokenCounter';
@@ -60,6 +61,8 @@ const AnalyticsPanel = lazy(() => import('./components/AnalyticsPanel').then(m =
 const PromptChain = lazy(() => import('./components/PromptChain').then(m => ({ default: m.PromptChain })));
 const ConversationMode = lazy(() => import('./components/ConversationMode').then(m => ({ default: m.ConversationMode })));
 const CollaborationPanel = lazy(() => import('./components/CollaborationPanel').then(m => ({ default: m.CollaborationPanel })));
+const GpuFleet = lazy(() => import('./components/GpuFleet').then(m => ({ default: m.GpuFleet })));
+const TerminalPanel = lazy(() => import('./components/TerminalPanel').then(m => ({ default: m.TerminalPanel })));
 const AuthPage = lazy(() => import('./components/AuthPage').then(m => ({ default: m.AuthPage })));
 import { usePromptProject } from './hooks/usePromptProject';
 // AuthPage loaded lazily above
@@ -72,7 +75,7 @@ import { I18nContext, getLang, setLang, useT, type Lang } from './lib/i18n';
 import { ThemeContext, getThemeMode, setThemeMode, resolveTheme, applyTheme, type ThemeMode, type ResolvedTheme } from './lib/theme';
 
 type LeftTab = 'library' | 'frameworks' | 'versions';
-type RightTab = 'preview' | 'playground' | 'history' | 'stt' | 'export' | 'optimize' | 'lint' | 'analytics' | 'chain' | 'chat' | 'collab';
+type RightTab = 'preview' | 'playground' | 'history' | 'stt' | 'export' | 'optimize' | 'lint' | 'analytics' | 'chain' | 'chat' | 'collab' | 'fleet';
 
 const BLOCK_TYPES: BlockType[] = ['role', 'context', 'task', 'examples', 'constraints', 'format'];
 
@@ -189,6 +192,8 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
   const [showRightTabMenu, setShowRightTabMenu] = useState(false);
   const [showLeftTabMenu, setShowLeftTabMenu] = useState(false);
   const [triggerExecute, setTriggerExecute] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(300);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -207,6 +212,9 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
       } else if (e.key === 'n') {
         e.preventDefault();
         newProject();
+      } else if (e.key === '`') {
+        e.preventDefault();
+        setTerminalOpen((v) => !v);
       }
     };
     window.addEventListener('keydown', handler);
@@ -305,6 +313,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     { id: 'chain', icon: Link, label: t('tab.chain') },
     { id: 'chat', icon: MessageSquare, label: t('tab.chat') },
     { id: 'collab', icon: Users, label: t('tab.collab') },
+    { id: 'fleet', icon: Cpu, label: t('tab.fleet') },
   ];
 
   // Block labels for the add menu
@@ -585,12 +594,35 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
             </div>
           </div>
 
-          <TokenCounter
-            blocks={project.blocks}
-            variables={project.variables}
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-          />
+          {/* Terminal Panel (center column only, like VSCode) */}
+          {terminalOpen && (
+            <div style={{ height: terminalHeight }} className="flex-shrink-0 flex flex-col border-t border-[var(--color-border)]">
+              {/* Resize handle */}
+              <div
+                className="h-1 cursor-row-resize hover:bg-[var(--color-accent)]/30 active:bg-[var(--color-accent)]/50 transition-colors"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  const startY = e.clientY;
+                  const startH = terminalHeight;
+                  const onMove = (ev: MouseEvent) => {
+                    const delta = startY - ev.clientY;
+                    setTerminalHeight(Math.max(120, Math.min(startH + delta, window.innerHeight - 200)));
+                  };
+                  const onUp = () => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                  };
+                  document.addEventListener('mousemove', onMove);
+                  document.addEventListener('mouseup', onUp);
+                }}
+              />
+              <div className="flex-1 min-h-0">
+                <Suspense fallback={<div className="p-4 text-sm text-[var(--color-text-muted)]">...</div>}>
+                  <TerminalPanel />
+                </Suspense>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Panel */}
@@ -648,11 +680,22 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
                 {rightTab === 'chain' && <PromptChain />}
                 {rightTab === 'chat' && <ConversationMode blocks={project.blocks} variables={project.variables} />}
                 {rightTab === 'collab' && <CollaborationPanel projectId={project.id} currentUserId={session.userId} />}
+                {rightTab === 'fleet' && <GpuFleet />}
               </Suspense>
             </div>
           </div>
         )}
       </div>
+
+      {/* Bottom bar (full width) */}
+      <TokenCounter
+        blocks={project.blocks}
+        variables={project.variables}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
+        terminalOpen={terminalOpen}
+        onToggleTerminal={() => setTerminalOpen((v) => !v)}
+      />
     </div>
   );
 }

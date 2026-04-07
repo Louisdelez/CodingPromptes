@@ -1,0 +1,106 @@
+name: Build Inkwell GPU Server
+
+on:
+  push:
+    tags:
+      - 'gpu-v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            prompt-stt-server/target
+          key: windows-cargo-${{ hashFiles('prompt-stt-server/Cargo.lock') }}
+          restore-keys: windows-cargo-
+
+      - name: Build release
+        working-directory: prompt-stt-server
+        run: cargo build --release
+
+      - name: Create installer with Inno Setup
+        working-directory: prompt-stt-server
+        run: |
+          # Download Inno Setup
+          choco install innosetup -y --no-progress
+          # Run Inno Setup compiler
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkwell-gpu-server-windows
+          path: prompt-stt-server/Output/InkwellGPUServer-Setup.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libfontconfig1-dev libxkbcommon-dev libwayland-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            prompt-stt-server/target
+          key: linux-cargo-${{ hashFiles('prompt-stt-server/Cargo.lock') }}
+          restore-keys: linux-cargo-
+
+      - name: Build release
+        working-directory: prompt-stt-server
+        run: cargo build --release
+
+      - name: Package
+        working-directory: prompt-stt-server
+        run: |
+          mkdir -p dist/inkwell-gpu-server
+          cp target/release/prompt-ai-server dist/inkwell-gpu-server/inkwell-gpu-server
+          cp -r assets dist/inkwell-gpu-server/
+          cd dist && tar czf inkwell-gpu-server-linux-x86_64.tar.gz inkwell-gpu-server
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: inkwell-gpu-server-linux
+          path: prompt-stt-server/dist/inkwell-gpu-server-linux-x86_64.tar.gz
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            inkwell-gpu-server-windows/InkwellGPUServer-Setup.exe
+            inkwell-gpu-server-linux/inkwell-gpu-server-linux-x86_64.tar.gz
+          generate_release_notes: true

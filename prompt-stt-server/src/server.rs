@@ -17,6 +17,7 @@ use crate::ollama::OllamaState;
 use crate::whisper_engine::WhisperEngine;
 use crate::database::Database;
 use crate::api_routes;
+use crate::terminal;
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -351,6 +352,8 @@ pub async fn start_server(
         .route("/v1/models", get(proxy_list_models))
         // Ollama info
         .route("/ollama/status", get(ollama_status))
+        // Terminal WebSocket
+        .route("/ws/terminal", get(terminal::ws_terminal))
         // Data API (JWT auth)
         .nest("/api", api_routes::router())
         .layer(cors)

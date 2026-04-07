@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Coins, Hash, Zap, Type, WrapText, AlignLeft } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { Coins, Hash, Zap, Type, WrapText, AlignLeft, TerminalSquare, ChevronDown } from 'lucide-react';
 import type { PromptBlock } from '../lib/types';
 import { MODELS } from '../lib/types';
 import { countTokens, estimateCost, formatCost, formatTokens } from '../lib/tokens';
@@ -11,6 +11,8 @@ interface TokenCounterProps {
   variables: Record<string, string>;
   selectedModel: string;
   onModelChange: (modelId: string) => void;
+  terminalOpen?: boolean;
+  onToggleTerminal?: () => void;
 }
 
 function formatNumber(n: number): string {
@@ -19,7 +21,51 @@ function formatNumber(n: number): string {
   return `${(n / 1000000).toFixed(1)}M`;
 }
 
-export function TokenCounter({ blocks, variables, selectedModel, onModelChange }: TokenCounterProps) {
+function ModelDropdown({ selectedModel, onModelChange }: { selectedModel: string; onModelChange: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const model = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] hover:border-[var(--color-accent)] transition-colors"
+      >
+        {model.name}
+        <ChevronDown size={10} className={`text-[var(--color-text-muted)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full right-0 mb-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-xl z-50 py-1 min-w-[160px] max-h-64 overflow-auto animate-fadeIn">
+          {MODELS.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => { onModelChange(m.id); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                m.id === selectedModel
+                  ? 'text-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+              }`}
+            >
+              {m.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function TokenCounter({ blocks, variables, selectedModel, onModelChange, terminalOpen, onToggleTerminal }: TokenCounterProps) {
   const t = useT();
   const model = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
 
@@ -87,8 +133,23 @@ export function TokenCounter({ blocks, variables, selectedModel, onModelChange }
           </div>
         )}
 
-        {/* Context bar + model selector pushed right */}
+        {/* Terminal toggle + Context bar + model selector pushed right */}
         <div className="flex items-center gap-2 flex-1 min-w-[140px] justify-end">
+          {onToggleTerminal && (
+            <button
+              onClick={onToggleTerminal}
+              title={`Terminal (Ctrl+\`)`}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors ${
+                terminalOpen
+                  ? 'text-[var(--color-accent)] bg-[var(--color-accent)]/10'
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'
+              }`}
+            >
+              <TerminalSquare size={13} />
+              <span className="text-[10px]">Terminal</span>
+            </button>
+          )}
+          <div className="w-px h-3 bg-[var(--color-border)]" />
           <div className="w-20 h-1.5 rounded-full bg-[var(--color-bg-hover)] overflow-hidden">
             <div
               className="h-full rounded-full transition-all"
@@ -100,17 +161,7 @@ export function TokenCounter({ blocks, variables, selectedModel, onModelChange }
           </div>
           <span className="text-[10px] text-[var(--color-text-muted)]">{stats.pctContext.toFixed(1)}%</span>
 
-          <select
-            value={selectedModel}
-            onChange={(e) => onModelChange(e.target.value)}
-            className="bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent)] outline-none"
-          >
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+          <ModelDropdown selectedModel={selectedModel} onModelChange={onModelChange} />
         </div>
       </div>
     </div>

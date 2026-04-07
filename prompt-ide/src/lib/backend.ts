@@ -262,3 +262,76 @@ export async function getConfig(): Promise<Record<string, string>> {
 export async function setConfig(config: Record<string, string>): Promise<void> {
   return request('PUT', '/config', { config });
 }
+
+// --- GPU Nodes (Fleet) ---
+
+export interface GpuNode {
+  id: string;
+  user_id: string;
+  name: string;
+  hostname: string;
+  gpu_info: string;
+  last_heartbeat: number;
+  status: 'online' | 'offline' | 'degraded';
+  capabilities_json: string;
+  address: string;
+  created_at: number;
+}
+
+export interface GpuNodeCapabilities {
+  stt: {
+    model_loaded: boolean;
+    active_model?: string;
+    available_models: string[];
+  };
+  llm: {
+    ollama_connected: boolean;
+    models: { name: string; size_gb: number; parameter_size?: string }[];
+  };
+}
+
+export function parseCapabilities(node: GpuNode): GpuNodeCapabilities {
+  try {
+    return JSON.parse(node.capabilities_json);
+  } catch {
+    return { stt: { model_loaded: false, available_models: [] }, llm: { ollama_connected: false, models: [] } };
+  }
+}
+
+export async function listNodes(): Promise<GpuNode[]> {
+  return request('GET', '/nodes');
+}
+
+export async function deleteNode(id: string): Promise<void> {
+  return request('DELETE', `/nodes/${id}`);
+}
+
+export async function updateNodeName(id: string, name: string): Promise<void> {
+  return request('PUT', `/nodes/${id}`, { name });
+}
+
+export async function routeNode(capability: string, model?: string): Promise<GpuNode> {
+  const params = new URLSearchParams({ capability });
+  if (model) params.set('model', model);
+  return request('GET', `/nodes/route?${params}`);
+}
+
+// Helper: find best node for STT from a list
+export function findSttNode(nodes: GpuNode[]): GpuNode | null {
+  return nodes.find(n => {
+    if (n.status !== 'online') return false;
+    const caps = parseCapabilities(n);
+    return caps.stt.model_loaded;
+  }) ?? null;
+}
+
+// Helper: find best node for a specific LLM model
+export function findLlmNode(nodes: GpuNode[], modelName?: string): GpuNode | null {
+  return nodes.find(n => {
+    if (n.status !== 'online') return false;
+    const caps = parseCapabilities(n);
+    if (!caps.llm.ollama_connected) return false;
+    if (modelName) return caps.llm.models.some(m => m.name.includes(modelName));
+    return true;
+  }) ?? null;
+}

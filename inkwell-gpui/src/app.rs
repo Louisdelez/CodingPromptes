@@ -124,6 +124,24 @@ impl InkwellApp {
                 AsyncMsg::NodesLoaded(nodes) => {
                     self.state.gpu_nodes = nodes;
                 }
+                AsyncMsg::SttResult { block_idx, text } => {
+                    self.state.stt_recording = false;
+                    if let Some(block) = self.state.project.blocks.get_mut(block_idx) {
+                        if !block.content.is_empty() && !block.content.ends_with(' ') && !block.content.ends_with('\n') {
+                            block.content.push(' ');
+                        }
+                        block.content.push_str(&text);
+                    }
+                    // Reset input to pick up new content
+                    if block_idx < self.state.block_inputs.len() {
+                        self.state.block_inputs[block_idx] = None;
+                    }
+                }
+                AsyncMsg::SttError(e) => {
+                    self.state.stt_recording = false;
+                    self.state.playground_response = format!("STT Error: {e}");
+                }
+                AsyncMsg::CustomFrameworkSaved => {}
                 AsyncMsg::TerminalOutput(text) => {
                     self.state.terminal_output.push_str(&text);
                     // Cap at 10K chars
@@ -547,6 +565,20 @@ impl InkwellApp {
             ("SDD (Spec-Driven)", "sdd"), ("STOKE", "stoke"),
         ];
         let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
+
+        // Save current as framework button
+        content = content.child(
+            div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(accent())
+                .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1))
+                .text_xs().text_color(accent())
+                .flex().items_center().justify_center().child("Save current as framework")
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    let name = format!("Custom {}", this.state.custom_frameworks.len() + 1);
+                    let id = format!("custom-{}", uuid::Uuid::new_v4());
+                    this.state.custom_frameworks.push((name, id));
+                }))
+        );
+        content = content.child(div().h(px(1.0)).bg(border_c()));
         for (name, id) in frameworks {
             let id_str = id.to_string();
             let is_active = self.state.project.framework.as_deref() == Some(id);
@@ -562,6 +594,21 @@ impl InkwellApp {
                     }))
             );
         }
+
+        // Custom frameworks
+        if !self.state.custom_frameworks.is_empty() {
+            content = content.child(div().h(px(1.0)).bg(border_c()));
+            content = content.child(div().text_xs().text_color(text_muted()).child("Custom"));
+            for (name, _id) in &self.state.custom_frameworks {
+                content = content.child(
+                    div().px(px(10.0)).py(px(8.0)).rounded(px(6.0))
+                        .border_1().border_color(border_c()).bg(bg_tertiary())
+                        .text_xs().text_color(text_secondary())
+                        .child(name.clone())
+                );
+            }
+        }
+
         content
     }
 
@@ -897,7 +944,93 @@ impl InkwellApp {
             }
 
             let block_count = self.state.project.blocks.len();
+            let is_recording_this = self.state.stt_recording && self.state.stt_target_block == Some(idx);
             header = header
+                // Mic (STT)
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(if is_recording_this { danger() } else { text_muted() })
+                        .child(if is_recording_this { "REC" } else { "Mic" })
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                            if this.state.stt_recording {
+                                // Stop recording
+                                if let Some(stop_tx) = this.state.stt_stop_tx.take() {
+                                    let _ = stop_tx.send(());
+                                }
+                                this.state.stt_recording = false;
+                            } else {
+                                // Start recording
+                                this.state.stt_recording = true;
+                                this.state.stt_target_block = Some(idx);
+                                let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+                                this.state.stt_stop_tx = Some(stop_tx);
+                                let tx = this.state.msg_tx.clone();
+                                let server = this.state.server_url.clone();
+
+                                std::thread::spawn(move || {
+                                    // Record audio via cpal
+                                    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+                                    let host = cpal::default_host();
+                                    let device = match host.default_input_device() {
+                                        Some(d) => d,
+                                        None => { let _ = tx.send(AsyncMsg::SttError("No microphone found".into())); return; }
+                                    };
+                                    let config = cpal::StreamConfig { channels: 1, sample_rate: cpal::SampleRate(16000), buffer_size: cpal::BufferSize::Default };
+                                    let samples = std::sync::Arc::new(std::sync::Mutex::new(Vec::<f32>::new()));
+                                    let samples_clone = samples.clone();
+
+                                    let stream = device.build_input_stream(
+                                        &config,
+                                        move |data: &[f32], _| { samples_clone.lock().unwrap().extend_from_slice(data); },
+                                        |err| { eprintln!("Audio error: {err}"); },
+                                        None,
+                                    );
+
+                                    match stream {
+                                        Ok(s) => {
+                                            let _ = s.play();
+                                            // Wait for stop signal (max 30s)
+                                            let _ = stop_rx.recv_timeout(std::time::Duration::from_secs(30));
+                                            drop(s);
+
+                                            // Encode to WAV
+                                            let pcm = samples.lock().unwrap();
+                                            if pcm.is_empty() { return; }
+                                            let mut wav_buf = Vec::new();
+                                            {
+                                                let cursor = std::io::Cursor::new(&mut wav_buf);
+                                                let spec = hound::WavSpec { channels: 1, sample_rate: 16000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+                                                let mut writer = hound::WavWriter::new(cursor, spec).unwrap();
+                                                for &s in pcm.iter() {
+                                                    let val = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                    writer.write_sample(val).unwrap();
+                                                }
+                                                writer.finalize().unwrap();
+                                            }
+                                            let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav_buf);
+
+                                            // Send to STT server
+                                            let rt = tokio::runtime::Runtime::new().unwrap();
+                                            rt.block_on(async {
+                                                let client = reqwest::Client::new();
+                                                if let Ok(resp) = client.post(format!("{server}/transcribe"))
+                                                    .json(&serde_json::json!({"audio": b64, "language": "auto"}))
+                                                    .send().await {
+                                                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                        let text = data["text"].as_str().unwrap_or("").to_string();
+                                                        if !text.is_empty() {
+                                                            let _ = tx.send(AsyncMsg::SttResult { block_idx: idx, text });
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                        }
+                                        Err(e) => { let _ = tx.send(AsyncMsg::SttError(format!("Mic error: {e}"))); }
+                                    }
+                                });
+                            }
+                        }))
+                )
                 // Move up
                 .child(
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))

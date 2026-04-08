@@ -30,6 +30,10 @@ pub struct AppState {
     pub versions: Vec<inkwell_core::types::Version>,
     // Fleet
     pub gpu_nodes: Vec<inkwell_core::types::GpuNode>,
+    // STT
+    pub stt_recording: bool,
+    pub stt_target_block: Option<usize>,
+    pub stt_stop_tx: Option<mpsc::Sender<()>>,
     // Settings
     pub show_settings: bool,
     pub api_key_openai: String,
@@ -46,6 +50,7 @@ pub struct AppState {
     pub right_open: bool,
     pub dark_mode: bool,
     pub show_add_menu: bool,
+    pub custom_frameworks: Vec<(String, String)>, // (name, id)
     pub selected_model: String,
     // SDD
     pub sdd_description: String,
@@ -78,6 +83,10 @@ pub enum AsyncMsg {
     VersionsLoaded(Vec<inkwell_core::types::Version>),
     NodesLoaded(Vec<inkwell_core::types::GpuNode>),
     LlmChunk(String),
+    SttResult { block_idx: usize, text: String },
+    SttError(String),
+    // Custom frameworks
+    CustomFrameworkSaved,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -137,6 +146,9 @@ impl AppState {
             save_timer: 0,
             versions: vec![],
             gpu_nodes: vec![],
+            stt_recording: false,
+            stt_target_block: None,
+            stt_stop_tx: None,
             show_settings: false,
             api_key_openai: String::new(),
             api_key_anthropic: String::new(),
@@ -154,6 +166,7 @@ impl AppState {
             right_open: true,
             dark_mode: true,
             show_add_menu: false,
+            custom_frameworks: vec![],
             selected_model: "gpt-4o-mini".into(),
             sdd_description: String::new(),
             sdd_running: false,

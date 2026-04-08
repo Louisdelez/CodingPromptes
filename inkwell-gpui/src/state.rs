@@ -17,6 +17,11 @@ pub struct AppState {
     pub auth_error: Option<String>,
     pub auth_loading: bool,
     pub session: Option<AuthSession>,
+    pub server_url_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub email_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub password_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Block input states (one per block)
+    pub block_inputs: Vec<Option<gpui::Entity<gpui_component::input::InputState>>>,
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -99,6 +104,10 @@ impl AppState {
             email: String::new(),
             password: String::new(),
             display_name: String::new(),
+            server_url_input: None,
+            email_input: None,
+            password_input: None,
+            block_inputs: vec![],
             auth_error: None,
             auth_loading: false,
             session: None,

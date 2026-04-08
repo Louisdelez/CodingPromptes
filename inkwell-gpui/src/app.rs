@@ -1,4 +1,5 @@
 use gpui::*;
+use gpui_component::input::{Input, InputState};
 use crate::state::*;
 use inkwell_core::types::BlockType;
 
@@ -29,7 +30,10 @@ impl Render for InkwellApp {
 
         match self.state.screen {
             Screen::Auth => self.render_auth(window, cx),
-            Screen::Ide => self.render_ide(cx),
+            Screen::Ide => {
+                self.ensure_block_inputs(window, cx);
+                self.render_ide(cx)
+            }
         }
     }
 }
@@ -87,7 +91,28 @@ impl InkwellApp {
 }
 
 impl InkwellApp {
-    fn render_auth(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Div {
+    fn render_auth(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        // Initialize input entities
+        if self.state.server_url_input.is_none() {
+            self.state.server_url_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).default_value("http://localhost:8910")
+            }));
+        }
+        if self.state.email_input.is_none() {
+            self.state.email_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("email@example.com")
+            }));
+        }
+        if self.state.password_input.is_none() {
+            self.state.password_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Password").masked(true)
+            }));
+        }
+
+        let server_input = self.state.server_url_input.clone().unwrap();
+        let email_input = self.state.email_input.clone().unwrap();
+        let password_input = self.state.password_input.clone().unwrap();
+
         div()
             .size_full().bg(bg_primary()).flex().items_center().justify_center()
             .child(
@@ -100,25 +125,17 @@ impl InkwellApp {
                     // Server URL
                     .child(div().flex().flex_col().gap(px(4.0))
                         .child(div().text_xs().text_color(text_muted()).child("Server"))
-                        .child(div().h(px(32.0)).px(px(10.0)).bg(bg_tertiary()).rounded(px(6.0))
-                            .border_1().border_color(border_c()).flex().items_center()
-                            .text_sm().text_color(text_secondary()).child(self.state.server_url.clone()))
+                        .child(Input::new(&server_input))
                     )
                     // Email
                     .child(div().flex().flex_col().gap(px(4.0))
                         .child(div().text_xs().text_color(text_muted()).child("Email"))
-                        .child(div().h(px(32.0)).px(px(10.0)).bg(bg_tertiary()).rounded(px(6.0))
-                            .border_1().border_color(border_c()).flex().items_center()
-                            .text_sm().text_color(text_muted()).child(
-                                if self.state.email.is_empty() { "email@example.com".to_string() } else { self.state.email.clone() }
-                            ))
+                        .child(Input::new(&email_input))
                     )
                     // Password
                     .child(div().flex().flex_col().gap(px(4.0))
                         .child(div().text_xs().text_color(text_muted()).child("Password"))
-                        .child(div().h(px(32.0)).px(px(10.0)).bg(bg_tertiary()).rounded(px(6.0))
-                            .border_1().border_color(border_c()).flex().items_center()
-                            .text_sm().text_color(text_muted()).child("••••••••"))
+                        .child(Input::new(&password_input))
                     )
                     // Error
                     .children(self.state.auth_error.clone().map(|e| {
@@ -135,9 +152,15 @@ impl InkwellApp {
                                 this.state.auth_loading = true;
                                 this.state.auth_error = None;
 
-                                let server_url = this.state.server_url.clone();
-                                let email = this.state.email.clone();
-                                let password = this.state.password.clone();
+                                let server_url = this.state.server_url_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .unwrap_or_else(|| this.state.server_url.clone());
+                                let email = this.state.email_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .unwrap_or_default();
+                                let password = this.state.password_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .unwrap_or_default();
                                 let tx = this.state.msg_tx.clone();
 
                                 // Spawn auth in background thread with tokio
@@ -167,6 +190,24 @@ impl InkwellApp {
                             }))
                     )
             )
+    }
+
+    fn ensure_block_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Ensure we have an InputState for each block
+        while self.state.block_inputs.len() < self.state.project.blocks.len() {
+            let idx = self.state.block_inputs.len();
+            let content = self.state.project.blocks.get(idx)
+                .map(|b| b.content.clone()).unwrap_or_default();
+            let input = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .default_value(content)
+                    .multi_line(true)
+                    .auto_grow(3, 20)
+            });
+            self.state.block_inputs.push(Some(input));
+        }
+        // Remove excess
+        self.state.block_inputs.truncate(self.state.project.blocks.len());
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
@@ -391,20 +432,23 @@ impl InkwellApp {
                         }))
                 );
 
-            let is_editing = self.state.editing_block_idx == Some(idx);
+            // Use Input widget for block content
+            let block_input = self.state.block_inputs.get(idx).and_then(|i| i.clone());
+
+            let mut block_content = div().p(px(4.0)).min_h(px(60.0));
+            if let Some(input_entity) = block_input {
+                block_content = block_content.child(Input::new(&input_entity));
+            } else {
+                block_content = block_content
+                    .text_sm().text_color(text_secondary())
+                    .child(content.to_string());
+            }
+
             let block_div = div().rounded(px(8.0))
-                .border_1().border_color(if is_editing { accent() } else { border_c() })
+                .border_1().border_color(border_c())
                 .bg(bg_secondary()).overflow_hidden()
                 .child(header)
-                .child(
-                    div().p(px(12.0)).min_h(px(60.0)).text_sm()
-                        .text_color(if is_editing { text_primary() } else { text_secondary() })
-                        .bg(if is_editing { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                        .child(content.to_string())
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                            this.state.editing_block_idx = Some(idx);
-                        }))
-                );
+                .child(block_content);
 
             block_list = block_list.child(block_div);
         }

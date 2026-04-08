@@ -98,6 +98,13 @@ pub struct AppState {
     pub ssh_user_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     pub tag_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     pub version_label_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Cached computed values (invalidated on block change)
+    pub cached_prompt: String,
+    pub cached_tokens: usize,
+    pub cached_chars: usize,
+    pub cached_words: usize,
+    pub cached_lines: usize,
+    pub prompt_dirty: bool,
     // Undo
     pub undo_stack: VecDeque<Vec<Block>>,
     // Persistence
@@ -326,6 +333,12 @@ impl AppState {
             ssh_user_input: None,
             tag_input: None,
             version_label_input: None,
+            cached_prompt: String::new(),
+            cached_tokens: 0,
+            cached_chars: 0,
+            cached_words: 0,
+            cached_lines: 0,
+            prompt_dirty: true,
             undo_stack: VecDeque::new(),
             confirm_delete: None,
             search_query: String::new(),

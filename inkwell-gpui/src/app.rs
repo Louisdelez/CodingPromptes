@@ -10,6 +10,19 @@ actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, 
 // Import shared UI modules
 use crate::ui::colors::*;
 
+// Global tokio runtime — reused by all async operations (avoids creating 25+ runtimes)
+fn rt() -> &'static tokio::runtime::Runtime {
+    use once_cell::sync::Lazy;
+    static RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("Failed to create tokio runtime")
+    });
+    &RT
+}
+
 pub struct InkwellApp {
     pub state: AppState,
 }
@@ -137,8 +150,7 @@ impl InkwellApp {
                         let prompt = self.state.project.compiled_prompt();
                         let response = self.state.playground_response.clone();
                         std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
+                            rt().block_on(async {
                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                 client.set_token(token);
                                 let _ = client.create_execution(&project_id, &serde_json::json!({
@@ -329,8 +341,7 @@ impl InkwellApp {
                                 let display_name = email.split('@').next().unwrap_or("User").to_string();
 
                                 std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                    rt().block_on(async {
                                         let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
                                         let result = if is_register {
                                             client.register(&email, &password, &display_name).await
@@ -382,6 +393,16 @@ impl InkwellApp {
                 changed = true;
             }
         }
+        // Refresh prompt cache if dirty
+        if changed { self.state.prompt_dirty = true; }
+        if self.state.prompt_dirty {
+            self.state.cached_prompt = self.state.project.compiled_prompt();
+            self.state.cached_tokens = (self.state.cached_prompt.len() as f64 / 4.0).ceil() as usize;
+            self.state.cached_chars = self.state.cached_prompt.len();
+            self.state.cached_words = if self.state.cached_prompt.is_empty() { 0 } else { self.state.cached_prompt.split_whitespace().count() };
+            self.state.cached_lines = self.state.cached_prompt.lines().count();
+            self.state.prompt_dirty = false;
+        }
         // Copy feedback timer
         if self.state.copy_feedback > 0 { self.state.copy_feedback -= 1; }
         // Save status reset timer
@@ -400,8 +421,7 @@ impl InkwellApp {
                 let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                 let tx = self.state.msg_tx.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                    rt().block_on(async {
                         let mut client = inkwell_core::api_client::ApiClient::new(&server);
                         client.set_token(token);
                         if let Ok(nodes) = client.list_nodes().await {
@@ -421,8 +441,7 @@ impl InkwellApp {
                 let project_id = self.state.project.id.clone();
                 let tx = self.state.msg_tx.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async {
+                    rt().block_on(async {
                         let client = reqwest::Client::new();
                         if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
                             .header("Authorization", format!("Bearer {token}"))
@@ -480,8 +499,7 @@ impl InkwellApp {
         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
 
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
+            rt().block_on(async {
                 let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
                 client.set_token(token);
                 let _ = client.update_project(&project_id, &serde_json::json!({
@@ -834,11 +852,11 @@ impl InkwellApp {
         );
         // Color picker swatches
         {
-            let palette = vec!["#6366f1","#8b5cf6","#ec4899","#22c55e","#06b6d4","#f97316","#ef4444","#eab308"];
+            const PALETTE: &[&str] = &["#6366f1","#8b5cf6","#ec4899","#22c55e","#06b6d4","#f97316","#ef4444","#eab308"];
             let mut swatch_row = div().flex().gap(px(3.0)).px(px(4.0));
-            for hex in palette {
+            for hex in PALETTE {
                 let hex_str = hex.to_string();
-                let is_selected = self.state.selected_workspace_color == hex;
+                let is_selected = self.state.selected_workspace_color == *hex;
                 swatch_row = swatch_row.child(
                     div().w(px(14.0)).h(px(14.0)).rounded(px(7.0))
                         .bg(hex_to_hsla(hex))
@@ -935,8 +953,7 @@ impl InkwellApp {
                     this.state.projects.push(ProjectSummary { id: id.clone(), name: name.clone() });
 
                     std::thread::spawn(move || {
-                        let rt = tokio::runtime::Runtime::new().unwrap();
-                        rt.block_on(async {
+                        rt().block_on(async {
                             let mut client = inkwell_core::api_client::ApiClient::new(&server);
                             client.set_token(token);
                             let _ = client.create_project(&serde_json::json!({
@@ -981,8 +998,7 @@ impl InkwellApp {
                                     let tx = this.state.msg_tx.clone();
                                     if !token.is_empty() {
                                         std::thread::spawn(move || {
-                                            let rt = tokio::runtime::Runtime::new().unwrap();
-                                            rt.block_on(async {
+                                            rt().block_on(async {
                                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                                 client.set_token(token);
                                                 if let Ok(projects) = client.list_projects().await {
@@ -1030,8 +1046,7 @@ impl InkwellApp {
                                         let server = this.state.server_url.clone();
                                         let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                                         std::thread::spawn(move || {
-                                            let rt = tokio::runtime::Runtime::new().unwrap();
-                                            rt.block_on(async {
+                                            rt().block_on(async {
                                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                                 client.set_token(token);
                                                 let _ = client.delete_project(&id).await;
@@ -1060,7 +1075,7 @@ impl InkwellApp {
     }
 
     fn render_frameworks(&self, cx: &mut Context<Self>) -> Div {
-        let frameworks = vec![
+        const FRAMEWORKS: &[(&str, &str)] = &[
             ("CO-STAR", "co-star"), ("RISEN", "risen"), ("RACE", "race"),
             ("SDD (Spec-Driven)", "sdd"), ("APE", "ape"), ("STOKE", "stoke"),
         ];
@@ -1096,7 +1111,7 @@ impl InkwellApp {
                 )
         );
         content = content.child(div().h(px(1.0)).bg(border_c()));
-        for (name, id) in frameworks {
+        for &(name, id) in FRAMEWORKS {
             let id_str = id.to_string();
             let is_active = self.state.project.framework.as_deref() == Some(id);
             content = content.child(
@@ -1241,8 +1256,7 @@ impl InkwellApp {
                                     .collect();
 
                                 std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                    rt().block_on(async {
                                         let client = reqwest::Client::new();
                                         let mut context = String::new();
 
@@ -1285,8 +1299,7 @@ impl InkwellApp {
                                 let mut all_content = String::new();
                                 for b in &blocks { if b.enabled { all_content.push_str(&format!("\n### {:?}\n{}\n", b.block_type, b.content)); } }
                                 std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                    rt().block_on(async {
                                         let client = reqwest::Client::new();
                                         if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                             .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
@@ -1313,8 +1326,7 @@ impl InkwellApp {
                                 let server = this.state.server_url.clone();
                                 let tx = this.state.msg_tx.clone();
                                 std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                    rt().block_on(async {
                                         let client = reqwest::Client::new();
                                         if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                             .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
@@ -1379,8 +1391,7 @@ impl InkwellApp {
                                         .map(|l| l.trim().trim_start_matches("- [ ] ").trim_start_matches("- [x] ")
                                             .trim_start_matches("* [ ] ").trim_start_matches("* [x] ").to_string())
                                         .collect();
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                    rt().block_on(async {
                                         let client = reqwest::Client::new();
                                         let mut created = 0;
                                         for task in &tasks {
@@ -1469,8 +1480,7 @@ impl InkwellApp {
                             let bt = bt1;
                             let idx = idx1;
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     // Build context from previous phases
                                     let mut context = String::new();
                                     let phase_order = [
@@ -1529,8 +1539,7 @@ impl InkwellApp {
                             let bt = bt2;
                             let idx = idx2;
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     let mut context = String::new();
                                     let phase_order = [BlockType::SddConstitution, BlockType::SddSpecification, BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation];
                                     for phase in &phase_order {
@@ -1566,8 +1575,7 @@ impl InkwellApp {
                             let server = server3.clone();
                             let content = content3.clone();
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     let prompt = format!("Analyze this specification and identify underspecified, ambiguous, or missing areas. Ask max 5 precise questions.\n\nContent:\n{content}");
                                     let client = reqwest::Client::new();
                                     if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
@@ -1654,8 +1662,7 @@ impl InkwellApp {
                                             let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav_buf);
 
                                             // Send to STT server
-                                            let rt = tokio::runtime::Runtime::new().unwrap();
-                                            rt.block_on(async {
+                                            rt().block_on(async {
                                                 let client = reqwest::Client::new();
                                                 if let Ok(resp) = client.post(format!("{server}/transcribe"))
                                                     .json(&serde_json::json!({"audio": b64, "language": "auto"}))
@@ -1937,9 +1944,9 @@ impl InkwellApp {
     }
 
     fn render_preview(&self, cx: &mut Context<Self>) -> Div {
-        let compiled = self.state.project.compiled_prompt();
-        let lines = compiled.lines().count();
-        let chars = compiled.len();
+        let compiled = &self.state.cached_prompt;
+        let lines = self.state.cached_lines;
+        let chars = self.state.cached_chars;
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
             .child(
                 div().flex().items_center().gap(px(8.0))
@@ -1969,18 +1976,18 @@ impl InkwellApp {
                 div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary())
                     .border_1().border_color(border_c())
                     .text_xs().text_color(text_primary())
-                    .child(if compiled.is_empty() { "Commencez a ecrire dans les blocs pour voir le prompt compile...".into() } else { compiled })
+                    .child(if compiled.is_empty() { "Commencez a ecrire dans les blocs pour voir le prompt compile...".to_string() } else { compiled.clone() })
             )
     }
 
     fn render_playground(&self, cx: &mut Context<Self>) -> Div {
-        let models = vec![
+        const MODELS: &[&str] = &[
             "gpt-4o-mini", "gpt-4o", "gpt-4.1", "claude-sonnet-4-6", "claude-opus-4-6",
             "gemini-2.5-pro", "gemini-2.5-flash",
         ];
 
         let mut model_list = div().flex().flex_col().gap(px(2.0));
-        for model in &models {
+        for model in MODELS {
             let model_str = model.to_string();
             let is_selected = self.state.playground_selected_models.contains(&model_str);
             let is_active = self.state.selected_model == *model;
@@ -2072,9 +2079,8 @@ impl InkwellApp {
                         let temp = this.state.playground_temperature;
                         let max_tok = this.state.playground_max_tokens;
                         std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
-                                for model in &models {
+                            rt().block_on(async {
+                                for model in MODELS {
                                     let client = reqwest::Client::new();
                                     let start = std::time::Instant::now();
                                     if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
@@ -2084,9 +2090,9 @@ impl InkwellApp {
                                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                                             let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
                                             let tokens_out = (text.len() as f64 / 4.0).ceil() as u64;
-                                            let _ = tx.send(AsyncMsg::MultiModelResult { model: model.clone(), response: text.clone() });
+                                            let _ = tx.send(AsyncMsg::MultiModelResult { model: model.to_string(), response: text.clone() });
                                             let _ = tx.send(AsyncMsg::ExecutionRecorded(crate::state::Execution {
-                                                model: model.clone(),
+                                                model: model.to_string(),
                                                 tokens_in: (prompt.len() as f64 / 4.0).ceil() as u64,
                                                 tokens_out, latency_ms: latency,
                                                 cost: 0.0, timestamp: chrono::Utc::now().timestamp_millis(),
@@ -2120,8 +2126,7 @@ impl InkwellApp {
                         let max_tok = this.state.playground_max_tokens;
 
                         std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
+                            rt().block_on(async {
                                 let start = std::time::Instant::now();
                                 let client = reqwest::Client::new();
                                 let resp = client.post(format!("{server_url}/v1/chat/completions"))
@@ -2214,7 +2219,7 @@ impl InkwellApp {
                 let last = self.state.executions.last();
                 div().flex().items_center().gap(px(8.0)).flex_wrap()
                     .child(div().text_xs().text_color(text_muted()).child(format!("Model: {}", self.state.selected_model)))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("~{} tokens in", self.state.project.token_count())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("~{} tokens in", self.state.cached_tokens)))
                     .children(last.map(|e| {
                         div().flex().items_center().gap(px(6.0))
                             .child(div().text_xs().text_color(accent()).child(format!("{}ms", e.latency_ms)))
@@ -2239,8 +2244,7 @@ impl InkwellApp {
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let tx = this.state.msg_tx.clone();
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token);
                                     if let Ok(nodes) = client.list_nodes().await {
@@ -2293,7 +2297,7 @@ impl InkwellApp {
     }
 
     fn render_export(&self, cx: &mut Context<Self>) -> Div {
-        let compiled = self.state.project.compiled_prompt();
+        let compiled = self.state.cached_prompt.clone();
 
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
             .child(div().text_xs().text_color(text_muted()).child(Icon::new(IconName::Download)).child("Export"))
@@ -2549,8 +2553,7 @@ impl InkwellApp {
                             this.state.version_label_input = None; // Reset
 
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token.clone());
                                     let blocks_json = serde_json::to_string(&blocks).unwrap_or_default();
@@ -2572,8 +2575,7 @@ impl InkwellApp {
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let tx = this.state.msg_tx.clone();
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token);
                                     if let Ok(versions) = client.list_versions(&project_id).await {
@@ -2759,8 +2761,7 @@ impl InkwellApp {
                         let server = this.state.server_url.clone();
                         let tx = this.state.msg_tx.clone();
                         std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
+                            rt().block_on(async {
                                 let client = reqwest::Client::new();
                                 if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                     .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
@@ -2786,10 +2787,10 @@ impl InkwellApp {
         let enabled = blocks.iter().filter(|b| b.enabled).count();
         let empty = blocks.iter().filter(|b| b.enabled && b.content.trim().is_empty()).count();
         let has_task = blocks.iter().any(|b| b.enabled && b.block_type == BlockType::Task);
-        let compiled = self.state.project.compiled_prompt();
+        let compiled = &self.state.cached_prompt;
         let unresolved = compiled.matches("{{").count();
-        let too_short = compiled.len() < 50 && enabled > 0;
-        let too_long = compiled.len() > 10000;
+        let too_short = self.state.cached_chars < 50 && enabled > 0;
+        let too_long = self.state.cached_chars > 10000;
 
         let mut checks = div().flex().flex_col().gap(px(6.0));
 
@@ -2892,8 +2893,7 @@ impl InkwellApp {
                                     .map(|(role, content)| serde_json::json!({"role": role, "content": content}))
                                     .collect();
                                 std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
+                                    rt().block_on(async {
                                         let client = reqwest::Client::new();
                                         if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                             .json(&serde_json::json!({"model":"qwen3.5:4b","messages":messages,"temperature":0.7,"max_tokens":2048,"stream":false}))
@@ -2925,7 +2925,7 @@ impl InkwellApp {
         let total_tokens_out: u64 = filtered.iter().map(|e| e.tokens_out).sum();
         let total_cost: f64 = filtered.iter().map(|e| e.cost).sum();
         let avg_latency = if exec_count > 0 { filtered.iter().map(|e| e.latency_ms).sum::<u64>() / exec_count as u64 } else { 0 };
-        let token_count = self.state.project.token_count();
+        let token_count = self.state.cached_tokens;
 
         let ranges = vec![
             ("7d", AnalyticsRange::Week), ("30d", AnalyticsRange::Month), ("All", AnalyticsRange::All),
@@ -2989,8 +2989,7 @@ impl InkwellApp {
                             let project_id = this.state.project.id.clone();
                             let tx = this.state.msg_tx.clone();
                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
+                                rt().block_on(async {
                                     let client = reqwest::Client::new();
                                     if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
                                         .header("Authorization", format!("Bearer {token}"))
@@ -3072,8 +3071,7 @@ impl InkwellApp {
                         let server = this.state.server_url.clone();
                         let tx = this.state.msg_tx.clone();
                         std::thread::spawn(move || {
-                            let rt = tokio::runtime::Runtime::new().unwrap();
-                            rt.block_on(async {
+                            rt().block_on(async {
                                 let client = reqwest::Client::new();
                                 let mut chain_output = String::new();
                                 for (i, block_content) in blocks.iter().enumerate() {
@@ -3543,12 +3541,11 @@ impl InkwellApp {
     }
 
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {
-        let compiled = self.state.project.compiled_prompt();
-        let chars = compiled.len();
-        let words = if compiled.is_empty() { 0 } else { compiled.split_whitespace().count() };
-        let lines = compiled.lines().count();
-        let tokens = self.state.project.token_count();
-        let cost = tokens as f64 * 0.000003; // Approximate input cost
+        let chars = self.state.cached_chars;
+        let words = self.state.cached_words;
+        let lines = self.state.cached_lines;
+        let tokens = self.state.cached_tokens;
+        let cost = tokens as f64 * 0.000003;
         let enabled = self.state.project.blocks.iter().filter(|b| b.enabled).count();
         let total = self.state.project.blocks.len();
 

@@ -22,6 +22,10 @@ fn main() {
             KeyBinding::new("ctrl-enter", app::RunPrompt, None),
             KeyBinding::new("cmd-,", app::ToggleSettings, None),
             KeyBinding::new("ctrl-,", app::ToggleSettings, None),
+            KeyBinding::new("cmd-z", app::Undo, None),
+            KeyBinding::new("ctrl-z", app::Undo, None),
+            KeyBinding::new("cmd-s", app::SaveNow, None),
+            KeyBinding::new("ctrl-s", app::SaveNow, None),
         ]);
         let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
         cx.open_window(

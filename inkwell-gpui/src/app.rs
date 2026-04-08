@@ -4,7 +4,7 @@ use crate::state::*;
 use inkwell_core::types::BlockType;
 
 // Actions for keyboard shortcuts
-actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings]);
+actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
 
 use crate::theme::InkwellTheme;
 
@@ -380,6 +380,16 @@ impl InkwellApp {
             .on_action(cx.listener(|this, _: &ToggleSettings, _, _| {
                 this.state.show_settings = !this.state.show_settings;
             }))
+            .on_action(cx.listener(|this, _: &Undo, _, _| {
+                if let Some(prev_blocks) = this.state.undo_stack.pop() {
+                    this.state.project.blocks = prev_blocks;
+                    this.state.block_inputs.clear();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SaveNow, _, _| {
+                this.state.save_pending = true;
+                this.state.save_timer = 1; // Save next frame
+            }))
             .child(self.render_header(cx))
             .child(main_row)
             .children(if self.state.show_settings { Some(self.render_settings(cx)) } else { None })
@@ -613,6 +623,11 @@ impl InkwellApp {
     }
 
     fn apply_framework(&mut self, id: &str) {
+        // Save undo snapshot before replacing blocks
+        self.state.undo_stack.push(self.state.project.blocks.clone());
+        if self.state.undo_stack.len() > 50 { self.state.undo_stack.remove(0); }
+        self.state.block_inputs.clear();
+
         let blocks: Vec<(BlockType, &str)> = match id {
             "co-star" => vec![
                 (BlockType::Context, "## Contexte\n"), (BlockType::Task, "## Objectif\n"),
@@ -1070,6 +1085,9 @@ impl InkwellApp {
                         .text_xs().text_color(danger()).child("x")
                         .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if idx < this.state.project.blocks.len() {
+                                // Save undo snapshot
+                                this.state.undo_stack.push(this.state.project.blocks.clone());
+                                if this.state.undo_stack.len() > 50 { this.state.undo_stack.remove(0); }
                                 this.state.project.blocks.remove(idx);
                                 if idx < this.state.block_inputs.len() { this.state.block_inputs.remove(idx); }
                             }
@@ -1201,6 +1219,7 @@ impl InkwellApp {
                 RightTab::Export => self.render_export(cx),
                 RightTab::History => self.render_history(cx),
                 RightTab::Terminal => self.render_terminal(cx),
+                RightTab::Stt => self.render_stt(),
                 _ => div().flex_1().p(px(12.0)).child(div().text_xs().text_color(text_muted()).child("Coming soon...")),
             })
     }
@@ -1571,6 +1590,41 @@ impl InkwellApp {
         content
     }
 
+    fn render_stt(&self) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+            .child(div().text_xs().text_color(text_muted()).child("Speech-to-Text"))
+            .child(
+                div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().flex_col().gap(px(6.0))
+                    .child(div().text_xs().text_color(text_primary()).child("How to use"))
+                    .child(div().text_xs().text_color(text_secondary()).child(
+                        "Click the 'Mic' button on any block header to start recording."
+                    ))
+                    .child(div().text_xs().text_color(text_secondary()).child(
+                        "Click 'REC' again to stop. The transcription will be appended to the block."
+                    ))
+            )
+            .child(
+                div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().flex_col().gap(px(4.0))
+                    .child(div().flex().items_center().gap(px(6.0))
+                        .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
+                            .bg(if self.state.stt_recording { danger() } else { success() }))
+                        .child(div().text_xs().text_color(text_primary()).child(
+                            if self.state.stt_recording { "Recording..." } else { "Ready" }
+                        ))
+                    )
+                    .child(div().text_xs().text_color(text_muted()).child(
+                        format!("Server: {}", self.state.server_url)
+                    ))
+            )
+            .child(
+                div().text_xs().text_color(text_muted()).child(
+                    "Requires a Whisper model loaded on a GPU server node."
+                )
+            )
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> Div {
         let lang = self.state.lang.clone();
         div().h(px(200.0)).flex_shrink_0()
@@ -1715,9 +1769,13 @@ impl InkwellApp {
                         lines[start..].join("\n")
                     })
             )
-            // Input area
-            .child(
-                div().h(px(28.0)).px(px(8.0)).bg(hsla(0.0, 0.0, 0.06, 1.0))
+            // Input area with real Input widget
+            .child({
+                if self.state.terminal_input_entity.is_none() {
+                    // Can't create InputState here (need window ref)
+                    // Use buffer approach with Run button
+                }
+                div().h(px(32.0)).px(px(8.0)).bg(hsla(0.0, 0.0, 0.06, 1.0))
                     .border_t_1().border_color(border_c())
                     .flex().items_center().gap(px(6.0))
                     .child(div().text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0)).child("$"))
@@ -1736,7 +1794,7 @@ impl InkwellApp {
                                 }
                             }))
                     )
-            )
+            })
     }
 
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {

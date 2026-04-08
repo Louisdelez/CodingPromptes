@@ -65,6 +65,9 @@ pub struct AppState {
     pub terminal_running: bool,
     pub terminal_input_tx: Option<mpsc::Sender<String>>,
     pub terminal_input_buf: String,
+    pub terminal_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Undo
+    pub undo_stack: Vec<Vec<Block>>,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -177,6 +180,8 @@ impl AppState {
             terminal_running: false,
             terminal_input_tx: None,
             terminal_input_buf: String::new(),
+            terminal_input_entity: None,
+            undo_stack: vec![],
             msg_rx,
             msg_tx,
         }

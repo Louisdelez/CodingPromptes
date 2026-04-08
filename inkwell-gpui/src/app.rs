@@ -81,7 +81,11 @@ impl InkwellApp {
                     self.state.auth_error = Some(e);
                 }
                 AsyncMsg::LlmResponse(text) => {
-                    self.state.playground_response = text;
+                    if text.starts_with("__CHAT__") {
+                        self.state.chat_messages.push(("assistant".into(), text[8..].to_string()));
+                    } else {
+                        self.state.playground_response = text;
+                    }
                 }
                 AsyncMsg::LlmChunk(text) => {
                     self.state.playground_response = text;
@@ -352,6 +356,11 @@ impl InkwellApp {
         if self.state.terminal_input_entity.is_none() {
             self.state.terminal_input_entity = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("Enter command...")
+            }));
+        }
+        if self.state.chat_input_entity.is_none() {
+            self.state.chat_input_entity = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Type a message...")
             }));
         }
     }
@@ -1297,8 +1306,12 @@ impl InkwellApp {
     fn render_right_panel(&self, cx: &mut Context<Self>) -> Div {
         let tabs = vec![
             ("Preview", RightTab::Preview), ("Playground", RightTab::Playground),
-            ("STT", RightTab::Stt), ("GPU", RightTab::Fleet), ("Terminal", RightTab::Terminal),
+            ("Chat", RightTab::Chat), ("STT", RightTab::Stt),
+            ("Optimize", RightTab::Optimize), ("Lint", RightTab::Lint),
+            ("GPU", RightTab::Fleet), ("Terminal", RightTab::Terminal),
             ("Export", RightTab::Export), ("History", RightTab::History),
+            ("Analytics", RightTab::Analytics), ("Chain", RightTab::Chain),
+            ("Collab", RightTab::Collab),
         ];
 
         let mut tab_bar = div().h(px(36.0)).px(px(6.0)).flex().items_center().gap(px(2.0))
@@ -1327,7 +1340,12 @@ impl InkwellApp {
                 RightTab::History => self.render_history(cx),
                 RightTab::Terminal => self.render_terminal(cx),
                 RightTab::Stt => self.render_stt(),
-
+                RightTab::Optimize => self.render_optimize(cx),
+                RightTab::Lint => self.render_lint(),
+                RightTab::Chat => self.render_chat(cx),
+                RightTab::Analytics => self.render_analytics(),
+                RightTab::Collab => self.render_collab(),
+                RightTab::Chain => self.render_chain(cx),
             })
     }
 
@@ -1732,6 +1750,247 @@ impl InkwellApp {
             )
     }
 
+    fn render_optimize(&self, cx: &mut Context<Self>) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::Sparkles))
+                .child(div().text_xs().text_color(text_muted()).child("Prompt Optimizer")))
+            .child(div().text_xs().text_color(text_secondary()).child("Improve your prompt using AI. The optimizer rewrites for clarity, specificity, and effectiveness."))
+            .child(
+                div().py(px(8.0)).px(px(12.0)).rounded(px(6.0)).bg(accent())
+                    .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child("Optimize prompt")
+                    .flex().items_center().justify_center().gap(px(6.0))
+                    .child(Icon::new(IconName::Sparkles))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let prompt = this.state.project.compiled_prompt();
+                        let server = this.state.server_url.clone();
+                        let tx = this.state.msg_tx.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                let client = reqwest::Client::new();
+                                if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                    .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
+                                        {"role":"system","content":"You are a prompt engineering expert. Rewrite the following prompt to be clearer, more specific, and more effective. Keep the same intent."},
+                                        {"role":"user","content":format!("Optimize this prompt:\n\n{prompt}")}
+                                    ],"temperature":0.3,"max_tokens":4096,"stream":false})).send().await {
+                                    if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                        let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                        let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Optimized ---\n{text}")));
+                                    }
+                                }
+                            });
+                        });
+                        this.state.right_tab = RightTab::Playground;
+                    }))
+            )
+    }
+
+    fn render_lint(&self) -> Div {
+        let blocks = &self.state.project.blocks;
+        let enabled = blocks.iter().filter(|b| b.enabled).count();
+        let empty = blocks.iter().filter(|b| b.enabled && b.content.trim().is_empty()).count();
+        let has_task = blocks.iter().any(|b| b.enabled && b.block_type == BlockType::Task);
+        let compiled = self.state.project.compiled_prompt();
+        let unresolved = compiled.matches("{{").count();
+        let too_short = compiled.len() < 50 && enabled > 0;
+        let too_long = compiled.len() > 10000;
+
+        let mut checks = div().flex().flex_col().gap(px(6.0));
+
+        // Check: no blocks enabled
+        if enabled == 0 {
+            checks = checks.child(lint_item("error", "No blocks enabled", IconName::TriangleAlert));
+        }
+        // Check: empty blocks
+        if empty > 0 {
+            checks = checks.child(lint_item("warning", &format!("{empty} empty block(s)"), IconName::TriangleAlert));
+        }
+        // Check: no task block
+        if !has_task && enabled > 0 {
+            checks = checks.child(lint_item("warning", "No task/directive block", IconName::Info));
+        }
+        // Check: unresolved variables
+        if unresolved > 0 {
+            checks = checks.child(lint_item("warning", &format!("{unresolved} unresolved variable(s)"), IconName::Info));
+        }
+        // Check: too short
+        if too_short {
+            checks = checks.child(lint_item("info", "Prompt seems very short", IconName::Info));
+        }
+        // Check: too long
+        if too_long {
+            checks = checks.child(lint_item("warning", "Prompt is very long (>10K chars)", IconName::TriangleAlert));
+        }
+        // All good
+        if enabled > 0 && empty == 0 && has_task && unresolved == 0 && !too_short && !too_long {
+            checks = checks.child(lint_item("success", "All checks passed!", IconName::Check));
+        }
+
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::TriangleAlert))
+                .child(div().text_xs().text_color(text_muted()).child("Linting")))
+            .child(checks)
+    }
+
+    fn render_chat(&self, cx: &mut Context<Self>) -> Div {
+        let mut messages_view = div().flex().flex_col().gap(px(6.0));
+        for (role, content) in &self.state.chat_messages {
+            let is_user = role == "user";
+            messages_view = messages_view.child(
+                div().px(px(10.0)).py(px(6.0)).rounded(px(8.0))
+                    .bg(if is_user { bg_tertiary() } else { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) })
+                    .flex().flex_col().gap(px(2.0))
+                    .child(div().text_xs().text_color(if is_user { text_muted() } else { accent() })
+                        .child(if is_user { "You" } else { "Assistant" }))
+                    .child(div().text_xs().text_color(text_primary()).child(content.clone()))
+            );
+        }
+
+        div().flex_1().flex().flex_col()
+            .child(div().px(px(12.0)).py(px(6.0)).flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::Bot))
+                .child(div().text_xs().text_color(text_muted()).child("Conversation")))
+            // Messages area
+            .child(div().flex_1().p(px(8.0)).flex().flex_col().gap(px(4.0))
+                .child(messages_view)
+                .child(if self.state.chat_messages.is_empty() {
+                    div().text_xs().text_color(text_muted()).child("Start a conversation...")
+                } else { div() })
+            )
+            // Input area
+            .child(
+                div().h(px(36.0)).px(px(8.0)).border_t_1().border_color(border_c())
+                    .flex().items_center().gap(px(6.0))
+                    .child({
+                        if let Some(ref entity) = self.state.chat_input_entity {
+                            div().flex_1().child(Input::new(entity))
+                        } else {
+                            div().flex_1().text_xs().text_color(text_muted()).child("Type a message...")
+                        }
+                    })
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
+                            .child(Icon::new(IconName::Play))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                let msg = if let Some(ref entity) = this.state.chat_input_entity {
+                                    entity.read(cx).value().to_string()
+                                } else { String::new() };
+                                if msg.is_empty() { return; }
+                                this.state.chat_messages.push(("user".into(), msg.clone()));
+                                this.state.chat_input_entity = None;
+                                // Call LLM
+                                let server = this.state.server_url.clone();
+                                let tx = this.state.msg_tx.clone();
+                                let messages: Vec<serde_json::Value> = this.state.chat_messages.iter()
+                                    .map(|(role, content)| serde_json::json!({"role": role, "content": content}))
+                                    .collect();
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let client = reqwest::Client::new();
+                                        if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                            .json(&serde_json::json!({"model":"qwen3.5:4b","messages":messages,"temperature":0.7,"max_tokens":2048,"stream":false}))
+                                            .send().await {
+                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                                let _ = tx.send(AsyncMsg::LlmResponse(format!("__CHAT__{text}")));
+                                            }
+                                        }
+                                    });
+                                });
+                            }))
+                    )
+            )
+    }
+
+    fn render_analytics(&self) -> Div {
+        let exec_count = self.state.versions.len(); // Approximate
+        let token_count = self.state.project.token_count();
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(12.0))
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::ChartPie))
+                .child(div().text_xs().text_color(text_muted()).child("Analytics")))
+            // KPI cards
+            .child(div().flex().gap(px(8.0))
+                .child(kpi_card("Versions", &exec_count.to_string(), accent()))
+                .child(kpi_card("Tokens", &format!("~{token_count}"), success()))
+                .child(kpi_card("Blocks", &self.state.project.blocks.len().to_string(), text_secondary()))
+            )
+            .child(div().text_xs().text_color(text_muted()).child("Run prompts in the Playground to see execution analytics."))
+    }
+
+    fn render_collab(&self) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::User))
+                .child(div().text_xs().text_color(text_muted()).child("Collaboration")))
+            .child(
+                div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().items_center().gap(px(8.0))
+                    .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent())
+                        .flex().items_center().justify_center()
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                        .child(self.state.session.as_ref().map(|s| s.email.chars().next().unwrap_or('U').to_uppercase().to_string()).unwrap_or("U".into())))
+                    .child(div().flex().flex_col()
+                        .child(div().text_xs().text_color(text_primary()).child(
+                            self.state.session.as_ref().map(|s| s.display_name.clone()).unwrap_or("You".into())))
+                        .child(div().text_xs().text_color(success()).child("Online"))
+                    )
+            )
+            .child(div().text_xs().text_color(text_muted()).child("Other users editing this project will appear here."))
+    }
+
+    fn render_chain(&self, cx: &mut Context<Self>) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::Network))
+                .child(div().text_xs().text_color(text_muted()).child("Prompt Chain")))
+            .child(div().text_xs().text_color(text_secondary()).child("Execute multiple prompts sequentially. The output of each step feeds into the next."))
+            .child(
+                div().py(px(8.0)).px(px(12.0)).rounded(px(6.0)).bg(accent())
+                    .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                    .flex().items_center().justify_center().gap(px(6.0))
+                    .child(Icon::new(IconName::Play))
+                    .child("Run chain")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        // Chain: execute each block sequentially, passing output as context
+                        let blocks: Vec<String> = this.state.project.blocks.iter()
+                            .filter(|b| b.enabled && !b.content.is_empty())
+                            .map(|b| b.content.clone())
+                            .collect();
+                        let server = this.state.server_url.clone();
+                        let tx = this.state.msg_tx.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                let client = reqwest::Client::new();
+                                let mut chain_output = String::new();
+                                for (i, block_content) in blocks.iter().enumerate() {
+                                    let prompt = if chain_output.is_empty() {
+                                        block_content.clone()
+                                    } else {
+                                        format!("Previous output:\n{chain_output}\n\nNow:\n{block_content}")
+                                    };
+                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                        .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[{"role":"user","content":prompt}],"temperature":0.7,"max_tokens":2048,"stream":false}))
+                                        .send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                            chain_output = text.clone();
+                                            let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Step {} ---\n{text}", i + 1)));
+                                        }
+                                    }
+                                }
+                                let _ = tx.send(AsyncMsg::LlmDone);
+                            });
+                        });
+                        this.state.right_tab = RightTab::Playground;
+                    }))
+            )
+    }
+
     fn render_settings(&self, cx: &mut Context<Self>) -> Div {
         let lang = self.state.lang.clone();
         div().h(px(200.0)).flex_shrink_0()
@@ -1941,3 +2200,26 @@ impl InkwellApp {
 }
 
 // hex_to_hsla and strip_ansi are in ui::colors
+
+fn lint_item(severity: &str, message: &str, icon: IconName) -> Div {
+    let color = match severity {
+        "error" => danger(),
+        "warning" => hsla(50.0 / 360.0, 0.8, 0.5, 1.0),
+        "success" => success(),
+        _ => text_muted(),
+    };
+    div().px(px(10.0)).py(px(6.0)).rounded(px(6.0))
+        .bg(hsla(color.h, color.s, color.l, 0.1))
+        .border_1().border_color(hsla(color.h, color.s, color.l, 0.2))
+        .flex().items_center().gap(px(8.0))
+        .child(Icon::new(icon).text_color(color))
+        .child(div().text_xs().text_color(color).child(message.to_string()))
+}
+
+fn kpi_card(label: &str, value: &str, color: Hsla) -> Div {
+    div().flex_1().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary())
+        .border_1().border_color(border_c())
+        .flex().flex_col().items_center().gap(px(4.0))
+        .child(div().text_xl().text_color(color).child(value.to_string()))
+        .child(div().text_xs().text_color(text_muted()).child(label.to_string()))
+}

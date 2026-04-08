@@ -61,6 +61,9 @@ pub struct AppState {
     pub playground_loading: bool,
     // Editing
     pub editing_block_idx: Option<usize>,
+    // Chat
+    pub chat_messages: Vec<(String, String)>, // (role, content)
+    pub chat_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Terminal
     pub terminal_output: String,
     pub terminal_running: bool,
@@ -108,7 +111,7 @@ pub enum AuthMode { Login, Register }
 pub enum LeftTab { Library, Frameworks, Versions }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum RightTab { Preview, Playground, Stt, History, Export, Fleet, Terminal }
+pub enum RightTab { Preview, Playground, Stt, History, Export, Fleet, Terminal, Optimize, Lint, Chat, Analytics, Collab, Chain }
 
 #[allow(dead_code)]
 pub struct Project {
@@ -194,6 +197,8 @@ impl AppState {
             playground_response: String::new(),
             playground_loading: false,
             editing_block_idx: None,
+            chat_messages: vec![],
+            chat_input_entity: None,
             terminal_output: String::new(),
             terminal_running: false,
             terminal_input_tx: None,

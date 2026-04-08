@@ -75,6 +75,14 @@ impl InkwellApp {
                     self.state.playground_loading = false;
                     self.state.playground_response = format!("Error: {e}");
                 }
+                AsyncMsg::TerminalOutput(text) => {
+                    self.state.terminal_output.push_str(&text);
+                    // Cap at 10K chars
+                    if self.state.terminal_output.len() > 10_000 {
+                        let start = self.state.terminal_output.len() - 8_000;
+                        self.state.terminal_output = self.state.terminal_output[start..].to_string();
+                    }
+                }
             }
         }
     }
@@ -364,11 +372,20 @@ impl InkwellApp {
                         }))
                 );
 
-            let block_div = div().rounded(px(8.0)).border_1().border_color(border_c())
+            let is_editing = self.state.editing_block_idx == Some(idx);
+            let block_div = div().rounded(px(8.0))
+                .border_1().border_color(if is_editing { accent() } else { border_c() })
                 .bg(bg_secondary()).overflow_hidden()
                 .child(header)
-                .child(div().p(px(12.0)).min_h(px(60.0)).text_sm().text_color(text_secondary())
-                    .child(content.to_string()));
+                .child(
+                    div().p(px(12.0)).min_h(px(60.0)).text_sm()
+                        .text_color(if is_editing { text_primary() } else { text_secondary() })
+                        .bg(if is_editing { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                        .child(content.to_string())
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                            this.state.editing_block_idx = Some(idx);
+                        }))
+                );
 
             block_list = block_list.child(block_div);
         }
@@ -445,6 +462,7 @@ impl InkwellApp {
                 RightTab::Fleet => self.render_fleet(),
                 RightTab::Export => self.render_export(),
                 RightTab::History => self.render_history(),
+                RightTab::Terminal => self.render_terminal(cx),
                 _ => div().flex_1().p(px(12.0)).child(div().text_xs().text_color(text_muted()).child("Coming soon...")),
             })
     }
@@ -605,6 +623,71 @@ impl InkwellApp {
             .child(div().text_xs().text_color(text_muted()).child("No executions yet. Run a prompt in the Playground."))
     }
 
+    fn render_terminal(&self, cx: &mut Context<Self>) -> Div {
+        div().flex_1().flex().flex_col()
+            .child(
+                div().px(px(12.0)).py(px(6.0)).flex().items_center().gap(px(8.0))
+                    .border_b_1().border_color(border_c())
+                    .child(div().text_xs().text_color(text_muted()).child("Local Terminal"))
+                    .child(div().flex_1())
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(if self.state.terminal_running { danger() } else { success() })
+                            .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                            .child(if self.state.terminal_running { "Stop" } else { "Start" })
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                if this.state.terminal_running {
+                                    this.state.terminal_running = false;
+                                } else {
+                                    this.state.terminal_running = true;
+                                    this.state.terminal_output = "$ ".to_string();
+
+                                    let tx = this.state.msg_tx.clone();
+                                    std::thread::spawn(move || {
+                                        use std::io::Read;
+                                        let pty_system = portable_pty::native_pty_system();
+                                        let pair = pty_system.openpty(portable_pty::PtySize {
+                                            rows: 24, cols: 80, pixel_width: 0, pixel_height: 0,
+                                        }).unwrap();
+
+                                        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
+                                        let mut cmd = portable_pty::CommandBuilder::new(&shell);
+                                        cmd.env("TERM", "dumb");
+                                        let _child = pair.slave.spawn_command(cmd).unwrap();
+                                        drop(pair.slave);
+
+                                        let mut reader = pair.master.try_clone_reader().unwrap();
+                                        let mut buf = [0u8; 4096];
+                                        loop {
+                                            match reader.read(&mut buf) {
+                                                Ok(0) => break,
+                                                Ok(n) => {
+                                                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                                                    // Strip ANSI escape codes for simple display
+                                                    let clean = strip_ansi(&text);
+                                                    if tx.send(AsyncMsg::TerminalOutput(clean)).is_err() { break; }
+                                                }
+                                                Err(_) => break,
+                                            }
+                                        }
+                                    });
+                                }
+                            }))
+                    )
+            )
+            .child(
+                div().flex_1().p(px(8.0)).bg(hsla(0.0, 0.0, 0.04, 1.0))
+                    .text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0))
+                    .child(if self.state.terminal_output.is_empty() {
+                        "Click Start to open a terminal session".to_string()
+                    } else {
+                        // Show last 50 lines
+                        let lines: Vec<&str> = self.state.terminal_output.lines().collect();
+                        let start = if lines.len() > 50 { lines.len() - 50 } else { 0 };
+                        lines[start..].join("\n")
+                    })
+            )
+    }
+
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {
         let chars = self.state.project.char_count();
         let words = self.state.project.word_count();
@@ -647,4 +730,19 @@ fn hex_to_hsla(hex: &str) -> Hsla {
         else if (max - g).abs() < 0.001 { (b - r) / d + 2.0 }
         else { (r - g) / d + 4.0 } / 6.0;
     hsla(h, s, l, 1.0)
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut in_escape = false;
+    for ch in s.chars() {
+        if ch == '\x1b' { in_escape = true; continue; }
+        if in_escape {
+            if ch.is_ascii_alphabetic() { in_escape = false; }
+            continue;
+        }
+        if ch == '\r' { continue; } // strip carriage returns
+        result.push(ch);
+    }
+    result
 }

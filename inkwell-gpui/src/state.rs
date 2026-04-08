@@ -34,6 +34,11 @@ pub struct AppState {
     // Playground
     pub playground_response: String,
     pub playground_loading: bool,
+    // Editing
+    pub editing_block_idx: Option<usize>,
+    // Terminal
+    pub terminal_output: String,
+    pub terminal_running: bool,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -46,6 +51,7 @@ pub enum AsyncMsg {
     LlmResponse(String),
     LlmDone,
     LlmError(String),
+    TerminalOutput(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -109,6 +115,9 @@ impl AppState {
             sdd_running: false,
             playground_response: String::new(),
             playground_loading: false,
+            editing_block_idx: None,
+            terminal_output: String::new(),
+            terminal_running: false,
             msg_rx,
             msg_tx,
         }

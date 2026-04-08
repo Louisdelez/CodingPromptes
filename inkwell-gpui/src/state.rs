@@ -47,6 +47,8 @@ pub struct AppState {
     // Terminal
     pub terminal_output: String,
     pub terminal_running: bool,
+    pub terminal_input_tx: Option<mpsc::Sender<String>>,
+    pub terminal_input_buf: String,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -135,6 +137,8 @@ impl AppState {
             editing_block_idx: None,
             terminal_output: String::new(),
             terminal_running: false,
+            terminal_input_tx: None,
+            terminal_input_buf: String::new(),
             msg_rx,
             msg_tx,
         }

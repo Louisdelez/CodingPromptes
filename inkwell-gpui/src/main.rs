@@ -10,6 +10,16 @@ fn main() {
 
     application().run(|cx: &mut App| {
         gpui_component::init(cx);
+
+        // Register keyboard shortcuts
+        cx.bind_keys([
+            KeyBinding::new("cmd-n", app::NewProject, None),
+            KeyBinding::new("ctrl-n", app::NewProject, None),
+            KeyBinding::new("cmd-`", app::ToggleTerminal, None),
+            KeyBinding::new("ctrl-`", app::ToggleTerminal, None),
+            KeyBinding::new("cmd-enter", app::RunPrompt, None),
+            KeyBinding::new("ctrl-enter", app::RunPrompt, None),
+        ]);
         let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
         cx.open_window(
             WindowOptions {

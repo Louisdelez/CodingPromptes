@@ -3,6 +3,9 @@ use gpui_component::input::{Input, InputState};
 use crate::state::*;
 use inkwell_core::types::BlockType;
 
+// Actions for keyboard shortcuts
+actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt]);
+
 fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
 fn bg_secondary() -> Hsla { hsla(230.0 / 360.0, 0.12, 0.10, 1.0) }
 fn bg_tertiary() -> Hsla { hsla(230.0 / 360.0, 0.10, 0.14, 1.0) }
@@ -73,6 +76,7 @@ impl InkwellApp {
                 }
                 AsyncMsg::LlmDone => {
                     self.state.playground_loading = false;
+                    self.state.sdd_running = false;
                 }
                 AsyncMsg::LlmError(e) => {
                     self.state.playground_loading = false;
@@ -280,12 +284,26 @@ impl InkwellApp {
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
+        // Register action handlers
         let mut main_row = div().flex_1().flex().overflow_hidden();
         if self.state.left_open { main_row = main_row.child(self.render_sidebar(cx)); }
         main_row = main_row.child(self.render_editor(cx));
         if self.state.right_open { main_row = main_row.child(self.render_right_panel(cx)); }
 
         div().size_full().bg(bg_primary()).flex().flex_col()
+            .on_action(cx.listener(|this, _: &NewProject, _, _| {
+                this.state.project = Project::default_prompt();
+                this.state.block_inputs.clear();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleTerminal, _, _| {
+                this.state.right_tab = RightTab::Terminal;
+                this.state.right_open = true;
+            }))
+            .on_action(cx.listener(|this, _: &RunPrompt, _, _| {
+                this.state.right_tab = RightTab::Playground;
+                this.state.right_open = true;
+                // Trigger playground run (same as clicking "Run prompt")
+            }))
             .child(self.render_header(cx))
             .child(main_row)
             .child(self.render_bottom_bar(cx))
@@ -458,8 +476,56 @@ impl InkwellApp {
                     .flex().items_center().gap(px(8.0))
                     .child(div().text_xs().text_color(accent()).child("SDD"))
                     .child(div().flex_1().h(px(28.0)).rounded(px(4.0)).border_1().border_color(border_c()).bg(bg_tertiary()))
-                    .child(div().px(px(12.0)).py(px(6.0)).rounded(px(4.0)).bg(accent())
-                        .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Generate all"))
+                    .child(
+                        div().px(px(12.0)).py(px(6.0)).rounded(px(4.0))
+                            .bg(if self.state.sdd_running { text_muted() } else { accent() })
+                            .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                            .child(if self.state.sdd_running { "Running..." } else { "Generate all" })
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                if this.state.sdd_running { return; }
+                                this.state.sdd_running = true;
+
+                                let server = this.state.server_url.clone();
+                                let tx = this.state.msg_tx.clone();
+                                let blocks: Vec<(usize, BlockType)> = this.state.project.blocks.iter().enumerate()
+                                    .filter(|(_, b)| b.block_type.is_sdd() && b.enabled)
+                                    .map(|(i, b)| (i, b.block_type))
+                                    .collect();
+
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let client = reqwest::Client::new();
+                                        let mut context = String::new();
+
+                                        for (idx, bt) in &blocks {
+                                            let prompt = if context.is_empty() {
+                                                format!("Generate the {:?} for a new software project. Use Spec Kit SDD format.", bt)
+                                            } else {
+                                                format!("Based on:\n{}\n\nGenerate the {:?} phase.", context, bt)
+                                            };
+
+                                            if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                                .json(&serde_json::json!({
+                                                    "model": "qwen3.5:4b",
+                                                    "messages": [
+                                                        {"role": "system", "content": "You are an expert software architect. Write in Spec Kit SDD format."},
+                                                        {"role": "user", "content": prompt}
+                                                    ],
+                                                    "temperature": 0.3, "max_tokens": 4096, "stream": false,
+                                                })).send().await {
+                                                if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                    let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                                    context.push_str(&format!("\n### {:?}\n{}\n", bt, text));
+                                                    let _ = tx.send(AsyncMsg::SddBlockResult { idx: *idx, content: text });
+                                                }
+                                            }
+                                        }
+                                        let _ = tx.send(AsyncMsg::LlmDone);
+                                    });
+                                });
+                            }))
+                    )
                     .child(div().px(px(8.0)).py(px(6.0)).text_xs().text_color(text_muted()).child("Validate"))
             );
         }
@@ -895,11 +961,14 @@ impl InkwellApp {
                                     this.state.terminal_running = false;
                                 } else {
                                     this.state.terminal_running = true;
-                                    this.state.terminal_output = "$ ".to_string();
+                                    this.state.terminal_output = String::new();
 
                                     let tx = this.state.msg_tx.clone();
+                                    let (input_tx, input_rx) = std::sync::mpsc::channel::<String>();
+                                    this.state.terminal_input_tx = Some(input_tx);
+
                                     std::thread::spawn(move || {
-                                        use std::io::Read;
+                                        use std::io::{Read, Write};
                                         let pty_system = portable_pty::native_pty_system();
                                         let pair = pty_system.openpty(portable_pty::PtySize {
                                             rows: 24, cols: 80, pixel_width: 0, pixel_height: 0,
@@ -912,13 +981,23 @@ impl InkwellApp {
                                         drop(pair.slave);
 
                                         let mut reader = pair.master.try_clone_reader().unwrap();
+                                        let mut writer = pair.master.take_writer().unwrap();
+
+                                        // Writer thread — reads from input channel and writes to PTY
+                                        std::thread::spawn(move || {
+                                            while let Ok(input) = input_rx.recv() {
+                                                let _ = writer.write_all(input.as_bytes());
+                                                let _ = writer.flush();
+                                            }
+                                        });
+
+                                        // Reader thread — reads PTY output
                                         let mut buf = [0u8; 4096];
                                         loop {
                                             match reader.read(&mut buf) {
                                                 Ok(0) => break,
                                                 Ok(n) => {
                                                     let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                                                    // Strip ANSI escape codes for simple display
                                                     let clean = strip_ansi(&text);
                                                     if tx.send(AsyncMsg::TerminalOutput(clean)).is_err() { break; }
                                                 }
@@ -930,17 +1009,39 @@ impl InkwellApp {
                             }))
                     )
             )
+            // Output area
             .child(
                 div().flex_1().p(px(8.0)).bg(hsla(0.0, 0.0, 0.04, 1.0))
                     .text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0))
                     .child(if self.state.terminal_output.is_empty() {
                         "Click Start to open a terminal session".to_string()
                     } else {
-                        // Show last 50 lines
                         let lines: Vec<&str> = self.state.terminal_output.lines().collect();
                         let start = if lines.len() > 50 { lines.len() - 50 } else { 0 };
                         lines[start..].join("\n")
                     })
+            )
+            // Input area
+            .child(
+                div().h(px(28.0)).px(px(8.0)).bg(hsla(0.0, 0.0, 0.06, 1.0))
+                    .border_t_1().border_color(border_c())
+                    .flex().items_center().gap(px(6.0))
+                    .child(div().text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0)).child("$"))
+                    .child(
+                        div().flex_1().text_xs().text_color(text_primary())
+                            .child(format!("{}_", self.state.terminal_input_buf))
+                    )
+                    .child(
+                        div().px(px(6.0)).py(px(2.0)).rounded(px(3.0)).bg(success())
+                            .text_xs().text_color(hsla(0.0, 0.0, 0.0, 1.0)).child("Run")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                if let Some(ref tx) = this.state.terminal_input_tx {
+                                    let cmd = format!("{}\n", this.state.terminal_input_buf);
+                                    let _ = tx.send(cmd);
+                                    this.state.terminal_input_buf.clear();
+                                }
+                            }))
+                    )
             )
     }
 

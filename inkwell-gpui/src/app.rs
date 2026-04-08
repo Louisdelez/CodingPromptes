@@ -2239,7 +2239,36 @@ impl InkwellApp {
             .child(
                 div().px(px(12.0)).py(px(6.0)).flex().items_center().gap(px(8.0))
                     .border_b_1().border_color(border_c())
-                    .child(div().text_xs().text_color(text_muted()).child("Local Terminal"))
+                    .child(div().text_xs().text_color(text_muted()).child("Terminal"))
+                    // Session tabs
+                    .child({
+                        let mut tabs = div().flex().gap(px(2.0));
+                        for (i, session) in self.state.terminal_sessions.iter().enumerate() {
+                            let is_active = i == self.state.active_terminal;
+                            tabs = tabs.child(
+                                div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                                    .text_xs().text_color(if is_active { accent() } else { text_muted() })
+                                    .bg(if is_active { accent_bg() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                                    .child(session.label.clone())
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                        this.state.active_terminal = i;
+                                    }))
+                            );
+                        }
+                        tabs
+                    })
+                    // SSH button
+                    .child(
+                        div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                            .text_xs().text_color(text_muted())
+                            .flex().items_center().gap(px(4.0))
+                            .child(Icon::new(IconName::Globe))
+                            .child("SSH")
+                            .cursor_pointer().hover(|s| s.bg(accent_bg()))
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                this.state.show_ssh_modal = !this.state.show_ssh_modal;
+                            }))
+                    )
                     .child(div().flex_1())
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(if self.state.terminal_sessions.get(self.state.active_terminal).map(|s| s.running).unwrap_or(false) { danger() } else { success() })
@@ -2351,6 +2380,89 @@ impl InkwellApp {
                             }))
                     )
             )
+            // SSH Modal
+            .children(if self.state.show_ssh_modal {
+                Some(div().p(px(12.0)).bg(bg_secondary()).border_t_1().border_color(border_c())
+                    .flex().flex_col().gap(px(8.0))
+                    .child(div().flex().items_center().gap(px(6.0))
+                        .child(Icon::new(IconName::Globe))
+                        .child(div().text_xs().text_color(text_primary()).child("SSH Connection"))
+                        .child(div().flex_1())
+                        .child(div().text_xs().text_color(text_muted()).child("Close")
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                this.state.show_ssh_modal = false;
+                            })))
+                    )
+                    .child(div().flex().gap(px(6.0))
+                        .child(div().flex_1().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                            .border_1().border_color(border_c()).flex().items_center()
+                            .text_xs().text_color(text_secondary())
+                            .child(if self.state.ssh_host.is_empty() { "host".to_string() } else { self.state.ssh_host.clone() }))
+                        .child(div().w(px(50.0)).h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                            .border_1().border_color(border_c()).flex().items_center()
+                            .text_xs().text_color(text_secondary()).child(self.state.ssh_port.clone()))
+                    )
+                    .child(div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                        .border_1().border_color(border_c()).flex().items_center()
+                        .text_xs().text_color(text_secondary())
+                        .child(if self.state.ssh_user.is_empty() { "username".to_string() } else { self.state.ssh_user.clone() }))
+                    .child(
+                        div().py(px(6.0)).bg(accent()).rounded(px(6.0))
+                            .flex().items_center().justify_center().gap(px(6.0))
+                            .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                            .child(Icon::new(IconName::Globe))
+                            .child("Connect")
+                            .cursor_pointer()
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                let host = if this.state.ssh_host.is_empty() { "localhost".to_string() } else { this.state.ssh_host.clone() };
+                                let user = if this.state.ssh_user.is_empty() { "root".to_string() } else { this.state.ssh_user.clone() };
+                                let port = this.state.ssh_port.clone();
+                                let (input_tx, input_rx) = std::sync::mpsc::channel::<String>();
+                                this.state.terminal_sessions.push(crate::state::TerminalSession {
+                                    label: format!("{}@{}", user, host),
+                                    output: String::new(), running: true, input_tx: Some(input_tx),
+                                });
+                                this.state.active_terminal = this.state.terminal_sessions.len() - 1;
+                                this.state.show_ssh_modal = false;
+                                let tx = this.state.msg_tx.clone();
+                                std::thread::spawn(move || {
+                                    use std::io::{Read, Write};
+                                    let pty_system = portable_pty::native_pty_system();
+                                    let pair = pty_system.openpty(portable_pty::PtySize {
+                                        rows: 24, cols: 80, pixel_width: 0, pixel_height: 0,
+                                    }).unwrap();
+                                    let mut cmd = portable_pty::CommandBuilder::new("ssh");
+                                    cmd.arg("-o"); cmd.arg("StrictHostKeyChecking=accept-new");
+                                    cmd.arg("-p"); cmd.arg(&port);
+                                    cmd.arg(format!("{user}@{host}"));
+                                    cmd.env("TERM", "dumb");
+                                    let _child = pair.slave.spawn_command(cmd).unwrap();
+                                    drop(pair.slave);
+                                    let mut reader = pair.master.try_clone_reader().unwrap();
+                                    let mut writer = pair.master.take_writer().unwrap();
+                                    std::thread::spawn(move || {
+                                        while let Ok(input) = input_rx.recv() {
+                                            let _ = writer.write_all(input.as_bytes());
+                                            let _ = writer.flush();
+                                        }
+                                    });
+                                    let mut buf = [0u8; 4096];
+                                    loop {
+                                        match reader.read(&mut buf) {
+                                            Ok(0) => break,
+                                            Ok(n) => {
+                                                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                                                let clean = crate::ui::colors::strip_ansi(&text);
+                                                if tx.send(AsyncMsg::TerminalOutput(clean)).is_err() { break; }
+                                            }
+                                            Err(_) => break,
+                                        }
+                                    }
+                                });
+                            }))
+                    )
+                )
+            } else { None })
     }
 
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {

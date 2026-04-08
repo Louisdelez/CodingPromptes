@@ -156,11 +156,13 @@ impl InkwellApp {
                 }
                 AsyncMsg::CustomFrameworkSaved => {}
                 AsyncMsg::TerminalOutput(text) => {
-                    self.state.terminal_output.push_str(&text);
-                    // Cap at 10K chars
-                    if self.state.terminal_output.len() > 10_000 {
-                        let start = self.state.terminal_output.len() - 8_000;
-                        self.state.terminal_output = self.state.terminal_output[start..].to_string();
+                    let idx = self.state.active_terminal;
+                    if let Some(session) = self.state.terminal_sessions.get_mut(idx) {
+                        session.output.push_str(&text);
+                        if session.output.len() > 10_000 {
+                            let start = session.output.len() - 8_000;
+                            session.output = session.output[start..].to_string();
+                        }
                     }
                 }
             }
@@ -1404,7 +1406,7 @@ impl InkwellApp {
             .child(div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0)).child(block_list))
     }
 
-    fn render_right_panel(&self, cx: &mut Context<Self>) -> Div {
+    fn render_right_panel(&mut self, cx: &mut Context<Self>) -> Div {
         let tabs = vec![
             ("Preview", RightTab::Preview), ("Playground", RightTab::Playground),
             ("Chat", RightTab::Chat), ("STT", RightTab::Stt),
@@ -1525,13 +1527,41 @@ impl InkwellApp {
         // Temperature + Max tokens
         model_list = model_list
             .child(div().h(px(1.0)).bg(border_c()).my(px(4.0)))
-            .child(div().flex().items_center().gap(px(8.0))
+            .child(div().flex().items_center().gap(px(6.0))
                 .child(div().text_xs().text_color(text_muted()).child("Temp:"))
-                .child(div().text_xs().text_color(text_primary()).child(format!("{:.1}", self.state.playground_temperature)))
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_secondary()).child("-")
+                        .cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            this.state.playground_temperature = (this.state.playground_temperature - 0.1).max(0.0);
+                        }))
+                )
+                .child(div().text_xs().text_color(accent()).child(format!("{:.1}", self.state.playground_temperature)))
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_secondary()).child("+")
+                        .cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            this.state.playground_temperature = (this.state.playground_temperature + 0.1).min(2.0);
+                        }))
+                )
             )
-            .child(div().flex().items_center().gap(px(8.0))
+            .child(div().flex().items_center().gap(px(6.0))
                 .child(div().text_xs().text_color(text_muted()).child("Tokens:"))
-                .child(div().text_xs().text_color(text_primary()).child(format!("{}", self.state.playground_max_tokens)))
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_secondary()).child("-")
+                        .cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            this.state.playground_max_tokens = this.state.playground_max_tokens.saturating_sub(256).max(256);
+                        }))
+                )
+                .child(div().text_xs().text_color(accent()).child(format!("{}", self.state.playground_max_tokens)))
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_secondary()).child("+")
+                        .cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            this.state.playground_max_tokens = (this.state.playground_max_tokens + 256).min(16384);
+                        }))
+                )
             );
 
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
@@ -2204,7 +2234,7 @@ impl InkwellApp {
             )
     }
 
-    fn render_terminal(&self, cx: &mut Context<Self>) -> Div {
+    fn render_terminal(&mut self, cx: &mut Context<Self>) -> Div {
         div().flex_1().flex().flex_col()
             .child(
                 div().px(px(12.0)).py(px(6.0)).flex().items_center().gap(px(8.0))
@@ -2212,19 +2242,26 @@ impl InkwellApp {
                     .child(div().text_xs().text_color(text_muted()).child("Local Terminal"))
                     .child(div().flex_1())
                     .child(
-                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(if self.state.terminal_running { danger() } else { success() })
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(if self.state.terminal_sessions.get(self.state.active_terminal).map(|s| s.running).unwrap_or(false) { danger() } else { success() })
                             .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
-                            .child(if self.state.terminal_running { "Stop" } else { "Start" })
+                            .child(if self.state.terminal_sessions.get(self.state.active_terminal).map(|s| s.running).unwrap_or(false) { "Stop" } else { "Start" })
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                                if this.state.terminal_running {
-                                    this.state.terminal_running = false;
+                                if this.state.terminal_sessions.get(this.state.active_terminal).map(|s| s.running).unwrap_or(false) {
+                                    if let Some(session) = this.state.terminal_sessions.get_mut(this.state.active_terminal) {
+                                        session.running = false;
+                                    }
                                 } else {
-                                    this.state.terminal_running = true;
-                                    this.state.terminal_output = String::new();
+                                    let (input_tx, input_rx) = std::sync::mpsc::channel::<String>();
+                                    this.state.terminal_sessions.push(crate::state::TerminalSession {
+                                        label: format!("Shell {}", this.state.terminal_sessions.len() + 1),
+                                        output: String::new(),
+                                        running: true,
+                                        input_tx: Some(input_tx),
+                                    });
+                                    this.state.active_terminal = this.state.terminal_sessions.len() - 1;
 
                                     let tx = this.state.msg_tx.clone();
-                                    let (input_tx, input_rx) = std::sync::mpsc::channel::<String>();
-                                    this.state.terminal_input_tx = Some(input_tx);
+
 
                                     std::thread::spawn(move || {
                                         use std::io::{Read, Write};
@@ -2272,10 +2309,10 @@ impl InkwellApp {
             .child(
                 div().flex_1().p(px(8.0)).bg(hsla(0.0, 0.0, 0.04, 1.0))
                     .text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0))
-                    .child(if self.state.terminal_output.is_empty() {
+                    .child(if self.state.terminal_sessions.get(self.state.active_terminal).map(|s| s.output.as_str()).unwrap_or("").is_empty() {
                         "Click Start to open a terminal session".to_string()
                     } else {
-                        let lines: Vec<&str> = self.state.terminal_output.lines().collect();
+                        let lines: Vec<&str> = self.state.terminal_sessions.get(self.state.active_terminal).map(|s| s.output.as_str()).unwrap_or("").lines().collect();
                         let start = if lines.len() > 50 { lines.len() - 50 } else { 0 };
                         lines[start..].join("\n")
                     })
@@ -2301,14 +2338,15 @@ impl InkwellApp {
                                     let val = entity.read(cx).value().to_string();
                                     val
                                 } else {
-                                    this.state.terminal_input_buf.clone()
+                                    String::new()
                                 };
                                 if !cmd.is_empty() {
-                                    if let Some(ref tx) = this.state.terminal_input_tx {
-                                        let _ = tx.send(format!("{cmd}\n"));
+                                    if let Some(session) = this.state.terminal_sessions.get(this.state.active_terminal) {
+                                        if let Some(ref tx) = session.input_tx {
+                                            let _ = tx.send(format!("{cmd}\n"));
+                                        }
                                     }
-                                    // Clear input
-                                    this.state.terminal_input_entity = None; // Will be recreated next frame
+                                    this.state.terminal_input_entity = None;
                                 }
                             }))
                     )

@@ -75,12 +75,14 @@ pub struct AppState {
     // Chat
     pub chat_messages: Vec<(String, String)>, // (role, content)
     pub chat_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
-    // Terminal
-    pub terminal_output: String,
-    pub terminal_running: bool,
-    pub terminal_input_tx: Option<mpsc::Sender<String>>,
-    pub terminal_input_buf: String,
+    // Terminal (multi-session)
+    pub terminal_sessions: Vec<TerminalSession>,
+    pub active_terminal: usize,
     pub terminal_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub show_ssh_modal: bool,
+    pub ssh_host: String,
+    pub ssh_user: String,
+    pub ssh_port: String,
     // Undo
     pub undo_stack: Vec<Vec<Block>>,
     // Persistence
@@ -151,6 +153,13 @@ pub struct CustomFramework {
     pub blocks: Vec<(inkwell_core::types::BlockType, String)>,
 }
 
+pub struct TerminalSession {
+    pub label: String,
+    pub output: String,
+    pub running: bool,
+    pub input_tx: Option<mpsc::Sender<String>>,
+}
+
 pub struct ProjectSummary {
     pub id: String,
     pub name: String,
@@ -217,11 +226,13 @@ impl AppState {
             editing_block_idx: None,
             chat_messages: vec![],
             chat_input_entity: None,
-            terminal_output: String::new(),
-            terminal_running: false,
-            terminal_input_tx: None,
-            terminal_input_buf: String::new(),
+            terminal_sessions: vec![],
+            active_terminal: 0,
             terminal_input_entity: None,
+            show_ssh_modal: false,
+            ssh_host: String::new(),
+            ssh_user: String::new(),
+            ssh_port: "22".into(),
             undo_stack: vec![],
             confirm_delete: None,
             search_query: String::new(),

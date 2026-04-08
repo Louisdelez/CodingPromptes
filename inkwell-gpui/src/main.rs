@@ -2,6 +2,7 @@ use gpui::*;
 use gpui_platform::application;
 
 mod app;
+mod state;
 
 fn main() {
     env_logger::init();

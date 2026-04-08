@@ -89,6 +89,7 @@ pub struct AppState {
     pub cached_words: usize,
     pub cached_lines: usize,
     pub prompt_dirty: bool,
+    pub cached_vars: Vec<String>,
     // Undo
     pub undo_stack: VecDeque<Vec<Block>>,
     // Persistence
@@ -315,6 +316,7 @@ impl AppState {
             cached_words: 0,
             cached_lines: 0,
             prompt_dirty: true,
+            cached_vars: vec![],
             undo_stack: VecDeque::new(),
             confirm_delete: None,
             search_query: String::new(),

@@ -146,8 +146,7 @@ impl InkwellApp {
                         let model = self.state.selected_model.clone();
                         let prompt = self.state.cached_prompt.clone();
                         let response = self.state.playground_response.clone();
-                        std::thread::spawn(move || {
-                            rt().block_on(async {
+                        rt().spawn(async move {
                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                 client.set_token(token);
                                 let _ = client.create_execution(&project_id, &serde_json::json!({
@@ -156,7 +155,6 @@ impl InkwellApp {
                                     "cost": 0.0, "latency_ms": 0,
                                 })).await;
                             });
-                        });
                     }
                 }
                 AsyncMsg::LlmError(e) => {
@@ -341,8 +339,7 @@ impl InkwellApp {
                                 let is_register = this.state.auth_mode == AuthMode::Register;
                                 let display_name = email.split('@').next().unwrap_or("User").to_string();
 
-                                std::thread::spawn(move || {
-                                    rt().block_on(async {
+                                rt().spawn(async move {
                                         let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
                                         let result = if is_register {
                                             client.register(&email, &password, &display_name).await
@@ -359,7 +356,6 @@ impl InkwellApp {
                                             Err(e) => { let _ = tx.send(AsyncMsg::AuthError(e)); }
                                         }
                                     });
-                                });
                             }))
                     )
                     // Skip auth (for dev)
@@ -397,11 +393,15 @@ impl InkwellApp {
         // Refresh prompt cache if dirty
         if changed { self.state.prompt_dirty = true; }
         if self.state.prompt_dirty {
-            self.state.cached_prompt = self.state.project.compiled_prompt();
+            let core_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
+                inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
+            }).collect();
+            self.state.cached_prompt = inkwell_core::prompt::compile_prompt(&core_blocks, &self.state.project.variables);
             self.state.cached_tokens = (self.state.cached_prompt.len() as f64 / 4.0).ceil() as usize;
             self.state.cached_chars = self.state.cached_prompt.len();
             self.state.cached_words = if self.state.cached_prompt.is_empty() { 0 } else { self.state.cached_prompt.split_whitespace().count() };
             self.state.cached_lines = self.state.cached_prompt.lines().count();
+            self.state.cached_vars = inkwell_core::prompt::extract_variables(&core_blocks);
             self.state.prompt_dirty = false;
         }
         // Copy feedback timer
@@ -421,15 +421,13 @@ impl InkwellApp {
                 let server = self.state.server_url.clone();
                 let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                 let tx = self.state.msg_tx.clone();
-                std::thread::spawn(move || {
-                    rt().block_on(async {
+                rt().spawn(async move {
                         let mut client = inkwell_core::api_client::ApiClient::new(&server);
                         client.set_token(token);
                         if let Ok(nodes) = client.list_nodes().await {
                             let _ = tx.send(AsyncMsg::NodesLoaded(nodes));
                         }
                     });
-                });
             }
         }
         // Auto-poll collab presence (~every 10s = 600 frames)
@@ -441,8 +439,7 @@ impl InkwellApp {
                 let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                 let project_id = self.state.project.id.clone();
                 let tx = self.state.msg_tx.clone();
-                std::thread::spawn(move || {
-                    rt().block_on(async {
+                rt().spawn(async move {
                         let client = reqwest::Client::new();
                         if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
                             .header("Authorization", format!("Bearer {token}"))
@@ -459,7 +456,6 @@ impl InkwellApp {
                             }
                         }
                     });
-                });
             }
         }
         // Read search query from input (only allocate if changed)
@@ -502,8 +498,7 @@ impl InkwellApp {
         let server_url = self.state.server_url.clone();
         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
 
-        std::thread::spawn(move || {
-            rt().block_on(async {
+        rt().spawn(async move {
                 let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
                 client.set_token(token);
                 let _ = client.update_project(&project_id, &serde_json::json!({
@@ -512,7 +507,6 @@ impl InkwellApp {
                     "framework": framework,
                 })).await;
             });
-        });
     }
 
     fn ensure_terminal_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -614,12 +608,8 @@ impl InkwellApp {
         // Remove excess
         self.state.block_inputs.truncate(self.state.project.blocks.len());
 
-        // Ensure variable input entities
-        let core_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
-            inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
-        }).collect();
-        let vars = inkwell_core::prompt::extract_variables(&core_blocks);
-        for var in &vars {
+        // Ensure variable input entities (uses cached_vars — no per-frame parsing)
+        for var in &self.state.cached_vars.clone() {
             if !self.state.variable_inputs.contains_key(var) {
                 let val = self.state.project.variables.get(var).cloned().unwrap_or_default();
                 let entity = cx.new(|cx| {
@@ -630,8 +620,8 @@ impl InkwellApp {
                 self.state.variable_inputs.insert(var.clone(), entity);
             }
         }
-        // Remove stale variable inputs
-        self.state.variable_inputs.retain(|k, _| vars.contains(k));
+        let cached = self.state.cached_vars.clone();
+        self.state.variable_inputs.retain(|k, _| cached.contains(k));
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
@@ -956,8 +946,7 @@ impl InkwellApp {
                     }).collect();
                     this.state.projects.push(ProjectSummary { id: id.clone(), name: name.clone() });
 
-                    std::thread::spawn(move || {
-                        rt().block_on(async {
+                    rt().spawn(async move {
                             let mut client = inkwell_core::api_client::ApiClient::new(&server);
                             client.set_token(token);
                             let _ = client.create_project(&serde_json::json!({
@@ -965,7 +954,6 @@ impl InkwellApp {
                                 "blocks_json": serde_json::to_string(&blocks).unwrap_or_default(),
                             })).await;
                         });
-                    });
                 }))
         );
 
@@ -1001,8 +989,7 @@ impl InkwellApp {
                                     let project_id = p.id.clone();
                                     let tx = this.state.msg_tx.clone();
                                     if !token.is_empty() {
-                                        std::thread::spawn(move || {
-                                            rt().block_on(async {
+                                        rt().spawn(async move {
                                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                                 client.set_token(token);
                                                 if let Ok(projects) = client.list_projects().await {
@@ -1012,7 +999,6 @@ impl InkwellApp {
                                                     }
                                                 }
                                             });
-                                        });
                                     }
                                 }
                             }))
@@ -1049,13 +1035,11 @@ impl InkwellApp {
                                         // Delete on backend
                                         let server = this.state.server_url.clone();
                                         let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                                        std::thread::spawn(move || {
-                                            rt().block_on(async {
+                                        rt().spawn(async move {
                                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                                 client.set_token(token);
                                                 let _ = client.delete_project(&id).await;
                                             });
-                                        });
                                     }))
                             )
                             .child(
@@ -1259,8 +1243,7 @@ impl InkwellApp {
                                     .map(|(i, b)| (i, b.block_type))
                                     .collect();
 
-                                std::thread::spawn(move || {
-                                    rt().block_on(async {
+                                rt().spawn(async move {
                                         let client = reqwest::Client::new();
                                         let mut context = String::new();
 
@@ -1289,7 +1272,6 @@ impl InkwellApp {
                                         }
                                         let _ = tx.send(AsyncMsg::LlmDone);
                                     });
-                                });
                             }))
                     )
                     .child(
@@ -1302,8 +1284,7 @@ impl InkwellApp {
                                 let tx = this.state.msg_tx.clone();
                                 let mut all_content = String::new();
                                 for b in &blocks { if b.enabled { all_content.push_str(&format!("\n### {:?}\n{}\n", b.block_type, b.content)); } }
-                                std::thread::spawn(move || {
-                                    rt().block_on(async {
+                                rt().spawn(async move {
                                         let client = reqwest::Client::new();
                                         if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                             .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
@@ -1316,7 +1297,6 @@ impl InkwellApp {
                                             }
                                         }
                                     });
-                                });
                                 this.state.right_tab = RightTab::Playground;
                                 this.state.right_open = true;
                             }))
@@ -1329,8 +1309,7 @@ impl InkwellApp {
                                 for b in &this.state.project.blocks { if b.enabled { all_content.push_str(&format!("{}\n\n", b.content)); } }
                                 let server = this.state.server_url.clone();
                                 let tx = this.state.msg_tx.clone();
-                                std::thread::spawn(move || {
-                                    rt().block_on(async {
+                                rt().spawn(async move {
                                         let client = reqwest::Client::new();
                                         if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                             .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
@@ -1343,7 +1322,6 @@ impl InkwellApp {
                                             }
                                         }
                                     });
-                                });
                                 this.state.right_tab = RightTab::Playground;
                                 this.state.right_open = true;
                             }))
@@ -1483,8 +1461,7 @@ impl InkwellApp {
                             let blocks = blocks1.clone();
                             let bt = bt1;
                             let idx = idx1;
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     // Build context from previous phases
                                     let mut context = String::new();
                                     let phase_order = [
@@ -1521,7 +1498,6 @@ impl InkwellApp {
                                         }
                                     }
                                 });
-                            });
                         }))
                 );
 
@@ -1542,8 +1518,7 @@ impl InkwellApp {
                             let blocks = blocks2.clone();
                             let bt = bt2;
                             let idx = idx2;
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     let mut context = String::new();
                                     let phase_order = [BlockType::SddConstitution, BlockType::SddSpecification, BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation];
                                     for phase in &phase_order {
@@ -1563,7 +1538,6 @@ impl InkwellApp {
                                         }
                                     }
                                 });
-                            });
                         }))
                 );
 
@@ -1578,8 +1552,7 @@ impl InkwellApp {
                             let tx = tx3.clone();
                             let server = server3.clone();
                             let content = content3.clone();
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     let prompt = format!("Analyze this specification and identify underspecified, ambiguous, or missing areas. Ask max 5 precise questions.\n\nContent:\n{content}");
                                     let client = reqwest::Client::new();
                                     if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
@@ -1591,7 +1564,6 @@ impl InkwellApp {
                                         }
                                     }
                                 });
-                            });
                         }))
                 );
             }
@@ -1795,11 +1767,8 @@ impl InkwellApp {
             block_list = block_list.child(menu);
         }
 
-        // Variables panel with real Input widgets
-        let core_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
-            inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
-        }).collect();
-        let vars = inkwell_core::prompt::extract_variables(&core_blocks);
+        // Variables panel (uses cached vars — zero per-frame overhead)
+        let vars = self.state.cached_vars.clone();
         if !vars.is_empty() {
             let mut var_panel = div().p(px(12.0)).rounded(px(8.0)).bg(bg_secondary())
                 .border_1().border_color(border_c()).flex().flex_col().gap(px(6.0))
@@ -2082,8 +2051,7 @@ impl InkwellApp {
                         let tx = this.state.msg_tx.clone();
                         let temp = this.state.playground_temperature;
                         let max_tok = this.state.playground_max_tokens;
-                        std::thread::spawn(move || {
-                            rt().block_on(async {
+                        rt().spawn(async move {
                                 for model in &selected_models {
                                     let client = reqwest::Client::new();
                                     let start = std::time::Instant::now();
@@ -2108,7 +2076,6 @@ impl InkwellApp {
                                 }
                                 let _ = tx.send(AsyncMsg::MultiModelDone);
                             });
-                        });
                     }))
             )
             .child(
@@ -2129,8 +2096,7 @@ impl InkwellApp {
                         let temp = this.state.playground_temperature;
                         let max_tok = this.state.playground_max_tokens;
 
-                        std::thread::spawn(move || {
-                            rt().block_on(async {
+                        rt().spawn(async move {
                                 let start = std::time::Instant::now();
                                 let client = reqwest::Client::new();
                                 let resp = client.post(format!("{server_url}/v1/chat/completions"))
@@ -2190,7 +2156,6 @@ impl InkwellApp {
                                     }
                                 }
                             });
-                        });
                     }))
             )
             .child(
@@ -2247,15 +2212,13 @@ impl InkwellApp {
                             let server = this.state.server_url.clone();
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let tx = this.state.msg_tx.clone();
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token);
                                     if let Ok(nodes) = client.list_nodes().await {
                                         let _ = tx.send(AsyncMsg::NodesLoaded(nodes));
                                     }
                                 });
-                            });
                         }))
                 )
         );
@@ -2556,8 +2519,7 @@ impl InkwellApp {
                             };
                             this.state.version_label_input = None; // Reset
 
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token.clone());
                                     let blocks_json = serde_json::to_string(&blocks).unwrap_or_default();
@@ -2567,7 +2529,6 @@ impl InkwellApp {
                                         let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
                                     }
                                 });
-                            });
                         }))
                 )
                 .child(
@@ -2578,15 +2539,13 @@ impl InkwellApp {
                             let server = this.state.server_url.clone();
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let tx = this.state.msg_tx.clone();
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token);
                                     if let Ok(versions) = client.list_versions(&project_id).await {
                                         let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
                                     }
                                 });
-                            });
                         }))
                 )
         );
@@ -2764,8 +2723,7 @@ impl InkwellApp {
                         let prompt = this.state.project.compiled_prompt();
                         let server = this.state.server_url.clone();
                         let tx = this.state.msg_tx.clone();
-                        std::thread::spawn(move || {
-                            rt().block_on(async {
+                        rt().spawn(async move {
                                 let client = reqwest::Client::new();
                                 if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                     .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
@@ -2778,7 +2736,6 @@ impl InkwellApp {
                                     }
                                 }
                             });
-                        });
                         this.state.right_tab = RightTab::Playground;
                     }))
             )
@@ -2896,8 +2853,7 @@ impl InkwellApp {
                                 let messages: Vec<serde_json::Value> = this.state.chat_messages.iter()
                                     .map(|(role, content)| serde_json::json!({"role": role, "content": content}))
                                     .collect();
-                                std::thread::spawn(move || {
-                                    rt().block_on(async {
+                                rt().spawn(async move {
                                         let client = reqwest::Client::new();
                                         if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
                                             .json(&serde_json::json!({"model":"qwen3.5:4b","messages":messages,"temperature":0.7,"max_tokens":2048,"stream":false}))
@@ -2908,7 +2864,6 @@ impl InkwellApp {
                                             }
                                         }
                                     });
-                                });
                             }))
                     )
             )
@@ -2992,8 +2947,7 @@ impl InkwellApp {
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let project_id = this.state.project.id.clone();
                             let tx = this.state.msg_tx.clone();
-                            std::thread::spawn(move || {
-                                rt().block_on(async {
+                            rt().spawn(async move {
                                     let client = reqwest::Client::new();
                                     if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
                                         .header("Authorization", format!("Bearer {token}"))
@@ -3010,7 +2964,6 @@ impl InkwellApp {
                                         }
                                     }
                                 });
-                            });
                         }))
                 ));
 
@@ -3074,8 +3027,7 @@ impl InkwellApp {
                             .collect();
                         let server = this.state.server_url.clone();
                         let tx = this.state.msg_tx.clone();
-                        std::thread::spawn(move || {
-                            rt().block_on(async {
+                        rt().spawn(async move {
                                 let client = reqwest::Client::new();
                                 let mut chain_output = String::new();
                                 for (i, block_content) in blocks.iter().enumerate() {
@@ -3096,7 +3048,6 @@ impl InkwellApp {
                                 }
                                 let _ = tx.send(AsyncMsg::LlmDone);
                             });
-                        });
                         this.state.right_tab = RightTab::Playground;
                     }))
             )

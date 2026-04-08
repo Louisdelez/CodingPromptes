@@ -16,6 +16,7 @@ pub struct AppState {
     pub display_name: String,
     pub auth_error: Option<String>,
     pub auth_loading: bool,
+    pub auth_mode: AuthMode,
     pub session: Option<AuthSession>,
     pub server_url_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     pub email_input: Option<gpui::Entity<gpui_component::input::InputState>>,
@@ -83,6 +84,9 @@ pub enum AsyncMsg {
 pub enum Screen { Auth, Ide }
 
 #[derive(Clone, Copy, PartialEq)]
+pub enum AuthMode { Login, Register }
+
+#[derive(Clone, Copy, PartialEq)]
 pub enum LeftTab { Library, Frameworks, Versions }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -139,6 +143,7 @@ impl AppState {
             api_key_google: String::new(),
             auth_error: None,
             auth_loading: false,
+            auth_mode: AuthMode::Login,
             session: None,
             project: Project::default_prompt(),
             projects: vec![],

@@ -13,17 +13,25 @@ fn tr<'a>(key: &'a str, lang: &str) -> &'a str {
     inkwell_core::i18n::t(key, lang)
 }
 
-// Theme-aware color helpers (called with &self to access dark_mode)
-fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
-fn bg_secondary() -> Hsla { hsla(230.0 / 360.0, 0.12, 0.10, 1.0) }
-fn bg_tertiary() -> Hsla { hsla(230.0 / 360.0, 0.10, 0.14, 1.0) }
-fn border_c() -> Hsla { hsla(230.0 / 360.0, 0.10, 0.20, 1.0) }
-fn text_primary() -> Hsla { hsla(0.0, 0.0, 0.95, 1.0) }
-fn text_secondary() -> Hsla { hsla(0.0, 0.0, 0.70, 1.0) }
-fn text_muted() -> Hsla { hsla(0.0, 0.0, 0.50, 1.0) }
-fn accent() -> Hsla { hsla(239.0 / 360.0, 0.84, 0.67, 1.0) }
-fn danger() -> Hsla { hsla(0.0, 0.75, 0.55, 1.0) }
-fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, 0.45, 1.0) }
+// Theme-aware color helpers
+// These use a thread-local to avoid passing theme everywhere
+use std::cell::RefCell;
+thread_local! {
+    static DARK_MODE: RefCell<bool> = const { RefCell::new(true) };
+}
+fn set_dark_mode(dark: bool) { DARK_MODE.with(|d| *d.borrow_mut() = dark); }
+fn is_dark() -> bool { DARK_MODE.with(|d| *d.borrow()) }
+
+fn bg_primary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.15, 0.07, 1.0) } else { hsla(0.0, 0.0, 1.0, 1.0) } }
+fn bg_secondary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.12, 0.10, 1.0) } else { hsla(220.0/360.0, 0.10, 0.97, 1.0) } }
+fn bg_tertiary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.10, 0.14, 1.0) } else { hsla(220.0/360.0, 0.08, 0.93, 1.0) } }
+fn border_c() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.10, 0.20, 1.0) } else { hsla(220.0/360.0, 0.10, 0.85, 1.0) } }
+fn text_primary() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.95, 1.0) } else { hsla(220.0/360.0, 0.15, 0.10, 1.0) } }
+fn text_secondary() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.70, 1.0) } else { hsla(220.0/360.0, 0.10, 0.35, 1.0) } }
+fn text_muted() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.50, 1.0) } else { hsla(220.0/360.0, 0.05, 0.55, 1.0) } }
+fn accent() -> Hsla { hsla(239.0 / 360.0, 0.84, if is_dark() { 0.67 } else { 0.55 }, 1.0) }
+fn danger() -> Hsla { hsla(0.0, 0.75, if is_dark() { 0.55 } else { 0.45 }, 1.0) }
+fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, if is_dark() { 0.45 } else { 0.35 }, 1.0) }
 
 pub struct InkwellApp {
     pub state: AppState,
@@ -41,6 +49,7 @@ impl InkwellApp {
 
 impl Render for InkwellApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        set_dark_mode(self.state.dark_mode);
         self.poll_messages();
 
         match self.state.screen {
@@ -159,6 +168,24 @@ impl InkwellApp {
                     .child(div().flex().flex_col().items_center().gap(px(8.0))
                         .child(div().text_xl().text_color(text_primary()).child("Inkwell"))
                         .child(div().text_sm().text_color(text_muted()).child("GPU-Accelerated Prompt IDE"))
+                    )
+                    // Login/Register tabs
+                    .child(
+                        div().flex().rounded(px(8.0)).bg(bg_tertiary()).p(px(2.0))
+                            .child(
+                                div().flex_1().py(px(6.0)).rounded(px(6.0))
+                                    .bg(if self.state.auth_mode == AuthMode::Login { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                                    .text_xs().text_color(if self.state.auth_mode == AuthMode::Login { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .flex().items_center().justify_center().child("Sign in")
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Login; }))
+                            )
+                            .child(
+                                div().flex_1().py(px(6.0)).rounded(px(6.0))
+                                    .bg(if self.state.auth_mode == AuthMode::Register { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                                    .text_xs().text_color(if self.state.auth_mode == AuthMode::Register { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .flex().items_center().justify_center().child("Sign up")
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Register; }))
+                            )
                     )
                     // Server URL
                     .child(div().flex().flex_col().gap(px(4.0))
@@ -619,7 +646,70 @@ impl InkwellApp {
                                 });
                             }))
                     )
-                    .child(div().px(px(8.0)).py(px(6.0)).text_xs().text_color(text_muted()).child("Validate"))
+                    .child(
+                        div().px(px(8.0)).py(px(6.0)).text_xs().text_color(text_muted()).child("Validate")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
+                                    inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
+                                }).collect();
+                                let server = this.state.server_url.clone();
+                                let tx = this.state.msg_tx.clone();
+                                let mut all_content = String::new();
+                                for b in &blocks { if b.enabled { all_content.push_str(&format!("\n### {:?}\n{}\n", b.block_type, b.content)); } }
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let client = reqwest::Client::new();
+                                        if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                            .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
+                                                {"role":"system","content":"Analyze cross-phase consistency. Check: coverage gaps, contradictions, underspecification, constitution alignment. Output: COHERENT/MISSING/CONTRADICTION/RECOMMENDATION items."},
+                                                {"role":"user","content":format!("Validate these SDD phases:\n{all_content}")}
+                                            ],"temperature":0.3,"max_tokens":4096,"stream":false})).send().await {
+                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                                let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Validation ---\n{text}")));
+                                            }
+                                        }
+                                    });
+                                });
+                                this.state.right_tab = RightTab::Playground;
+                                this.state.right_open = true;
+                            }))
+                    )
+                    // Checklist
+                    .child(
+                        div().px(px(8.0)).py(px(6.0)).text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("Checklist")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                let mut all_content = String::new();
+                                for b in &this.state.project.blocks { if b.enabled { all_content.push_str(&format!("{}\n\n", b.content)); } }
+                                let server = this.state.server_url.clone();
+                                let tx = this.state.msg_tx.clone();
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let client = reqwest::Client::new();
+                                        if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                            .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
+                                                {"role":"system","content":"Generate a quality checklist (Unit Tests for English). Format: - [ ] CHK001 [Quality Dimension] Question. Validate requirements quality, not implementation."},
+                                                {"role":"user","content":format!("Generate checklist for:\n{all_content}")}
+                                            ],"temperature":0.3,"max_tokens":4096,"stream":false})).send().await {
+                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                                let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Checklist ---\n{text}")));
+                                            }
+                                        }
+                                    });
+                                });
+                                this.state.right_tab = RightTab::Playground;
+                                this.state.right_open = true;
+                            }))
+                    )
+                    // Presets
+                    .child(div().flex().gap(px(2.0))
+                        .child(div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary()).text_xs().text_color(text_muted()).child("React"))
+                        .child(div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary()).text_xs().text_color(text_muted()).child("Rust"))
+                        .child(div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary()).text_xs().text_color(text_muted()).child("Python"))
+                    )
             );
         }
 

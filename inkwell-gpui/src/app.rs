@@ -6,7 +6,9 @@ use inkwell_core::types::BlockType;
 // Actions for keyboard shortcuts
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt]);
 
-// Dark theme (default)
+use crate::theme::InkwellTheme;
+
+// Theme-aware color helpers (called with &self to access dark_mode)
 fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
 fn bg_secondary() -> Hsla { hsla(230.0 / 360.0, 0.12, 0.10, 1.0) }
 fn bg_tertiary() -> Hsla { hsla(230.0 / 360.0, 0.10, 0.14, 1.0) }
@@ -17,12 +19,6 @@ fn text_muted() -> Hsla { hsla(0.0, 0.0, 0.50, 1.0) }
 fn accent() -> Hsla { hsla(239.0 / 360.0, 0.84, 0.67, 1.0) }
 fn danger() -> Hsla { hsla(0.0, 0.75, 0.55, 1.0) }
 fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, 0.45, 1.0) }
-// Light theme
-fn bg_primary_light() -> Hsla { hsla(0.0, 0.0, 1.0, 1.0) }
-fn bg_secondary_light() -> Hsla { hsla(0.0, 0.0, 0.97, 1.0) }
-fn border_c_light() -> Hsla { hsla(0.0, 0.0, 0.85, 1.0) }
-fn text_primary_light() -> Hsla { hsla(0.0, 0.0, 0.07, 1.0) }
-fn text_secondary_light() -> Hsla { hsla(0.0, 0.0, 0.35, 1.0) }
 
 pub struct InkwellApp {
     pub state: AppState,
@@ -31,6 +27,10 @@ pub struct InkwellApp {
 impl InkwellApp {
     pub fn new() -> Self {
         Self { state: AppState::new() }
+    }
+
+    fn t(&self) -> InkwellTheme {
+        InkwellTheme::from_mode(self.state.dark_mode)
     }
 }
 
@@ -103,6 +103,9 @@ impl InkwellApp {
                 }
                 AsyncMsg::VersionsLoaded(versions) => {
                     self.state.versions = versions;
+                }
+                AsyncMsg::NodesLoaded(nodes) => {
+                    self.state.gpu_nodes = nodes;
                 }
                 AsyncMsg::TerminalOutput(text) => {
                     self.state.terminal_output.push_str(&text);
@@ -294,13 +297,13 @@ impl InkwellApp {
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
-        // Register action handlers
+        let t = self.t();
         let mut main_row = div().flex_1().flex().overflow_hidden();
         if self.state.left_open { main_row = main_row.child(self.render_sidebar(cx)); }
         main_row = main_row.child(self.render_editor(cx));
         if self.state.right_open { main_row = main_row.child(self.render_right_panel(cx)); }
 
-        div().size_full().bg(bg_primary()).flex().flex_col()
+        div().size_full().bg(t.bg_primary).flex().flex_col()
             .on_action(cx.listener(|this, _: &NewProject, _, _| {
                 this.state.project = Project::default_prompt();
                 this.state.block_inputs.clear();
@@ -729,7 +732,33 @@ impl InkwellApp {
                 );
             }
 
+            let block_count = self.state.project.blocks.len();
             header = header
+                // Move up
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(if idx > 0 { text_secondary() } else { hsla(0.0, 0.0, 0.2, 1.0) })
+                        .child("^")
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                            if idx > 0 {
+                                this.state.project.blocks.swap(idx, idx - 1);
+                                this.state.block_inputs.swap(idx, idx - 1);
+                            }
+                        }))
+                )
+                // Move down
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(if idx < block_count - 1 { text_secondary() } else { hsla(0.0, 0.0, 0.2, 1.0) })
+                        .child("v")
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                            if idx + 1 < this.state.project.blocks.len() {
+                                this.state.project.blocks.swap(idx, idx + 1);
+                                this.state.block_inputs.swap(idx, idx + 1);
+                            }
+                        }))
+                )
+                // Toggle
                 .child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if block.enabled { success() } else { text_muted() })
@@ -738,11 +767,15 @@ impl InkwellApp {
                             if let Some(b) = this.state.project.blocks.get_mut(idx) { b.enabled = !b.enabled; }
                         }))
                 )
+                // Delete
                 .child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(danger()).child("x")
                         .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                            if idx < this.state.project.blocks.len() { this.state.project.blocks.remove(idx); }
+                            if idx < this.state.project.blocks.len() {
+                                this.state.project.blocks.remove(idx);
+                                if idx < this.state.block_inputs.len() { this.state.block_inputs.remove(idx); }
+                            }
                         }))
                 );
 
@@ -836,7 +869,7 @@ impl InkwellApp {
             .child(match self.state.right_tab {
                 RightTab::Preview => self.render_preview(),
                 RightTab::Playground => self.render_playground(cx),
-                RightTab::Fleet => self.render_fleet(),
+                RightTab::Fleet => self.render_fleet(cx),
                 RightTab::Export => self.render_export(cx),
                 RightTab::History => self.render_history(cx),
                 RightTab::Terminal => self.render_terminal(cx),
@@ -952,10 +985,36 @@ impl InkwellApp {
             )
     }
 
-    fn render_fleet(&self) -> Div {
-        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
-            .child(div().text_xs().text_color(text_muted()).child("GPU Nodes"))
-            .child(
+    fn render_fleet(&self, cx: &mut Context<Self>) -> Div {
+        let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0));
+
+        content = content.child(
+            div().flex().items_center().gap(px(8.0))
+                .child(div().text_xs().text_color(text_muted()).child("GPU Nodes"))
+                .child(div().flex_1())
+                .child(
+                    div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                        .text_xs().text_color(text_muted()).child("Refresh")
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            let server = this.state.server_url.clone();
+                            let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                            let tx = this.state.msg_tx.clone();
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                                    client.set_token(token);
+                                    if let Ok(nodes) = client.list_nodes().await {
+                                        let _ = tx.send(AsyncMsg::NodesLoaded(nodes));
+                                    }
+                                });
+                            });
+                        }))
+                )
+        );
+
+        if self.state.gpu_nodes.is_empty() {
+            content = content.child(
                 div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                     .flex().flex_col().gap(px(4.0))
                     .child(div().flex().items_center().gap(px(6.0))
@@ -963,10 +1022,35 @@ impl InkwellApp {
                         .child(div().text_xs().text_color(text_primary()).child("Local server"))
                     )
                     .child(div().text_xs().text_color(text_muted()).child(self.state.server_url.clone()))
-            )
-            .child(
-                div().text_xs().text_color(text_muted()).child("Connect more GPU servers in the GPU Server app")
-            )
+            );
+        } else {
+            for node in &self.state.gpu_nodes {
+                let is_online = node.status == "online";
+                content = content.child(
+                    div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                        .flex().flex_col().gap(px(4.0))
+                        .child(div().flex().items_center().gap(px(6.0))
+                            .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
+                                .bg(if is_online { success() } else { text_muted() }))
+                            .child(div().text_xs().text_color(text_primary()).child(node.name.clone()))
+                            .child(div().flex_1())
+                            .child(div().text_xs().text_color(
+                                if is_online { success() } else { danger() }
+                            ).child(node.status.clone()))
+                        )
+                        .child(div().text_xs().text_color(text_muted()).child(
+                            if node.gpu_info.is_empty() { node.address.clone() } else { node.gpu_info.clone() }
+                        ))
+                        .child(div().text_xs().text_color(text_muted()).child(node.address.clone()))
+                );
+            }
+        }
+
+        content = content.child(
+            div().text_xs().text_color(text_muted()).child("Connect GPU servers via the Inkwell GPU Server app")
+        );
+
+        content
     }
 
     fn render_export(&self, cx: &mut Context<Self>) -> Div {

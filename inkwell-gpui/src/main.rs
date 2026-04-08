@@ -4,6 +4,7 @@ use gpui_component::Root;
 
 mod app;
 mod state;
+mod theme;
 
 fn main() {
     env_logger::init();

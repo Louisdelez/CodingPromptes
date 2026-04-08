@@ -27,6 +27,8 @@ pub struct AppState {
     pub save_timer: u32,
     // Versions
     pub versions: Vec<inkwell_core::types::Version>,
+    // Fleet
+    pub gpu_nodes: Vec<inkwell_core::types::GpuNode>,
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -68,6 +70,7 @@ pub enum AsyncMsg {
     SddBlockResult { idx: usize, content: String },
     ExportReady(String),
     VersionsLoaded(Vec<inkwell_core::types::Version>),
+    NodesLoaded(Vec<inkwell_core::types::GpuNode>),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -123,6 +126,7 @@ impl AppState {
             save_pending: false,
             save_timer: 0,
             versions: vec![],
+            gpu_nodes: vec![],
             auth_error: None,
             auth_loading: false,
             session: None,

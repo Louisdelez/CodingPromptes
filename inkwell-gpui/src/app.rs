@@ -1,5 +1,6 @@
 use gpui::*;
 use gpui_component::input::{Input, InputState};
+use gpui_component::{Icon, IconName};
 use crate::state::*;
 use inkwell_core::types::BlockType;
 
@@ -451,7 +452,7 @@ impl InkwellApp {
             .child(
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(if self.state.show_settings { accent() } else { text_muted() })
-                    .child("Settings")
+                    .child(Icon::new(IconName::Settings))
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.show_settings = !this.state.show_settings;
                     }))
@@ -460,7 +461,7 @@ impl InkwellApp {
             .child(
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(text_muted())
-                    .child(if self.state.dark_mode { "Dark" } else { "Light" })
+                    .child(Icon::new(if self.state.dark_mode { IconName::Moon } else { IconName::Sun }))
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.dark_mode = !this.state.dark_mode;
                     }))
@@ -941,7 +942,7 @@ impl InkwellApp {
                 let idx1 = idx;
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                        .text_xs().text_color(accent()).child("Gen")
+                        .text_xs().text_color(accent()).child(Icon::new(IconName::Wand2))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
                             let tx = tx1.clone();
                             let server = server1.clone();
@@ -1000,7 +1001,7 @@ impl InkwellApp {
                 let current_content = block.content.clone();
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                        .text_xs().text_color(hsla(280.0 / 360.0, 0.7, 0.6, 1.0)).child("AI")
+                        .text_xs().text_color(hsla(280.0 / 360.0, 0.7, 0.6, 1.0)).child(Icon::new(IconName::Sparkles))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
                             let tx = tx2.clone();
                             let server = server2.clone();
@@ -1040,7 +1041,7 @@ impl InkwellApp {
                 let content3 = block.content.clone();
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                        .text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("?")
+                        .text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child(Icon::new(IconName::CircleHelp))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
                             let tx = tx3.clone();
                             let server = server3.clone();
@@ -1071,7 +1072,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if is_recording_this { danger() } else { text_muted() })
-                        .child(if is_recording_this { "REC" } else { "Mic" })
+                        .child(Icon::new(if is_recording_this { IconName::Circle } else { IconName::Mic }))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if this.state.stt_recording {
                                 // Stop recording
@@ -1156,7 +1157,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if idx > 0 { text_secondary() } else { hsla(0.0, 0.0, 0.2, 1.0) })
-                        .child("^")
+                        .child(Icon::new(IconName::ChevronUp))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if idx > 0 {
                                 this.state.project.blocks.swap(idx, idx - 1);
@@ -1180,7 +1181,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if block.enabled { success() } else { text_muted() })
-                        .child(if block.enabled { "on" } else { "off" })
+                        .child(Icon::new(if block.enabled { IconName::Eye } else { IconName::EyeOff }))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if let Some(b) = this.state.project.blocks.get_mut(idx) { b.enabled = !b.enabled; }
                         }))
@@ -1738,7 +1739,7 @@ impl InkwellApp {
             .p(px(16.0)).flex().flex_col().gap(px(12.0))
             .child(
                 div().flex().items_center().gap(px(8.0))
-                    .child(div().text_sm().text_color(text_primary()).child("Settings"))
+                    .child(div().text_sm().text_color(text_primary()).child(Icon::new(IconName::Settings)))
                     .child(div().flex_1())
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
@@ -1880,7 +1881,7 @@ impl InkwellApp {
                 div().h(px(36.0)).px(px(8.0)).bg(hsla(0.0, 0.0, 0.06, 1.0))
                     .border_t_1().border_color(border_c())
                     .flex().items_center().gap(px(6.0))
-                    .child(div().text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0)).child("$"))
+                    .child(div().text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0)).child(Icon::new(IconName::SquareTerminal)))
                     .child({
                         if let Some(ref entity) = self.state.terminal_input_entity {
                             div().flex_1().child(Input::new(entity))

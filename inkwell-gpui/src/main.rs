@@ -1,6 +1,7 @@
 use gpui::*;
 use gpui_platform::application;
 use gpui_component::Root;
+use gpui_component_assets::Assets;
 
 mod app;
 mod persistence;
@@ -11,7 +12,7 @@ mod ui;
 fn main() {
     env_logger::init();
 
-    application().run(|cx: &mut App| {
+    application().with_assets(Assets).run(|cx: &mut App| {
         gpui_component::init(cx);
 
         // Register keyboard shortcuts

@@ -3,6 +3,7 @@ use inkwell_core::api_client::ApiClient;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use std::sync::mpsc;
 
 pub struct AppState {
     pub screen: Screen,
@@ -30,6 +31,21 @@ pub struct AppState {
     // SDD
     pub sdd_description: String,
     pub sdd_running: bool,
+    // Playground
+    pub playground_response: String,
+    pub playground_loading: bool,
+    // Async message channel
+    pub msg_rx: mpsc::Receiver<AsyncMsg>,
+    pub msg_tx: mpsc::Sender<AsyncMsg>,
+}
+
+#[derive(Debug)]
+pub enum AsyncMsg {
+    AuthSuccess { session: AuthSession, projects: Vec<PromptProject>, workspaces: Vec<Workspace> },
+    AuthError(String),
+    LlmResponse(String),
+    LlmDone,
+    LlmError(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -68,6 +84,7 @@ pub struct ProjectSummary {
 impl AppState {
     pub fn new() -> Self {
         let server_url = "http://localhost:8910".to_string();
+        let (msg_tx, msg_rx) = mpsc::channel();
         Self {
             screen: Screen::Auth,
             lang: "fr".into(),
@@ -90,6 +107,10 @@ impl AppState {
             selected_model: "gpt-4o-mini".into(),
             sdd_description: String::new(),
             sdd_running: false,
+            playground_response: String::new(),
+            playground_loading: false,
+            msg_rx,
+            msg_tx,
         }
     }
 }

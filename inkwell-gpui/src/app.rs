@@ -1,6 +1,7 @@
 use gpui::*;
 use crate::state::*;
 use inkwell_core::types::BlockType;
+use std::time::Duration;
 
 fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
 fn bg_secondary() -> Hsla { hsla(230.0 / 360.0, 0.12, 0.10, 1.0) }
@@ -25,9 +26,56 @@ impl InkwellApp {
 
 impl Render for InkwellApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Poll async messages
+        self.poll_messages();
+
         match self.state.screen {
             Screen::Auth => self.render_auth(cx),
             Screen::Ide => self.render_ide(cx),
+        }
+    }
+}
+
+impl InkwellApp {
+    fn poll_messages(&mut self) {
+        while let Ok(msg) = self.state.msg_rx.try_recv() {
+            match msg {
+                AsyncMsg::AuthSuccess { session, projects, workspaces } => {
+                    self.state.auth_loading = false;
+                    self.state.session = Some(session);
+                    self.state.screen = Screen::Ide;
+                    self.state.projects = projects.iter().map(|p| {
+                        ProjectSummary { id: p.id.clone(), name: p.name.clone() }
+                    }).collect();
+                    self.state.workspaces = workspaces;
+                    // Load first project
+                    if let Some(first) = projects.first() {
+                        self.state.project.name = first.name.clone();
+                        self.state.project.id = first.id.clone();
+                        self.state.project.blocks = first.blocks.iter().map(|b| {
+                            Block {
+                                id: b.id.clone(), block_type: b.block_type,
+                                content: b.content.clone(), enabled: b.enabled, editing: false,
+                            }
+                        }).collect();
+                        self.state.project.framework = first.framework.clone();
+                    }
+                }
+                AsyncMsg::AuthError(e) => {
+                    self.state.auth_loading = false;
+                    self.state.auth_error = Some(e);
+                }
+                AsyncMsg::LlmResponse(text) => {
+                    self.state.playground_response = text;
+                }
+                AsyncMsg::LlmDone => {
+                    self.state.playground_loading = false;
+                }
+                AsyncMsg::LlmError(e) => {
+                    self.state.playground_loading = false;
+                    self.state.playground_response = format!("Error: {e}");
+                }
+            }
         }
     }
 }
@@ -57,11 +105,29 @@ impl InkwellApp {
                             .child(if self.state.auth_loading { "Connecting..." } else { "Sign in" })
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _cx| {
                                 if this.state.auth_loading { return; }
-                                // For now, skip to IDE (real auth will use background task)
-                                this.state.screen = Screen::Ide;
-                                this.state.session = Some(inkwell_core::types::AuthSession {
-                                    user_id: "local".into(), email: this.state.email.clone(),
-                                    display_name: "User".into(), avatar: "".into(), token: "".into(),
+                                this.state.auth_loading = true;
+                                this.state.auth_error = None;
+
+                                let server_url = this.state.server_url.clone();
+                                let email = this.state.email.clone();
+                                let password = this.state.password.clone();
+                                let tx = this.state.msg_tx.clone();
+
+                                // Spawn auth in background thread with tokio
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
+                                        match client.login(&email, &password).await {
+                                            Ok(session) => {
+                                                client.set_token(session.token.clone());
+                                                let projects = client.list_projects().await.unwrap_or_default();
+                                                let workspaces = client.list_workspaces().await.unwrap_or_default();
+                                                let _ = tx.send(AsyncMsg::AuthSuccess { session, projects, workspaces });
+                                            }
+                                            Err(e) => { let _ = tx.send(AsyncMsg::AuthError(e)); }
+                                        }
+                                    });
                                 });
                             }))
                     )
@@ -428,14 +494,66 @@ impl InkwellApp {
             .child(model_list)
             .child(div().h(px(1.0)).bg(border_c()))
             .child(
-                div().py(px(10.0)).bg(accent()).rounded(px(8.0))
-                    .flex().items_center().justify_center()
-                    .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Run prompt")
+                div().py(px(10.0))
+                    .bg(if self.state.playground_loading { text_muted() } else { accent() })
+                    .rounded(px(8.0)).flex().items_center().justify_center()
+                    .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                    .child(if self.state.playground_loading { "Running..." } else { "Run prompt" })
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        if this.state.playground_loading { return; }
+                        this.state.playground_loading = true;
+                        this.state.playground_response.clear();
+
+                        let prompt = this.state.project.compiled_prompt();
+                        let model = this.state.selected_model.clone();
+                        let server_url = this.state.server_url.clone();
+                        let tx = this.state.msg_tx.clone();
+
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                // Call local Ollama via the server
+                                let client = reqwest::Client::new();
+                                let resp = client.post(format!("{server_url}/v1/chat/completions"))
+                                    .json(&serde_json::json!({
+                                        "model": model,
+                                        "messages": [{"role": "user", "content": prompt}],
+                                        "temperature": 0.7,
+                                        "max_tokens": 2048,
+                                        "stream": false,
+                                    }))
+                                    .send().await;
+
+                                match resp {
+                                    Ok(r) if r.status().is_success() => {
+                                        if let Ok(data) = r.json::<serde_json::Value>().await {
+                                            let text = data["choices"][0]["message"]["content"]
+                                                .as_str().unwrap_or("No response").to_string();
+                                            let _ = tx.send(AsyncMsg::LlmResponse(text));
+                                        }
+                                        let _ = tx.send(AsyncMsg::LlmDone);
+                                    }
+                                    Ok(r) => {
+                                        let err = r.text().await.unwrap_or_default();
+                                        let _ = tx.send(AsyncMsg::LlmError(err));
+                                    }
+                                    Err(e) => {
+                                        let _ = tx.send(AsyncMsg::LlmError(e.to_string()));
+                                    }
+                                }
+                            });
+                        });
+                    }))
             )
             .child(
                 div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary())
                     .border_1().border_color(border_c())
-                    .text_xs().text_color(text_muted()).child("Response will appear here...")
+                    .text_xs().text_color(if self.state.playground_response.is_empty() { text_muted() } else { text_primary() })
+                    .child(if self.state.playground_response.is_empty() {
+                        "Response will appear here...".to_string()
+                    } else {
+                        self.state.playground_response.clone()
+                    })
             )
     }
 

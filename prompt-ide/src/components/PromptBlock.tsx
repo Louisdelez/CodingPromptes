@@ -18,6 +18,7 @@ import {
   Sparkles,
   Wand2,
   HelpCircle,
+  ExternalLink,
 } from 'lucide-react';
 import type { PromptBlock as PromptBlockType } from '../lib/types';
 import { BLOCK_CONFIG, MODELS } from '../lib/types';
@@ -233,6 +234,44 @@ export function PromptBlockComponent({ block, allBlocks, onUpdate, onRemove, onT
               >
                 {sddLoading === 'clarify' ? <Loader2 size={14} className="animate-spin" /> : <HelpCircle size={14} />}
               </button>
+              {block.type === 'sdd-tasks' && (
+                <button
+                  onClick={() => {
+                    const GH_REPO_KEY = 'inkwell-github-repo';
+                    const GH_PAT_KEY = 'inkwell-github-pat';
+                    const savedRepo = localStorage.getItem(GH_REPO_KEY) || '';
+                    const savedPat = localStorage.getItem(GH_PAT_KEY) || '';
+                    const repo = prompt('GitHub repo (owner/repo):', savedRepo);
+                    if (!repo) return;
+                    const token = savedPat || prompt('GitHub PAT (saved for next time):');
+                    if (!token) return;
+                    localStorage.setItem(GH_REPO_KEY, repo);
+                    localStorage.setItem(GH_PAT_KEY, token);
+
+                    import('../lib/github').then(async ({ parseTasksMarkdown, taskToIssueBody, createGitHubIssue, updateTasksWithIssueLinks }) => {
+                      const tasks = parseTasksMarkdown(block.content).filter(t => !t.done);
+                      if (tasks.length === 0) { alert('No pending tasks'); return; }
+                      if (!confirm(`Push ${tasks.length} tasks to ${repo}?`)) return;
+                      const links = new Map<string, number>();
+                      for (const task of tasks) {
+                        try {
+                          const body = taskToIssueBody(task, 'Inkwell SDD');
+                          const issue = await createGitHubIssue(repo, token, `${task.id}: ${task.title}`, body, ['sdd']);
+                          links.set(task.id, issue.number);
+                        } catch (e) { console.error(`Failed to create issue for ${task.id}:`, e); }
+                      }
+                      if (links.size > 0) {
+                        onUpdate({ content: updateTasksWithIssueLinks(block.content, links) });
+                      }
+                      alert(`Created ${links.size}/${tasks.length} GitHub issues`);
+                    });
+                  }}
+                  className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] opacity-0 group-hover:opacity-100 transition-all"
+                  title="Push tasks to GitHub Issues"
+                >
+                  <ExternalLink size={14} />
+                </button>
+              )}
             </>
           )}
 

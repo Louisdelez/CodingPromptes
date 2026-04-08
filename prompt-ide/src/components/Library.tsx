@@ -24,6 +24,7 @@ import {
   FolderInput,
   X,
   Copy,
+  Shield,
 } from 'lucide-react';
 import type { PromptProject, Workspace } from '../lib/types';
 import { WORKSPACE_COLORS } from '../lib/types';
@@ -70,6 +71,7 @@ export function Library({
   onLoadProject,
   onNewProject,
   onCreateWorkspace,
+  onUpdateWorkspace,
   onDeleteWorkspace,
   onDeleteProject,
   onMovePrompt,
@@ -86,6 +88,8 @@ export function Library({
   const [editWsName, setEditWsName] = useState('');
   const [contextMenu, setContextMenu] = useState<{ type: 'workspace' | 'prompt'; id: string; x: number; y: number } | null>(null);
   const [colorPickerWsId, setColorPickerWsId] = useState<string | null>(null);
+  const [constitutionWsId, setConstitutionWsId] = useState<string | null>(null);
+  const [constitutionText, setConstitutionText] = useState('');
   const [newWsColor, setNewWsColor] = useState<string>(WORKSPACE_COLORS[0]);
   const newWsInputRef = useRef<HTMLInputElement>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -581,6 +585,17 @@ export function Library({
                 <div className="w-3 h-3 rounded-full border border-white/30" style={{ backgroundColor: workspaces.find((w) => w.id === contextMenu.id)?.color }} />
                 {t('library.changeColor')}
               </button>
+              <button
+                onClick={async () => {
+                  const ws = await localdb.workspaces.get(contextMenu.id);
+                  setConstitutionWsId(contextMenu.id);
+                  setConstitutionText(ws?.constitution || '');
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] flex items-center gap-2"
+              >
+                <Shield size={13} className="text-[var(--color-accent)]" /> Constitution
+              </button>
               <div className="h-px bg-[var(--color-border)] my-1" />
               <button
                 onClick={() => {
@@ -671,6 +686,47 @@ export function Library({
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Constitution Editor Modal */}
+      {constitutionWsId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setConstitutionWsId(null)}>
+          <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl p-4 w-[90%] max-w-lg max-h-[80vh] shadow-2xl animate-fadeIn" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Shield size={16} className="text-[var(--color-accent)]" />
+                <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+                  Constitution — {workspaces.find(w => w.id === constitutionWsId)?.name}
+                </h3>
+              </div>
+              <button onClick={() => setConstitutionWsId(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">
+                <X size={16} />
+              </button>
+            </div>
+            <textarea
+              value={constitutionText}
+              onChange={e => setConstitutionText(e.target.value)}
+              placeholder="# Project Constitution&#10;&#10;## Core Principles&#10;..."
+              className="w-full h-64 px-3 py-2 text-xs font-mono bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)] resize-none"
+            />
+            <div className="flex items-center justify-between mt-3">
+              <span className="text-[10px] text-[var(--color-text-muted)]">
+                Shared across all SDD prompts in this workspace
+              </span>
+              <button
+                onClick={async () => {
+                  if (onUpdateWorkspace) {
+                    await onUpdateWorkspace(constitutionWsId, { constitution: constitutionText });
+                  }
+                  setConstitutionWsId(null);
+                }}
+                className="px-3 py-1.5 rounded text-xs font-medium bg-[var(--color-accent)] text-white hover:opacity-90"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

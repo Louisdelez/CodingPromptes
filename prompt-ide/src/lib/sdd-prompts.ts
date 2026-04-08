@@ -8,6 +8,7 @@ import { SDD_PHASE_ORDER, SDD_PHASE_LABELS, type SddPhase } from './sdd-conventi
 import { callLLM } from './api';
 import { executeHooks } from './sdd-hooks';
 import { getPresetInstructions } from './sdd-presets';
+import { commitPhase as gitCommitPhase } from './git';
 
 // ========================
 // Context Building
@@ -273,6 +274,7 @@ export async function runAllCascade(
   onPhaseComplete: (phase: SddPhase, content: string) => void,
   onError: (phase: SddPhase, error: string) => void,
   workspaceConstitution?: string,
+  autoCommit?: boolean,
 ): Promise<void> {
   const workingBlocks = blocks.map(b => ({ ...b }));
 
@@ -296,7 +298,10 @@ export async function runAllCascade(
 
     let userPrompt: string;
     if (phase === 'sdd-constitution') {
-      userPrompt = `Project description: ${description}\n\nGenerate the complete constitution for this project.`;
+      const presetStack = getPresetInstructions('sdd-constitution');
+      const { getPresetTechStack } = await import('./sdd-presets');
+      const techStack = getPresetTechStack();
+      userPrompt = `Project description: ${description}\n\n${techStack ? `Suggested tech stack:\n${techStack}\n\n` : ''}${presetStack ? `Additional context:\n${presetStack}\n\n` : ''}Generate the complete constitution for this project.`;
     } else if (phase === 'sdd-implementation') {
       userPrompt = `${prev}\n\nGenerate initial implementation notes based on the tasks above. Mark all tasks as pending.`;
     } else {
@@ -314,6 +319,9 @@ export async function runAllCascade(
         workingBlocks[blockIdx].content = result.text;
         onPhaseComplete(phase, result.text);
         await executeHooks(phase, 'after', { content: result.text });
+        if (autoCommit) {
+          try { await gitCommitPhase(phase); } catch { /* git not available */ }
+        }
       }
     } catch (err) {
       onError(phase, err instanceof Error ? err.message : 'Unknown error');

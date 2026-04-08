@@ -74,6 +74,9 @@ import { BLOCK_CONFIG, MODELS } from './lib/types';
 import { I18nContext, getLang, setLang, useT, type Lang } from './lib/i18n';
 import { runAllCascade, buildValidatePrompt, buildChecklistPrompt } from './lib/sdd-prompts';
 import type { SddPhase } from './lib/sdd-conventions';
+import { BUILTIN_PRESETS, getActivePresets, togglePreset } from './lib/sdd-presets';
+import { createFeatureBranch, commitPhase } from './lib/git';
+import { setHooksConfig } from './lib/sdd-hooks';
 import { callLLM } from './lib/api';
 import { getApiKeys } from './lib/db';
 import { ThemeContext, getThemeMode, setThemeMode, resolveTheme, applyTheme, type ThemeMode, type ResolvedTheme } from './lib/theme';
@@ -175,6 +178,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     addTag,
     removeTag,
     libraryRefreshKey,
+    workspaceConstitution,
   } = usePromptProject(session.userId);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -202,6 +206,12 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
   const [sddRunning, setSddRunning] = useState<SddPhase | null>(null);
   const [sddDescription, setSddDescription] = useState('');
   const [sddResult, setSddResult] = useState<string | null>(null);
+  const [sddPresets, setSddPresets] = useState<string[]>(getActivePresets);
+  const [sddGitBranch, setSddGitBranch] = useState('');
+  const [sddShowPresets, setSddShowPresets] = useState(false);
+  const [sddAutoCommit, setSddAutoCommit] = useState(false);
+  const [sddShowHooks, setSddShowHooks] = useState(false);
+  const [sddHookUrl, setSddHookUrl] = useState(() => localStorage.getItem('inkwell-sdd-webhook-url') || '');
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -550,71 +560,198 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
           <div className="flex-1 overflow-auto p-4 space-y-3">
             {/* SDD Toolbar — shown when SDD blocks exist */}
             {project.blocks.some(b => b.type.startsWith('sdd-')) && (
-              <div className="flex items-center gap-2 p-3 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">
-                <span className="text-xs font-bold text-[var(--color-accent)]">SDD</span>
-                <input
-                  value={sddDescription}
-                  onChange={e => setSddDescription(e.target.value)}
-                  placeholder={t('sdd.descriptionPlaceholder')}
-                  className="flex-1 text-xs bg-transparent border border-[var(--color-border)] rounded px-2 py-1.5 text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-text-muted)]"
-                />
-                <button
-                  disabled={!!sddRunning || !sddDescription.trim()}
-                  onClick={async () => {
-                    const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
-                    const apiKeys = getApiKeys();
-                    await runAllCascade(
-                      project.blocks, model, apiKeys, sddDescription,
-                      (phase) => setSddRunning(phase),
-                      (phase, content) => {
-                        const block = project.blocks.find(b => b.type === phase);
-                        if (block) updateBlock(block.id, { content });
-                      },
-                      (phase, error) => { setSddResult(`Error (${phase}): ${error}`); },
-                    );
-                    setSddRunning(null);
-                    setSddResult(null);
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-[var(--color-accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity whitespace-nowrap"
-                >
-                  {sddRunning ? (
-                    <><span className="animate-spin">-</span> {sddRunning.replace('sdd-', '')}</>
-                  ) : (
-                    t('sdd.runAll')
-                  )}
-                </button>
-                <button
-                  disabled={!!sddRunning}
-                  onClick={async () => {
-                    setSddRunning('sdd-constitution' as SddPhase);
-                    try {
+              <div className="rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5 space-y-0">
+                {/* Row 1: Run All + description */}
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <span className="text-xs font-bold text-[var(--color-accent)]">SDD</span>
+                  <input
+                    value={sddDescription}
+                    onChange={e => setSddDescription(e.target.value)}
+                    placeholder={t('sdd.descriptionPlaceholder')}
+                    className="flex-1 text-xs bg-transparent border border-[var(--color-border)] rounded px-2 py-1.5 text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-text-muted)]"
+                  />
+                  <button
+                    disabled={!!sddRunning || !sddDescription.trim()}
+                    onClick={async () => {
                       const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
-                      const { systemPrompt, userPrompt } = buildValidatePrompt(project.blocks);
-                      const result = await callLLM(userPrompt, model, getApiKeys(), { systemPrompt, temperature: 0.3, maxTokens: 4096 });
-                      setSddResult(result.text);
-                    } catch (e) { setSddResult(`Error: ${e}`); }
-                    finally { setSddRunning(null); }
-                  }}
-                  className="px-2 py-1.5 rounded text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] transition-colors whitespace-nowrap"
-                >
-                  {t('sdd.validate')}
-                </button>
-                <button
-                  disabled={!!sddRunning}
-                  onClick={async () => {
-                    setSddRunning('sdd-constitution' as SddPhase);
-                    try {
-                      const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
-                      const { systemPrompt, userPrompt } = buildChecklistPrompt(project.blocks);
-                      const result = await callLLM(userPrompt, model, getApiKeys(), { systemPrompt, temperature: 0.3, maxTokens: 4096 });
-                      setSddResult(result.text);
-                    } catch (e) { setSddResult(`Error: ${e}`); }
-                    finally { setSddRunning(null); }
-                  }}
-                  className="px-2 py-1.5 rounded text-xs text-[var(--color-text-muted)] hover:text-yellow-400 hover:bg-[var(--color-bg-hover)] transition-colors whitespace-nowrap"
-                >
-                  Checklist
-                </button>
+                      await runAllCascade(
+                        project.blocks, model, getApiKeys(), sddDescription,
+                        (phase) => setSddRunning(phase),
+                        (phase, content) => {
+                          const block = project.blocks.find(b => b.type === phase);
+                          if (block) updateBlock(block.id, { content });
+                        },
+                        (phase, error) => { setSddResult(`Error (${phase}): ${error}`); },
+                        workspaceConstitution,
+                      sddAutoCommit,
+                      );
+                      setSddRunning(null);
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-[var(--color-accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity whitespace-nowrap"
+                  >
+                    {sddRunning ? (
+                      <><span className="animate-spin">-</span> {sddRunning.replace('sdd-', '')}</>
+                    ) : (
+                      t('sdd.runAll')
+                    )}
+                  </button>
+                </div>
+
+                {/* Row 2: Presets + Actions + Git */}
+                <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-[var(--color-accent)]/10">
+                  {/* Presets */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setSddShowPresets(v => !v)}
+                      className={`px-2 py-1 rounded text-[10px] transition-colors ${sddPresets.length > 0 ? 'bg-[var(--color-accent)]/10 text-[var(--color-accent)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
+                    >
+                      {sddPresets.length > 0
+                        ? BUILTIN_PRESETS.filter(p => sddPresets.includes(p.id)).map(p => p.icon).join(' + ')
+                        : 'Presets'}
+                    </button>
+                    {sddShowPresets && (
+                      <div className="absolute left-0 top-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-xl z-50 py-1 w-52 animate-fadeIn">
+                        {BUILTIN_PRESETS.map(preset => (
+                          <button
+                            key={preset.id}
+                            onClick={() => { const next = togglePreset(preset.id); setSddPresets(next); }}
+                            className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${
+                              sddPresets.includes(preset.id) ? 'text-[var(--color-accent)] bg-[var(--color-accent)]/10' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]'
+                            }`}
+                          >
+                            <span className="font-bold w-5">{preset.icon}</span>
+                            <div className="flex-1 text-left">
+                              <div>{preset.name}</div>
+                              <div className="text-[9px] text-[var(--color-text-muted)]">{preset.description}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-px h-4 bg-[var(--color-accent)]/10" />
+
+                  {/* Validate */}
+                  <button
+                    disabled={!!sddRunning}
+                    onClick={async () => {
+                      setSddRunning('sdd-constitution' as SddPhase);
+                      try {
+                        const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+                        const { systemPrompt, userPrompt } = buildValidatePrompt(project.blocks);
+                        const result = await callLLM(userPrompt, model, getApiKeys(), { systemPrompt, temperature: 0.3, maxTokens: 4096 });
+                        setSddResult(result.text);
+                      } catch (e) { setSddResult(`Error: ${e}`); }
+                      finally { setSddRunning(null); }
+                    }}
+                    className="px-2 py-1 rounded text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] transition-colors"
+                  >
+                    {t('sdd.validate')}
+                  </button>
+
+                  {/* Checklist */}
+                  <button
+                    disabled={!!sddRunning}
+                    onClick={async () => {
+                      setSddRunning('sdd-constitution' as SddPhase);
+                      try {
+                        const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+                        const { systemPrompt, userPrompt } = buildChecklistPrompt(project.blocks);
+                        const result = await callLLM(userPrompt, model, getApiKeys(), { systemPrompt, temperature: 0.3, maxTokens: 4096 });
+                        setSddResult(result.text);
+                      } catch (e) { setSddResult(`Error: ${e}`); }
+                      finally { setSddRunning(null); }
+                    }}
+                    className="px-2 py-1 rounded text-[10px] text-[var(--color-text-muted)] hover:text-yellow-400 hover:bg-[var(--color-bg-hover)] transition-colors"
+                  >
+                    Checklist
+                  </button>
+
+                  {/* Hooks */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setSddShowHooks(v => !v)}
+                      className={`px-2 py-1 rounded text-[10px] transition-colors ${sddHookUrl ? 'text-green-400' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]'}`}
+                    >
+                      Hooks
+                    </button>
+                    {sddShowHooks && (
+                      <div className="absolute left-0 top-full mt-1 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-xl z-50 p-3 w-64 animate-fadeIn">
+                        <div className="text-[10px] text-[var(--color-text-muted)] mb-2">Webhook URL (called after each phase)</div>
+                        <input
+                          value={sddHookUrl}
+                          onChange={e => {
+                            setSddHookUrl(e.target.value);
+                            localStorage.setItem('inkwell-sdd-webhook-url', e.target.value);
+                            if (e.target.value) {
+                              const hook = { type: 'webhook' as const, url: e.target.value, method: 'POST' };
+                              setHooksConfig({ hooks: {
+                                'sdd-constitution': { after: [hook] },
+                                'sdd-specification': { after: [hook] },
+                                'sdd-plan': { after: [hook] },
+                                'sdd-tasks': { after: [hook] },
+                                'sdd-implementation': { after: [hook] },
+                              }});
+                            } else {
+                              setHooksConfig({ hooks: {} });
+                            }
+                          }}
+                          placeholder="https://hooks.example.com/sdd"
+                          className="w-full text-xs bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] rounded px-2 py-1.5 text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
+                        />
+                        <div className="text-[9px] text-[var(--color-text-muted)] mt-1">POST with phase, content, timestamp</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1" />
+
+                  {/* Git */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setSddAutoCommit(v => !v)}
+                      className={`px-1.5 py-1 rounded text-[10px] transition-colors ${sddAutoCommit ? 'bg-green-500/10 text-green-400' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'}`}
+                      title="Auto-commit after each phase"
+                    >
+                      Auto
+                    </button>
+                    {sddGitBranch ? (
+                      <span className="text-[10px] text-green-400 font-mono">{sddGitBranch}</span>
+                    ) : null}
+                    <button
+                      onClick={async () => {
+                        try {
+                          const name = sddDescription.trim() || project.name;
+                          const branch = await createFeatureBranch(name);
+                          setSddGitBranch(branch);
+                        } catch (e) {
+                          setSddResult(`Git error: ${e}`);
+                        }
+                      }}
+                      className="px-2 py-1 rounded text-[10px] text-[var(--color-text-muted)] hover:text-green-400 hover:bg-[var(--color-bg-hover)] transition-colors"
+                      title="Create feature branch"
+                    >
+                      Branch
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const phase = project.blocks.find(b => b.type.startsWith('sdd-') && b.enabled)?.type || 'sdd';
+                          const hash = await commitPhase(phase);
+                          setSddResult(`Committed: ${hash}`);
+                          setTimeout(() => setSddResult(null), 3000);
+                        } catch (e) {
+                          setSddResult(`Git error: ${e}`);
+                        }
+                      }}
+                      className="px-2 py-1 rounded text-[10px] text-[var(--color-text-muted)] hover:text-green-400 hover:bg-[var(--color-bg-hover)] transition-colors"
+                      title="Commit specs"
+                    >
+                      Commit
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 

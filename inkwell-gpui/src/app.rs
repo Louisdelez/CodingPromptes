@@ -70,6 +70,16 @@ impl InkwellApp {
             match msg {
                 AsyncMsg::AuthSuccess { session, projects, workspaces } => {
                     self.state.auth_loading = false;
+                    crate::persistence::save_session(&crate::persistence::SavedSession {
+                        server_url: self.state.server_url.clone(),
+                        token: session.token.clone(),
+                        email: session.email.clone(),
+                        dark_mode: self.state.dark_mode,
+                        lang: self.state.lang.clone(),
+                        last_project_id: None,
+                        left_open: self.state.left_open,
+                        right_open: self.state.right_open,
+                    });
                     self.state.session = Some(session);
                     self.state.screen = Screen::Ide;
                     self.state.projects = projects.iter().map(|p| {
@@ -498,8 +508,18 @@ impl InkwellApp {
     }
 
     fn render_library(&self, cx: &mut Context<Self>) -> Div {
-        let lang = &self.state.lang;
+        let _lang = &self.state.lang;
+        let search = &self.state.search_query;
         let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
+
+        // Search bar
+        content = content.child(
+            div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(6.0))
+                .border_1().border_color(border_c())
+                .flex().items_center()
+                .text_xs().text_color(if search.is_empty() { text_muted() } else { text_primary() })
+                .child(if search.is_empty() { "Search projects...".to_string() } else { search.clone() })
+        );
 
         // Workspaces
         if !self.state.workspaces.is_empty() {
@@ -553,26 +573,90 @@ impl InkwellApp {
         );
 
         // Project list
-        for p in &self.state.projects {
+        let search_lower = search.to_lowercase();
+        let filtered: Vec<_> = self.state.projects.iter()
+            .filter(|p| search_lower.is_empty() || p.name.to_lowercase().contains(&search_lower))
+            .collect();
+
+        for p in &filtered {
             let id = p.id.clone();
+            let delete_id = p.id.clone();
             let is_active = self.state.project.id == p.id;
             content = content.child(
-                div().px(px(10.0)).py(px(6.0)).rounded(px(4.0))
-                    .text_xs().text_color(if is_active { text_primary() } else { text_secondary() })
+                div().px(px(8.0)).py(px(6.0)).rounded(px(4.0))
+                    .flex().items_center().gap(px(4.0))
                     .bg(if is_active { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                    .child(p.name.clone())
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                        // Switch to this project (data already loaded)
-                        if let Some(p) = this.state.projects.iter().find(|p| p.id == id) {
-                            this.state.project.id = p.id.clone();
-                            this.state.project.name = p.name.clone();
-                        }
-                    }))
+                    .hover(|s| s.bg(bg_tertiary()))
+                    // Project name
+                    .child(
+                        div().flex_1().text_xs()
+                            .text_color(if is_active { text_primary() } else { text_secondary() })
+                            .child(p.name.clone())
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                if let Some(p) = this.state.projects.iter().find(|p| p.id == id) {
+                                    this.state.project.id = p.id.clone();
+                                    this.state.project.name = p.name.clone();
+                                    this.state.block_inputs.clear();
+                                }
+                            }))
+                    )
+                    // Delete button
+                    .child(
+                        div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                            .text_xs().text_color(danger()).child("x")
+                            .hover(|s| s.bg(hsla(0.0, 0.75, 0.55, 0.15)))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                this.state.confirm_delete = Some(delete_id.clone());
+                            }))
+                    )
             );
         }
 
-        if self.state.projects.is_empty() {
+        // Confirm delete dialog
+        if let Some(ref del_id) = self.state.confirm_delete {
+            let del = del_id.clone();
+            content = content.child(
+                div().p(px(10.0)).rounded(px(8.0)).bg(hsla(0.0, 0.75, 0.55, 0.1))
+                    .border_1().border_color(danger())
+                    .flex().flex_col().gap(px(6.0))
+                    .child(div().text_xs().text_color(danger()).child("Delete this project?"))
+                    .child(
+                        div().flex().gap(px(6.0))
+                            .child(
+                                div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(danger())
+                                    .text_xs().text_color(white()).child("Delete")
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                        let id = del.clone();
+                                        this.state.projects.retain(|p| p.id != id);
+                                        this.state.confirm_delete = None;
+                                        // Delete on backend
+                                        let server = this.state.server_url.clone();
+                                        let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                                        std::thread::spawn(move || {
+                                            let rt = tokio::runtime::Runtime::new().unwrap();
+                                            rt.block_on(async {
+                                                let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                                                client.set_token(token);
+                                                let _ = client.delete_project(&id).await;
+                                            });
+                                        });
+                                    }))
+                            )
+                            .child(
+                                div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(bg_tertiary())
+                                    .text_xs().text_color(text_secondary()).child("Cancel")
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                        this.state.confirm_delete = None;
+                                    }))
+                            )
+                    )
+            );
+        }
+
+        if filtered.is_empty() && self.state.projects.is_empty() {
             content = content.child(div().text_xs().text_color(text_muted()).child("No projects yet"));
+        } else if filtered.is_empty() {
+            content = content.child(div().text_xs().text_color(text_muted()).child("No matching projects"));
         }
 
         content

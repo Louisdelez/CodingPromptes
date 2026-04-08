@@ -68,6 +68,9 @@ pub struct AppState {
     pub terminal_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Undo
     pub undo_stack: Vec<Vec<Block>>,
+    // Persistence
+    pub confirm_delete: Option<String>, // project id to confirm delete
+    pub search_query: String,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -131,14 +134,19 @@ pub struct ProjectSummary {
 
 impl AppState {
     pub fn new() -> Self {
-        let server_url = "http://localhost:8910".to_string();
+        let saved = crate::persistence::load_session();
+        let server_url = if saved.server_url.is_empty() { "http://localhost:8910".to_string() } else { saved.server_url };
         let (msg_tx, msg_rx) = mpsc::channel();
+
+        // If we have a saved token, try to auto-login
+        let has_token = !saved.token.is_empty();
+
         Self {
-            screen: Screen::Auth,
-            lang: "fr".into(),
+            screen: if has_token { Screen::Ide } else { Screen::Auth },
+            lang: if saved.lang.is_empty() { "fr".into() } else { saved.lang },
             api: Arc::new(Mutex::new(ApiClient::new(&server_url))),
             server_url,
-            email: String::new(),
+            email: saved.email.clone(),
             password: String::new(),
             display_name: String::new(),
             server_url_input: None,
@@ -165,9 +173,9 @@ impl AppState {
             workspaces: vec![],
             left_tab: LeftTab::Library,
             right_tab: RightTab::Preview,
-            left_open: true,
-            right_open: true,
-            dark_mode: true,
+            left_open: saved.left_open || !has_token,
+            right_open: saved.right_open || !has_token,
+            dark_mode: saved.dark_mode,
             show_add_menu: false,
             custom_frameworks: vec![],
             selected_model: "gpt-4o-mini".into(),
@@ -182,6 +190,8 @@ impl AppState {
             terminal_input_buf: String::new(),
             terminal_input_entity: None,
             undo_stack: vec![],
+            confirm_delete: None,
+            search_query: String::new(),
             msg_rx,
             msg_tx,
         }

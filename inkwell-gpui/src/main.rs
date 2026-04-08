@@ -3,6 +3,7 @@ use gpui_platform::application;
 use gpui_component::Root;
 
 mod app;
+mod persistence;
 mod state;
 mod theme;
 mod ui;

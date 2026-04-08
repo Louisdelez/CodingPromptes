@@ -679,7 +679,7 @@ impl InkwellApp {
     fn render_frameworks(&self, cx: &mut Context<Self>) -> Div {
         let frameworks = vec![
             ("CO-STAR", "co-star"), ("RISEN", "risen"), ("RACE", "race"),
-            ("SDD (Spec-Driven)", "sdd"), ("STOKE", "stoke"),
+            ("SDD (Spec-Driven)", "sdd"), ("APE", "ape"), ("STOKE", "stoke"),
         ];
         let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
 
@@ -767,6 +767,11 @@ impl InkwellApp {
             "risen" => vec![
                 (BlockType::Role, "## Role\n"), (BlockType::Task, "## Instructions\n"),
                 (BlockType::Format, "## Objectif final\n"), (BlockType::Constraints, "## Restrictions\n"),
+            ],
+            "ape" => vec![
+                (BlockType::Task, "## Action\n"),
+                (BlockType::Context, "## Purpose\n"),
+                (BlockType::Format, "## Expectation\n"),
             ],
             _ => vec![(BlockType::Role, ""), (BlockType::Context, ""), (BlockType::Task, "")],
         };
@@ -896,6 +901,23 @@ impl InkwellApp {
                                 this.state.right_tab = RightTab::Playground;
                                 this.state.right_open = true;
                             }))
+                    )
+                    // Git
+                    .child(
+                        div().px(px(6.0)).py(px(4.0)).rounded(px(4.0))
+                            .text_xs().text_color(success())
+                            .flex().items_center().gap(px(4.0))
+                            .child(Icon::new(IconName::GitBranch))
+                            .child("Branch")
+                            .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.0, 0.5, 0.08)))
+                    )
+                    .child(
+                        div().px(px(6.0)).py(px(4.0)).rounded(px(4.0))
+                            .text_xs().text_color(success())
+                            .flex().items_center().gap(px(4.0))
+                            .child(Icon::new(IconName::Save))
+                            .child("Commit")
+                            .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.0, 0.5, 0.08)))
                     )
                     // Presets (functional)
                     .child({

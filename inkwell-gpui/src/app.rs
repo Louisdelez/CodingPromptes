@@ -211,7 +211,9 @@ impl InkwellApp {
                         div().py(px(10.0)).bg(if self.state.auth_loading { text_muted() } else { accent() }).rounded(px(8.0))
                             .flex().items_center().justify_center()
                             .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
-                            .child(if self.state.auth_loading { "Connecting..." } else { "Sign in" })
+                            .child(if self.state.auth_loading { "Connecting..." }
+                                else if self.state.auth_mode == AuthMode::Register { "Sign up" }
+                                else { "Sign in" })
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                 if this.state.auth_loading { return; }
                                 this.state.auth_loading = true;
@@ -227,13 +229,19 @@ impl InkwellApp {
                                     .map(|i| i.read(cx).value().to_string())
                                     .unwrap_or_default();
                                 let tx = this.state.msg_tx.clone();
+                                let is_register = this.state.auth_mode == AuthMode::Register;
+                                let display_name = email.split('@').next().unwrap_or("User").to_string();
 
-                                // Spawn auth in background thread with tokio
                                 std::thread::spawn(move || {
                                     let rt = tokio::runtime::Runtime::new().unwrap();
                                     rt.block_on(async {
                                         let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
-                                        match client.login(&email, &password).await {
+                                        let result = if is_register {
+                                            client.register(&email, &password, &display_name).await
+                                        } else {
+                                            client.login(&email, &password).await
+                                        };
+                                        match result {
                                             Ok(session) => {
                                                 client.set_token(session.token.clone());
                                                 let projects = client.list_projects().await.unwrap_or_default();
@@ -704,12 +712,34 @@ impl InkwellApp {
                                 this.state.right_open = true;
                             }))
                     )
-                    // Presets
-                    .child(div().flex().gap(px(2.0))
-                        .child(div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary()).text_xs().text_color(text_muted()).child("React"))
-                        .child(div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary()).text_xs().text_color(text_muted()).child("Rust"))
-                        .child(div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary()).text_xs().text_color(text_muted()).child("Python"))
-                    )
+                    // Presets (functional)
+                    .child({
+                        let presets = vec![
+                            ("React", "TypeScript, Next.js 15, Tailwind CSS 4, React hooks"),
+                            ("Rust", "Rust stable, Axum 0.8, Tokio, SQLite, serde"),
+                            ("Python", "Python 3.12+, FastAPI, SQLAlchemy 2.0, Pydantic v2"),
+                        ];
+                        let mut row = div().flex().gap(px(2.0));
+                        for (name, stack) in presets {
+                            let stack_str = stack.to_string();
+                            row = row.child(
+                                div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary())
+                                    .text_xs().text_color(text_muted()).child(name.to_string())
+                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                        // Inject tech stack into constitution block
+                                        if let Some(block) = this.state.project.blocks.iter_mut()
+                                            .find(|b| b.block_type == BlockType::SddConstitution) {
+                                            if !block.content.contains("Technical Stack") {
+                                                block.content.push_str(&format!("\n\n## Technical Stack\n{}\n", stack_str));
+                                            }
+                                        }
+                                        // Reset block inputs to reflect changes
+                                        this.state.block_inputs.clear();
+                                    }))
+                            );
+                        }
+                        row
+                    })
             );
         }
 
@@ -969,6 +999,37 @@ impl InkwellApp {
                 );
             }
             block_list = block_list.child(menu);
+        }
+
+        // Variables panel
+        let core_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
+            inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
+        }).collect();
+        let vars = inkwell_core::prompt::extract_variables(&core_blocks);
+        if !vars.is_empty() {
+            let mut var_panel = div().p(px(12.0)).rounded(px(8.0)).bg(bg_secondary())
+                .border_1().border_color(border_c()).flex().flex_col().gap(px(6.0))
+                .child(div().text_xs().text_color(text_muted()).child("Variables"));
+            for var in &vars {
+                let val = self.state.project.variables.get(var).cloned().unwrap_or_default();
+                let var_name = var.clone();
+                var_panel = var_panel.child(
+                    div().flex().items_center().gap(px(8.0))
+                        .child(div().text_xs().text_color(accent()).child(format!("{{{{{var_name}}}}}")))
+                        .child(
+                            div().flex_1().h(px(28.0)).px(px(8.0)).bg(bg_tertiary())
+                                .rounded(px(4.0)).border_1().border_color(border_c())
+                                .flex().items_center().text_xs().text_color(text_secondary())
+                                .child(if val.is_empty() { "click to set...".to_string() } else { val })
+                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    // Simple prompt-based variable input (GPUI doesn't have modal text input easily)
+                                    let new_val = format!("[{var_name}]");
+                                    this.state.project.variables.insert(var_name.clone(), new_val);
+                                }))
+                        )
+                );
+            }
+            block_list = block_list.child(var_panel);
         }
 
         div().flex_1().flex().flex_col().min_w_0().overflow_hidden()
@@ -1309,8 +1370,9 @@ impl InkwellApp {
                                 rt.block_on(async {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token.clone());
-                                    // Save version would need a create_version endpoint
-                                    // For now, load existing versions
+                                    let blocks_json = serde_json::to_string(&blocks).unwrap_or_default();
+                                    let _ = client.create_version(&project_id, &blocks_json, "{}", &label).await;
+                                    // Then reload versions
                                     if let Ok(versions) = client.list_versions(&project_id).await {
                                         let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
                                     }
@@ -1344,6 +1406,7 @@ impl InkwellApp {
             content = content.child(div().text_xs().text_color(text_muted()).child("No versions saved yet."));
         } else {
             for v in &self.state.versions {
+                let blocks_json = v.blocks_json.clone();
                 content = content.child(
                     div().px(px(10.0)).py(px(6.0)).rounded(px(6.0))
                         .border_1().border_color(border_c()).bg(bg_tertiary())
@@ -1355,6 +1418,19 @@ impl InkwellApp {
                                 .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
                                 .unwrap_or_default()
                         ))
+                        .child(
+                            div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                                .text_xs().text_color(accent()).child("Restore")
+                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    // Parse blocks from version
+                                    if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&blocks_json) {
+                                        this.state.project.blocks = blocks.into_iter().map(|b| {
+                                            Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
+                                        }).collect();
+                                        this.state.block_inputs.clear();
+                                    }
+                                }))
+                        )
                 );
             }
         }

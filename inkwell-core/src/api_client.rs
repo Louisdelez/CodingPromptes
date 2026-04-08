@@ -177,6 +177,15 @@ impl ApiClient {
 
     // --- Versions ---
 
+    pub async fn create_version(&self, project_id: &str, blocks_json: &str, variables_json: &str, label: &str) -> Result<(), String> {
+        let mut req = self.client.post(self.url(&format!("/projects/{project_id}/versions")))
+            .json(&serde_json::json!({ "blocks_json": blocks_json, "variables_json": variables_json, "label": label }));
+        if let Some(auth) = self.auth_header() { req = req.header("Authorization", auth); }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() { return Err(resp.text().await.unwrap_or_default()); }
+        Ok(())
+    }
+
     pub async fn list_versions(&self, project_id: &str) -> Result<Vec<Version>, String> {
         let mut req = self.client.get(self.url(&format!("/projects/{project_id}/versions")));
         if let Some(auth) = self.auth_header() { req = req.header("Authorization", auth); }

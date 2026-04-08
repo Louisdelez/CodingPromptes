@@ -196,6 +196,14 @@ impl ApiClient {
 
     // --- Executions ---
 
+    pub async fn create_execution(&self, project_id: &str, data: &serde_json::Value) -> Result<(), String> {
+        let mut req = self.client.post(self.url(&format!("/projects/{project_id}/executions"))).json(data);
+        if let Some(auth) = self.auth_header() { req = req.header("Authorization", auth); }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() { return Err(resp.text().await.unwrap_or_default()); }
+        Ok(())
+    }
+
     pub async fn list_executions(&self, project_id: &str) -> Result<Vec<ExecutionResult>, String> {
         let mut req = self.client.get(self.url(&format!("/projects/{project_id}/executions")));
         if let Some(auth) = self.auth_header() { req = req.header("Authorization", auth); }

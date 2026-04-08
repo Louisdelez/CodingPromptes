@@ -6,32 +6,8 @@ use inkwell_core::types::BlockType;
 // Actions for keyboard shortcuts
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
 
-use crate::theme::InkwellTheme;
-
-// i18n helper
-fn tr<'a>(key: &'a str, lang: &str) -> &'a str {
-    inkwell_core::i18n::t(key, lang)
-}
-
-// Theme-aware color helpers
-// These use a thread-local to avoid passing theme everywhere
-use std::cell::RefCell;
-thread_local! {
-    static DARK_MODE: RefCell<bool> = const { RefCell::new(true) };
-}
-fn set_dark_mode(dark: bool) { DARK_MODE.with(|d| *d.borrow_mut() = dark); }
-fn is_dark() -> bool { DARK_MODE.with(|d| *d.borrow()) }
-
-fn bg_primary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.15, 0.07, 1.0) } else { hsla(0.0, 0.0, 1.0, 1.0) } }
-fn bg_secondary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.12, 0.10, 1.0) } else { hsla(220.0/360.0, 0.10, 0.97, 1.0) } }
-fn bg_tertiary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.10, 0.14, 1.0) } else { hsla(220.0/360.0, 0.08, 0.93, 1.0) } }
-fn border_c() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.10, 0.20, 1.0) } else { hsla(220.0/360.0, 0.10, 0.85, 1.0) } }
-fn text_primary() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.95, 1.0) } else { hsla(220.0/360.0, 0.15, 0.10, 1.0) } }
-fn text_secondary() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.70, 1.0) } else { hsla(220.0/360.0, 0.10, 0.35, 1.0) } }
-fn text_muted() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.50, 1.0) } else { hsla(220.0/360.0, 0.05, 0.55, 1.0) } }
-fn accent() -> Hsla { hsla(239.0 / 360.0, 0.84, if is_dark() { 0.67 } else { 0.55 }, 1.0) }
-fn danger() -> Hsla { hsla(0.0, 0.75, if is_dark() { 0.55 } else { 0.45 }, 1.0) }
-fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, if is_dark() { 0.45 } else { 0.35 }, 1.0) }
+// Import shared UI modules
+use crate::ui::colors::{self, *};
 
 pub struct InkwellApp {
     pub state: AppState,
@@ -42,8 +18,8 @@ impl InkwellApp {
         Self { state: AppState::new() }
     }
 
-    fn t(&self) -> InkwellTheme {
-        InkwellTheme::from_mode(self.state.dark_mode)
+    fn t(&self) -> crate::theme::InkwellTheme {
+        crate::theme::InkwellTheme::from_mode(self.state.dark_mode)
     }
 }
 
@@ -112,6 +88,27 @@ impl InkwellApp {
                 AsyncMsg::LlmDone => {
                     self.state.playground_loading = false;
                     self.state.sdd_running = false;
+                    // Save execution to backend
+                    if !self.state.playground_response.is_empty() {
+                        let server = self.state.server_url.clone();
+                        let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                        let project_id = self.state.project.id.clone();
+                        let model = self.state.selected_model.clone();
+                        let prompt = self.state.project.compiled_prompt();
+                        let response = self.state.playground_response.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                                client.set_token(token);
+                                let _ = client.create_execution(&project_id, &serde_json::json!({
+                                    "model": model, "provider": "local", "prompt": prompt,
+                                    "response": response, "tokens_in": 0, "tokens_out": 0,
+                                    "cost": 0.0, "latency_ms": 0,
+                                })).await;
+                            });
+                        });
+                    }
                 }
                 AsyncMsg::LlmError(e) => {
                     self.state.playground_loading = false;
@@ -677,8 +674,10 @@ impl InkwellApp {
                 .flex().items_center().justify_center().child("Save current as framework")
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                     let name = format!("Custom {}", this.state.custom_frameworks.len() + 1);
-                    let id = format!("custom-{}", uuid::Uuid::new_v4());
-                    this.state.custom_frameworks.push((name, id));
+                    let blocks: Vec<(BlockType, String)> = this.state.project.blocks.iter()
+                        .map(|b| (b.block_type, b.content.clone()))
+                        .collect();
+                    this.state.custom_frameworks.push(CustomFramework { name, blocks });
                 }))
         );
         content = content.child(div().h(px(1.0)).bg(border_c()));
@@ -702,12 +701,26 @@ impl InkwellApp {
         if !self.state.custom_frameworks.is_empty() {
             content = content.child(div().h(px(1.0)).bg(border_c()));
             content = content.child(div().text_xs().text_color(text_muted()).child("Custom"));
-            for (name, _id) in &self.state.custom_frameworks {
+            for (fw_idx, fw) in self.state.custom_frameworks.iter().enumerate() {
+                let block_count = fw.blocks.len();
                 content = content.child(
                     div().px(px(10.0)).py(px(8.0)).rounded(px(6.0))
                         .border_1().border_color(border_c()).bg(bg_tertiary())
-                        .text_xs().text_color(text_secondary())
-                        .child(name.clone())
+                        .flex().items_center().gap(px(6.0))
+                        .hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)))
+                        .child(div().flex_1().text_xs().text_color(text_secondary())
+                            .child(format!("{} ({} blocks)", fw.name, block_count)))
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                            if let Some(fw) = this.state.custom_frameworks.get(fw_idx) {
+                                this.state.undo_stack.push(this.state.project.blocks.clone());
+                                this.state.project.blocks = fw.blocks.iter().map(|(bt, content)| {
+                                    let mut b = Block::new(*bt);
+                                    b.content = content.clone();
+                                    b
+                                }).collect();
+                                this.state.block_inputs.clear();
+                            }
+                        }))
                 );
             }
         }
@@ -1926,32 +1939,4 @@ impl InkwellApp {
     }
 }
 
-fn hex_to_hsla(hex: &str) -> Hsla {
-    let hex = hex.trim_start_matches('#');
-    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(128) as f32 / 255.0;
-    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(128) as f32 / 255.0;
-    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(128) as f32 / 255.0;
-    let max = r.max(g).max(b); let min = r.min(g).min(b); let l = (max + min) / 2.0;
-    if (max - min).abs() < 0.001 { return hsla(0.0, 0.0, l, 1.0); }
-    let d = max - min;
-    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
-    let h = if (max - r).abs() < 0.001 { (g - b) / d + if g < b { 6.0 } else { 0.0 } }
-        else if (max - g).abs() < 0.001 { (b - r) / d + 2.0 }
-        else { (r - g) / d + 4.0 } / 6.0;
-    hsla(h, s, l, 1.0)
-}
-
-fn strip_ansi(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut in_escape = false;
-    for ch in s.chars() {
-        if ch == '\x1b' { in_escape = true; continue; }
-        if in_escape {
-            if ch.is_ascii_alphabetic() { in_escape = false; }
-            continue;
-        }
-        if ch == '\r' { continue; } // strip carriage returns
-        result.push(ch);
-    }
-    result
-}
+// hex_to_hsla and strip_ansi are in ui::colors

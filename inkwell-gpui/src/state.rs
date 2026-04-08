@@ -50,7 +50,7 @@ pub struct AppState {
     pub right_open: bool,
     pub dark_mode: bool,
     pub show_add_menu: bool,
-    pub custom_frameworks: Vec<(String, String)>, // (name, id)
+    pub custom_frameworks: Vec<CustomFramework>,
     pub selected_model: String,
     // SDD
     pub sdd_description: String,
@@ -127,6 +127,11 @@ pub struct Block {
 }
 
 #[derive(Clone)]
+pub struct CustomFramework {
+    pub name: String,
+    pub blocks: Vec<(inkwell_core::types::BlockType, String)>,
+}
+
 pub struct ProjectSummary {
     pub id: String,
     pub name: String,

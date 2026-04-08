@@ -196,14 +196,14 @@ impl InkwellApp {
                                     .bg(if self.state.auth_mode == AuthMode::Login { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
                                     .text_xs().text_color(if self.state.auth_mode == AuthMode::Login { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .flex().items_center().justify_center().child("Sign in")
-                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Login; }))
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Login; }))
                             )
                             .child(
                                 div().flex_1().py(px(6.0)).rounded(px(6.0))
                                     .bg(if self.state.auth_mode == AuthMode::Register { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
                                     .text_xs().text_color(if self.state.auth_mode == AuthMode::Register { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .flex().items_center().justify_center().child("Sign up")
-                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Register; }))
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Register; }))
                             )
                     )
                     // Server URL
@@ -233,7 +233,7 @@ impl InkwellApp {
                             .child(if self.state.auth_loading { "Connecting..." }
                                 else if self.state.auth_mode == AuthMode::Register { "Sign up" }
                                 else { "Sign in" })
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                 if this.state.auth_loading { return; }
                                 this.state.auth_loading = true;
                                 this.state.auth_error = None;
@@ -277,7 +277,7 @@ impl InkwellApp {
                     .child(
                         div().py(px(6.0)).flex().items_center().justify_center()
                             .text_xs().text_color(text_muted()).child("Skip (offline mode)")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 this.state.screen = Screen::Ide;
                             }))
                     )
@@ -413,7 +413,7 @@ impl InkwellApp {
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(if self.state.left_open { text_secondary() } else { text_muted() })
                     .child(if self.state.left_open { "[<]" } else { "[>]" })
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.left_open = !this.state.left_open;
                     }))
             )
@@ -436,7 +436,7 @@ impl InkwellApp {
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(text_muted())
                     .child(self.state.lang.to_uppercase())
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.lang = if this.state.lang == "fr" { "en".into() } else { "fr".into() };
                     }))
             )
@@ -445,7 +445,7 @@ impl InkwellApp {
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(if self.state.show_settings { accent() } else { text_muted() })
                     .child("Settings")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.show_settings = !this.state.show_settings;
                     }))
             )
@@ -454,7 +454,7 @@ impl InkwellApp {
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(text_muted())
                     .child(if self.state.dark_mode { "Dark" } else { "Light" })
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.dark_mode = !this.state.dark_mode;
                     }))
             )
@@ -464,7 +464,7 @@ impl InkwellApp {
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                     .text_color(if self.state.right_open { text_secondary() } else { text_muted() })
                     .child(if self.state.right_open { "[>]" } else { "[<]" })
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.right_open = !this.state.right_open;
                     }))
             )
@@ -483,14 +483,14 @@ impl InkwellApp {
                             .text_color(if is_library { accent() } else { text_muted() })
                             .bg(if is_library { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
                             .child("Library")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Library; }))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Library; }))
                     )
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                             .text_color(if !is_library { accent() } else { text_muted() })
                             .bg(if !is_library { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
                             .child("Frameworks")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Frameworks; }))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Frameworks; }))
                     )
             )
             // Content
@@ -520,7 +520,7 @@ impl InkwellApp {
             div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                 .bg(bg_tertiary()).text_xs().text_color(accent())
                 .flex().items_center().justify_center().child("+ New prompt")
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                     let new_proj = Project::default_prompt();
                     let name = new_proj.name.clone();
                     let id = new_proj.id.clone();
@@ -561,7 +561,7 @@ impl InkwellApp {
                     .text_xs().text_color(if is_active { text_primary() } else { text_secondary() })
                     .bg(if is_active { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
                     .child(p.name.clone())
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                         // Switch to this project (data already loaded)
                         if let Some(p) = this.state.projects.iter().find(|p| p.id == id) {
                             this.state.project.id = p.id.clone();
@@ -591,7 +591,7 @@ impl InkwellApp {
                 .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1))
                 .text_xs().text_color(accent())
                 .flex().items_center().justify_center().child("Save current as framework")
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                     let name = format!("Custom {}", this.state.custom_frameworks.len() + 1);
                     let id = format!("custom-{}", uuid::Uuid::new_v4());
                     this.state.custom_frameworks.push((name, id));
@@ -607,7 +607,7 @@ impl InkwellApp {
                     .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { bg_tertiary() })
                     .text_xs().text_color(if is_active { accent() } else { text_secondary() })
                     .child(name.to_string())
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                         this.state.project.framework = Some(id_str.clone());
                         this.apply_framework(&id_str.clone());
                     }))
@@ -680,7 +680,7 @@ impl InkwellApp {
                             .bg(if self.state.sdd_running { text_muted() } else { accent() })
                             .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0))
                             .child(if self.state.sdd_running { "Running..." } else { "Generate all" })
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 if this.state.sdd_running { return; }
                                 this.state.sdd_running = true;
 
@@ -727,7 +727,7 @@ impl InkwellApp {
                     )
                     .child(
                         div().px(px(8.0)).py(px(6.0)).text_xs().text_color(text_muted()).child("Validate")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
                                     inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
                                 }).collect();
@@ -758,7 +758,7 @@ impl InkwellApp {
                     // Checklist
                     .child(
                         div().px(px(8.0)).py(px(6.0)).text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("Checklist")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 let mut all_content = String::new();
                                 for b in &this.state.project.blocks { if b.enabled { all_content.push_str(&format!("{}\n\n", b.content)); } }
                                 let server = this.state.server_url.clone();
@@ -796,7 +796,7 @@ impl InkwellApp {
                             row = row.child(
                                 div().px(px(4.0)).py(px(4.0)).rounded(px(3.0)).bg(bg_tertiary())
                                     .text_xs().text_color(text_muted()).child(name.to_string())
-                                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                                         // Inject tech stack into constitution block
                                         if let Some(block) = this.state.project.blocks.iter_mut()
                                             .find(|b| b.block_type == BlockType::SddConstitution) {
@@ -845,7 +845,7 @@ impl InkwellApp {
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(accent()).child("Gen")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
                             let tx = tx1.clone();
                             let server = server1.clone();
                             let blocks = blocks1.clone();
@@ -904,7 +904,7 @@ impl InkwellApp {
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(hsla(280.0 / 360.0, 0.7, 0.6, 1.0)).child("AI")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
                             let tx = tx2.clone();
                             let server = server2.clone();
                             let content = current_content.clone();
@@ -944,7 +944,7 @@ impl InkwellApp {
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("?")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
                             let tx = tx3.clone();
                             let server = server3.clone();
                             let content = content3.clone();
@@ -975,7 +975,7 @@ impl InkwellApp {
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if is_recording_this { danger() } else { text_muted() })
                         .child(if is_recording_this { "REC" } else { "Mic" })
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if this.state.stt_recording {
                                 // Stop recording
                                 if let Some(stop_tx) = this.state.stt_stop_tx.take() {
@@ -1060,7 +1060,7 @@ impl InkwellApp {
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if idx > 0 { text_secondary() } else { hsla(0.0, 0.0, 0.2, 1.0) })
                         .child("^")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if idx > 0 {
                                 this.state.project.blocks.swap(idx, idx - 1);
                                 this.state.block_inputs.swap(idx, idx - 1);
@@ -1072,7 +1072,7 @@ impl InkwellApp {
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if idx < block_count - 1 { text_secondary() } else { hsla(0.0, 0.0, 0.2, 1.0) })
                         .child("v")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if idx + 1 < this.state.project.blocks.len() {
                                 this.state.project.blocks.swap(idx, idx + 1);
                                 this.state.block_inputs.swap(idx, idx + 1);
@@ -1084,7 +1084,7 @@ impl InkwellApp {
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(if block.enabled { success() } else { text_muted() })
                         .child(if block.enabled { "on" } else { "off" })
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if let Some(b) = this.state.project.blocks.get_mut(idx) { b.enabled = !b.enabled; }
                         }))
                 )
@@ -1092,7 +1092,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                         .text_xs().text_color(danger()).child("x")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if idx < this.state.project.blocks.len() {
                                 // Save undo snapshot
                                 this.state.undo_stack.push(this.state.project.blocks.clone());
@@ -1136,7 +1136,7 @@ impl InkwellApp {
             div().py(px(12.0)).flex().items_center().justify_center()
                 .rounded(px(8.0)).border_1().border_color(border_c())
                 .text_sm().text_color(text_muted()).child("+ Add block")
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                     this.state.show_add_menu = !this.state.show_add_menu;
                 }))
         );
@@ -1152,7 +1152,7 @@ impl InkwellApp {
                         .text_xs().text_color(text_secondary())
                         .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
                         .child(label)
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             this.state.project.blocks.push(Block::new(bt));
                             this.state.show_add_menu = false;
                         }))
@@ -1181,7 +1181,7 @@ impl InkwellApp {
                                 .rounded(px(4.0)).border_1().border_color(border_c())
                                 .flex().items_center().text_xs().text_color(text_secondary())
                                 .child(if val.is_empty() { "click to set...".to_string() } else { val })
-                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                                     // Simple prompt-based variable input (GPUI doesn't have modal text input easily)
                                     let new_val = format!("[{var_name}]");
                                     this.state.project.variables.insert(var_name.clone(), new_val);
@@ -1212,7 +1212,7 @@ impl InkwellApp {
                     .text_color(if is_active { accent() } else { text_muted() })
                     .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
                     .child(label.to_string())
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                         this.state.right_tab = tab;
                     }))
             );
@@ -1267,7 +1267,7 @@ impl InkwellApp {
                     .text_xs().text_color(if is_active { accent() } else { text_secondary() })
                     .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
                     .child(model_str.clone())
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                         this.state.selected_model = model_str.clone();
                     }))
             );
@@ -1283,7 +1283,7 @@ impl InkwellApp {
                     .rounded(px(8.0)).flex().items_center().justify_center()
                     .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
                     .child(if self.state.playground_loading { "Running..." } else { "Run prompt" })
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         if this.state.playground_loading { return; }
                         this.state.playground_loading = true;
                         this.state.playground_response.clear();
@@ -1369,7 +1369,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                         .text_xs().text_color(text_muted()).child("Refresh")
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                             let server = this.state.server_url.clone();
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let tx = this.state.msg_tx.clone();
@@ -1437,7 +1437,7 @@ impl InkwellApp {
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(text_secondary())
                     .child("Export Markdown (.md)")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         let content = this.state.project.compiled_prompt();
                         let name = this.state.project.name.clone();
                         std::thread::spawn(move || {
@@ -1451,7 +1451,7 @@ impl InkwellApp {
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(text_secondary())
                     .child("Export JSON")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
                             inkwell_core::types::PromptBlock {
                                 id: b.id.clone(), block_type: b.block_type,
@@ -1471,7 +1471,7 @@ impl InkwellApp {
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(text_secondary())
                     .child("Export .specify/ (Spec Kit)")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         let blocks = this.state.project.blocks.clone();
                         let name = this.state.project.name.clone();
                         std::thread::spawn(move || {
@@ -1497,7 +1497,7 @@ impl InkwellApp {
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(accent())
                     .child("Copy to clipboard")
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(compiled.clone()));
                     }))
             )
@@ -1513,7 +1513,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
                         .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Save version")
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                             let project_id = this.state.project.id.clone();
                             let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
                                 inkwell_core::types::PromptBlock {
@@ -1544,7 +1544,7 @@ impl InkwellApp {
                 .child(
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                         .text_xs().text_color(text_muted()).child("Refresh")
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                             let project_id = this.state.project.id.clone();
                             let server = this.state.server_url.clone();
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
@@ -1582,7 +1582,7 @@ impl InkwellApp {
                         .child(
                             div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                                 .text_xs().text_color(accent()).child("Restore")
-                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                                     // Parse blocks from version
                                     if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&blocks_json) {
                                         this.state.project.blocks = blocks.into_iter().map(|b| {
@@ -1646,7 +1646,7 @@ impl InkwellApp {
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                             .text_xs().text_color(text_muted()).child("Close")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 this.state.show_settings = false;
                             }))
                     )
@@ -1662,14 +1662,14 @@ impl InkwellApp {
                                     .bg(if lang == "fr" { accent() } else { bg_tertiary() })
                                     .text_xs().text_color(if lang == "fr" { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .child("Francais")
-                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "fr".into(); }))
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "fr".into(); }))
                             )
                             .child(
                                 div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                                     .bg(if lang == "en" { accent() } else { bg_tertiary() })
                                     .text_xs().text_color(if lang == "en" { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .child("English")
-                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "en".into(); }))
+                                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "en".into(); }))
                             )
                         )
                     )
@@ -1713,7 +1713,7 @@ impl InkwellApp {
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(if self.state.terminal_running { danger() } else { success() })
                             .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0))
                             .child(if self.state.terminal_running { "Stop" } else { "Start" })
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 if this.state.terminal_running {
                                     this.state.terminal_running = false;
                                 } else {
@@ -1794,7 +1794,7 @@ impl InkwellApp {
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(success())
                             .text_xs().text_color(hsla(0.0, 0.0, 0.0, 1.0)).child("Run")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                 let cmd = if let Some(ref entity) = this.state.terminal_input_entity {
                                     let val = entity.read(cx).value().to_string();
                                     val
@@ -1832,7 +1832,7 @@ impl InkwellApp {
             .child(
                 div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).text_xs()
                     .text_color(text_muted()).child("Terminal")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         this.state.right_tab = RightTab::Terminal;
                         this.state.right_open = true;
                     }))

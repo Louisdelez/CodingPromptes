@@ -1,6 +1,6 @@
 use inkwell_core::types::*;
 use inkwell_core::api_client::ApiClient;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::sync::mpsc;
@@ -34,6 +34,7 @@ pub struct AppState {
     pub chat_system_prompt: String,
     // Save status
     pub save_status: &'static str, // "idle" | "saving" | "saved"
+    pub save_status_timer: u32,
     // Project name editing
     pub editing_name: bool,
     pub name_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
@@ -98,7 +99,7 @@ pub struct AppState {
     pub tag_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     pub version_label_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Undo
-    pub undo_stack: Vec<Vec<Block>>,
+    pub undo_stack: VecDeque<Vec<Block>>,
     // Persistence
     pub confirm_delete: Option<String>, // project id to confirm delete
     pub search_query: String,
@@ -271,6 +272,7 @@ impl AppState {
             last_tokens_out: 0,
             chat_system_prompt: String::new(),
             save_status: "idle",
+            save_status_timer: 0,
             editing_name: false,
             name_input_entity: None,
             playground_temperature: 0.7,
@@ -324,7 +326,7 @@ impl AppState {
             ssh_user_input: None,
             tag_input: None,
             version_label_input: None,
-            undo_stack: vec![],
+            undo_stack: VecDeque::new(),
             confirm_delete: None,
             search_query: String::new(),
             search_input: None,

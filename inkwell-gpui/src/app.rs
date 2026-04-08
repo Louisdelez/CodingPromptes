@@ -47,7 +47,14 @@ impl Render for InkwellApp {
 
 impl InkwellApp {
     fn poll_messages(&mut self) {
-        while let Ok(msg) = self.state.msg_rx.try_recv() {
+        // Limit messages per frame to avoid blocking render
+        let mut count = 0;
+        while count < 50 {
+            let msg = match self.state.msg_rx.try_recv() {
+                Ok(m) => m,
+                Err(_) => break,
+            };
+            count += 1;
             match msg {
                 AsyncMsg::AuthSuccess { session, projects, workspaces } => {
                     self.state.auth_loading = false;
@@ -87,10 +94,22 @@ impl InkwellApp {
                 AsyncMsg::LlmResponse(text) => {
                     if text.starts_with("__CHAT__") {
                         self.state.chat_messages.push(("assistant".into(), text[8..].to_string()));
+                    } else if text.starts_with("__LOADPROJECT__") {
+                        let json_str = &text[15..];
+                        if let Ok(proj) = serde_json::from_str::<inkwell_core::types::PromptProject>(json_str) {
+                            self.state.project.name = proj.name.clone();
+                            self.state.project.id = proj.id.clone();
+                            self.state.project.framework = proj.framework.clone();
+                            self.state.project.blocks = proj.blocks.iter().map(|b| {
+                                Block { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled, editing: false }
+                            }).collect();
+                            self.state.block_inputs.clear();
+                            self.state.variable_inputs.clear();
+                        }
                     } else if text.starts_with("__IMPORT__") {
                         let json_str = &text[10..];
                         if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(json_str) {
-                            self.state.undo_stack.push(self.state.project.blocks.clone());
+                            self.state.undo_stack.push_back(self.state.project.blocks.clone());
                             self.state.project.blocks = blocks.into_iter().map(|b| {
                                 Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
                             }).collect();
@@ -179,6 +198,10 @@ impl InkwellApp {
                 }
                 AsyncMsg::ExecutionRecorded(exec) => {
                     self.state.executions.push(exec);
+                    // Cap at 500 executions to prevent unbounded growth
+                    if self.state.executions.len() > 500 {
+                        self.state.executions.drain(..self.state.executions.len() - 500);
+                    }
                 }
                 AsyncMsg::CollabUsersLoaded(users) => {
                     self.state.collab_users = users;
@@ -220,9 +243,13 @@ impl InkwellApp {
             }));
         }
 
-        let server_input = self.state.server_url_input.clone().unwrap();
-        let email_input = self.state.email_input.clone().unwrap();
-        let password_input = self.state.password_input.clone().unwrap();
+        let (Some(server_input), Some(email_input), Some(password_input)) = (
+            self.state.server_url_input.clone(),
+            self.state.email_input.clone(),
+            self.state.password_input.clone(),
+        ) else {
+            return div().size_full().bg(bg_primary());
+        };
 
         div()
             .size_full().bg(bg_primary()).flex().items_center().justify_center()
@@ -280,7 +307,6 @@ impl InkwellApp {
                                 else { "Sign in" })
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                 if this.state.auth_loading { return; }
-                                this.state.auth_loading = true;
                                 this.state.auth_error = None;
 
                                 let server_url = this.state.server_url_input.as_ref()
@@ -292,6 +318,12 @@ impl InkwellApp {
                                 let password = this.state.password_input.as_ref()
                                     .map(|i| i.read(cx).value().to_string())
                                     .unwrap_or_default();
+                                // Validate inputs
+                                if email.trim().is_empty() || password.trim().is_empty() {
+                                    this.state.auth_error = Some("Email et mot de passe requis".into());
+                                    return;
+                                }
+                                this.state.auth_loading = true;
                                 let tx = this.state.msg_tx.clone();
                                 let is_register = this.state.auth_mode == AuthMode::Register;
                                 let display_name = email.split('@').next().unwrap_or("User").to_string();
@@ -352,6 +384,13 @@ impl InkwellApp {
         }
         // Copy feedback timer
         if self.state.copy_feedback > 0 { self.state.copy_feedback -= 1; }
+        // Save status reset timer
+        if self.state.save_status_timer > 0 {
+            self.state.save_status_timer -= 1;
+            if self.state.save_status_timer == 0 && self.state.save_status == "saved" {
+                self.state.save_status = "idle";
+            }
+        }
         // Auto-poll fleet nodes (~every 20s at 60fps = 1200 frames)
         if self.state.session.is_some() && self.state.right_tab == RightTab::Fleet {
             self.state.fleet_poll_timer += 1;
@@ -418,6 +457,7 @@ impl InkwellApp {
             self.state.save_timer -= 1;
             if self.state.save_timer == 0 && self.state.save_pending {
                 self.state.save_status = "saved";
+                self.state.save_status_timer = 180; // ~3s at 60fps
                 self.state.save_pending = false;
                 self.save_to_backend();
             }
@@ -596,7 +636,7 @@ impl InkwellApp {
                 this.state.show_settings = !this.state.show_settings;
             }))
             .on_action(cx.listener(|this, _: &Undo, _, _| {
-                if let Some(prev_blocks) = this.state.undo_stack.pop() {
+                if let Some(prev_blocks) = this.state.undo_stack.pop_back() {
                     this.state.project.blocks = prev_blocks;
                     this.state.block_inputs.clear();
                 }
@@ -933,6 +973,27 @@ impl InkwellApp {
                                     this.state.project.id = p.id.clone();
                                     this.state.project.name = p.name.clone();
                                     this.state.block_inputs.clear();
+                                    this.state.variable_inputs.clear();
+                                    // Fetch full project from backend
+                                    let server = this.state.server_url.clone();
+                                    let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                                    let project_id = p.id.clone();
+                                    let tx = this.state.msg_tx.clone();
+                                    if !token.is_empty() {
+                                        std::thread::spawn(move || {
+                                            let rt = tokio::runtime::Runtime::new().unwrap();
+                                            rt.block_on(async {
+                                                let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                                                client.set_token(token);
+                                                if let Ok(projects) = client.list_projects().await {
+                                                    if let Some(proj) = projects.iter().find(|p| p.id == project_id) {
+                                                        let _ = tx.send(AsyncMsg::LlmResponse(format!("__LOADPROJECT__{}",
+                                                            serde_json::to_string(proj).unwrap_or_default())));
+                                                    }
+                                                }
+                                            });
+                                        });
+                                    }
                                 }
                             }))
                     )
@@ -1066,7 +1127,7 @@ impl InkwellApp {
                             .child(format!("{} ({} blocks)", fw.name, block_count))
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                                 if let Some(fw) = this.state.custom_frameworks.get(fw_idx) {
-                                    this.state.undo_stack.push(this.state.project.blocks.clone());
+                                    this.state.undo_stack.push_back(this.state.project.blocks.clone());
                                     this.state.project.blocks = fw.blocks.iter().map(|(bt, content)| {
                                         let mut b = Block::new(*bt);
                                         b.content = content.clone();
@@ -1115,8 +1176,8 @@ impl InkwellApp {
 
     fn apply_framework(&mut self, id: &str) {
         // Save undo snapshot before replacing blocks
-        self.state.undo_stack.push(self.state.project.blocks.clone());
-        if self.state.undo_stack.len() > 50 { self.state.undo_stack.remove(0); }
+        self.state.undo_stack.push_back(self.state.project.blocks.clone());
+        while self.state.undo_stack.len() > 50 { self.state.undo_stack.pop_front(); }
         self.state.block_inputs.clear();
 
         let blocks: Vec<(BlockType, &str)> = match id {
@@ -1533,13 +1594,16 @@ impl InkwellApp {
                         .child(Icon::new(if is_recording_this { IconName::Circle } else { IconName::Mic }))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if this.state.stt_recording {
-                                // Stop recording
+                                // Stop any existing recording first
                                 if let Some(stop_tx) = this.state.stt_stop_tx.take() {
                                     let _ = stop_tx.send(());
                                 }
                                 this.state.stt_recording = false;
                             } else {
-                                // Start recording
+                                // Stop any orphaned recording before starting new
+                                if let Some(old_tx) = this.state.stt_stop_tx.take() {
+                                    let _ = old_tx.send(());
+                                }
                                 this.state.stt_recording = true;
                                 this.state.stt_target_block = Some(idx);
                                 let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
@@ -1651,8 +1715,8 @@ impl InkwellApp {
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                             if idx < this.state.project.blocks.len() {
                                 // Save undo snapshot
-                                this.state.undo_stack.push(this.state.project.blocks.clone());
-                                if this.state.undo_stack.len() > 50 { this.state.undo_stack.remove(0); }
+                                this.state.undo_stack.push_back(this.state.project.blocks.clone());
+                                while this.state.undo_stack.len() > 50 { this.state.undo_stack.pop_front(); }
                                 this.state.project.blocks.remove(idx);
                                 if idx < this.state.block_inputs.len() { this.state.block_inputs.remove(idx); }
                             }
@@ -1884,7 +1948,7 @@ impl InkwellApp {
                     .child(div().text_xs().text_color(text_muted()).child("Prompt compile"))
                     .child(div().flex_1())
                     .child({
-                        let compiled_copy = self.state.project.compiled_prompt();
+                        let compiled_copy = compiled.clone();
                         let is_copied = self.state.copy_feedback > 0;
                         div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
                             .text_xs().text_color(if is_copied { success() } else { accent() })
@@ -2435,7 +2499,7 @@ impl InkwellApp {
                         if let Some(item) = cx.read_from_clipboard() {
                             let text = item.text().unwrap_or_default().to_string();
                             if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&text) {
-                                this.state.undo_stack.push(this.state.project.blocks.clone());
+                                this.state.undo_stack.push_back(this.state.project.blocks.clone());
                                 this.state.project.blocks = blocks.into_iter().map(|b| {
                                     Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
                                 }).collect();

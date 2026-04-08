@@ -32,6 +32,7 @@ impl Render for InkwellApp {
             Screen::Auth => self.render_auth(window, cx),
             Screen::Ide => {
                 self.ensure_block_inputs(window, cx);
+                self.sync_block_content(cx);
                 self.render_ide(cx)
             }
         }
@@ -76,6 +77,18 @@ impl InkwellApp {
                 AsyncMsg::LlmError(e) => {
                     self.state.playground_loading = false;
                     self.state.playground_response = format!("Error: {e}");
+                }
+                AsyncMsg::SddBlockResult { idx, content } => {
+                    if let Some(block) = self.state.project.blocks.get_mut(idx) {
+                        block.content = content.clone();
+                    }
+                    // Reset the input state for this block so it picks up new content
+                    if idx < self.state.block_inputs.len() {
+                        self.state.block_inputs[idx] = None; // Will be recreated next frame
+                    }
+                }
+                AsyncMsg::ExportReady(path) => {
+                    self.state.playground_response = format!("Exported to {path}");
                 }
                 AsyncMsg::TerminalOutput(text) => {
                     self.state.terminal_output.push_str(&text);
@@ -190,6 +203,62 @@ impl InkwellApp {
                             }))
                     )
             )
+    }
+
+    fn sync_block_content(&mut self, cx: &mut Context<Self>) {
+        // Read content from Input widgets back into block state
+        let mut changed = false;
+        for (idx, block) in self.state.project.blocks.iter_mut().enumerate() {
+            if let Some(Some(input)) = self.state.block_inputs.get(idx) {
+                let new_content = input.read(cx).value().to_string();
+                if new_content != block.content {
+                    block.content = new_content;
+                    changed = true;
+                }
+            }
+        }
+        // Auto-save to backend (debounced via save_timer)
+        if changed {
+            self.state.save_pending = true;
+        }
+        if self.state.save_pending && self.state.save_timer == 0 {
+            self.state.save_timer = 30; // ~30 frames = ~0.5s at 60fps
+        }
+        if self.state.save_timer > 0 {
+            self.state.save_timer -= 1;
+            if self.state.save_timer == 0 && self.state.save_pending {
+                self.state.save_pending = false;
+                self.save_to_backend();
+            }
+        }
+    }
+
+    fn save_to_backend(&self) {
+        if self.state.session.is_none() { return; }
+        let project_id = self.state.project.id.clone();
+        let blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
+            inkwell_core::types::PromptBlock {
+                id: b.id.clone(), block_type: b.block_type,
+                content: b.content.clone(), enabled: b.enabled,
+            }
+        }).collect();
+        let name = self.state.project.name.clone();
+        let framework = self.state.project.framework.clone();
+        let server_url = self.state.server_url.clone();
+        let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
+                client.set_token(token);
+                let _ = client.update_project(&project_id, &serde_json::json!({
+                    "name": name,
+                    "blocks_json": serde_json::to_string(&blocks).unwrap_or_default(),
+                    "framework": framework,
+                })).await;
+            });
+        });
     }
 
     fn ensure_block_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -409,10 +478,83 @@ impl InkwellApp {
                 .child(div().flex_1());
 
             if is_sdd {
-                header = header
-                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_muted()).child("Gen"))
-                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_muted()).child("AI"))
-                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(3.0)).text_xs().text_color(text_muted()).child("?"));
+                let block_type_str = format!("{:?}", block.block_type);
+                let all_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
+                    inkwell_core::types::PromptBlock {
+                        id: b.id.clone(), block_type: b.block_type,
+                        content: b.content.clone(), enabled: b.enabled,
+                    }
+                }).collect();
+
+                // Generate button
+                let tx1 = self.state.msg_tx.clone();
+                let server1 = self.state.server_url.clone();
+                let blocks1 = all_blocks.clone();
+                let bt1 = block.block_type;
+                let idx1 = idx;
+                header = header.child(
+                    div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(accent()).child("Gen")
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
+                            let tx = tx1.clone();
+                            let server = server1.clone();
+                            let blocks = blocks1.clone();
+                            let bt = bt1;
+                            let idx = idx1;
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    // Build context from previous phases
+                                    let mut context = String::new();
+                                    let phase_order = [
+                                        BlockType::SddConstitution, BlockType::SddSpecification,
+                                        BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation,
+                                    ];
+                                    for phase in &phase_order {
+                                        if *phase == bt { break; }
+                                        if let Some(b) = blocks.iter().find(|b| b.block_type == *phase && b.enabled) {
+                                            if !b.content.is_empty() {
+                                                context.push_str(&format!("\n### {:?}\n{}\n", phase, b.content));
+                                            }
+                                        }
+                                    }
+                                    let prompt = if context.is_empty() {
+                                        format!("Generate the content for the {:?} phase. Use the Spec Kit SDD format.", bt)
+                                    } else {
+                                        format!("Based on these previous phases:\n{}\n\nGenerate the content for the {:?} phase.", context, bt)
+                                    };
+
+                                    let client = reqwest::Client::new();
+                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                        .json(&serde_json::json!({
+                                            "model": "qwen3.5:4b",
+                                            "messages": [
+                                                {"role": "system", "content": "You are an expert software architect writing SDD specifications."},
+                                                {"role": "user", "content": prompt}
+                                            ],
+                                            "temperature": 0.3, "max_tokens": 4096, "stream": false,
+                                        })).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                            let _ = tx.send(AsyncMsg::SddBlockResult { idx, content: text });
+                                        }
+                                    }
+                                });
+                            });
+                        }))
+                );
+
+                // Improve button
+                header = header.child(
+                    div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(text_muted()).child("AI")
+                );
+
+                // Clarify button
+                header = header.child(
+                    div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(text_muted()).child("?")
+                );
             }
 
             header = header
@@ -523,7 +665,7 @@ impl InkwellApp {
                 RightTab::Preview => self.render_preview(),
                 RightTab::Playground => self.render_playground(cx),
                 RightTab::Fleet => self.render_fleet(),
-                RightTab::Export => self.render_export(),
+                RightTab::Export => self.render_export(cx),
                 RightTab::History => self.render_history(),
                 RightTab::Terminal => self.render_terminal(cx),
                 _ => div().flex_1().p(px(12.0)).child(div().text_xs().text_color(text_muted()).child("Coming soon...")),
@@ -655,28 +797,79 @@ impl InkwellApp {
             )
     }
 
-    fn render_export(&self) -> Div {
+    fn render_export(&self, cx: &mut Context<Self>) -> Div {
+        let compiled = self.state.project.compiled_prompt();
+
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
             .child(div().text_xs().text_color(text_muted()).child("Export"))
+            // Export Markdown
             .child(
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(text_secondary())
-                    .child("Export .specify/ (Spec Kit compatible)")
+                    .child("Export Markdown (.md)")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let content = this.state.project.compiled_prompt();
+                        let name = this.state.project.name.clone();
+                        std::thread::spawn(move || {
+                            let path = format!("{}.md", name.replace(' ', "-").to_lowercase());
+                            let _ = std::fs::write(&path, &content);
+                        });
+                    }))
             )
+            // Export JSON
             .child(
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(text_secondary())
                     .child("Export JSON")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
+                            inkwell_core::types::PromptBlock {
+                                id: b.id.clone(), block_type: b.block_type,
+                                content: b.content.clone(), enabled: b.enabled,
+                            }
+                        }).collect();
+                        let name = this.state.project.name.clone();
+                        std::thread::spawn(move || {
+                            let json = serde_json::to_string_pretty(&blocks).unwrap_or_default();
+                            let path = format!("{}.json", name.replace(' ', "-").to_lowercase());
+                            let _ = std::fs::write(&path, &json);
+                        });
+                    }))
             )
+            // Export .specify/
             .child(
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).text_xs().text_color(text_secondary())
-                    .child("Export Markdown")
+                    .child("Export .specify/ (Spec Kit)")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let blocks = this.state.project.blocks.clone();
+                        let name = this.state.project.name.clone();
+                        std::thread::spawn(move || {
+                            let dir = format!(".specify/001-{}", name.replace(' ', "-").to_lowercase());
+                            let _ = std::fs::create_dir_all(&dir);
+                            let file_map = vec![
+                                (BlockType::SddConstitution, "constitution.md"),
+                                (BlockType::SddSpecification, "spec.md"),
+                                (BlockType::SddPlan, "plan.md"),
+                                (BlockType::SddTasks, "tasks.md"),
+                                (BlockType::SddImplementation, "implementation.md"),
+                            ];
+                            for (bt, filename) in file_map {
+                                if let Some(b) = blocks.iter().find(|b| b.block_type == bt && b.enabled) {
+                                    let _ = std::fs::write(format!("{dir}/{filename}"), &b.content);
+                                }
+                            }
+                        });
+                    }))
             )
+            // Copy to clipboard
             .child(
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .bg(bg_tertiary()).text_xs().text_color(accent())
                     .child("Copy to clipboard")
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(compiled.clone()));
+                    }))
             )
     }
 

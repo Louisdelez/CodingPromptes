@@ -22,6 +22,9 @@ pub struct AppState {
     pub password_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Block input states (one per block)
     pub block_inputs: Vec<Option<gpui::Entity<gpui_component::input::InputState>>>,
+    // Save
+    pub save_pending: bool,
+    pub save_timer: u32,
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -57,6 +60,8 @@ pub enum AsyncMsg {
     LlmDone,
     LlmError(String),
     TerminalOutput(String),
+    SddBlockResult { idx: usize, content: String },
+    ExportReady(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -78,6 +83,7 @@ pub struct Project {
     pub framework: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct Block {
     pub id: String,
     pub block_type: BlockType,
@@ -108,6 +114,8 @@ impl AppState {
             email_input: None,
             password_input: None,
             block_inputs: vec![],
+            save_pending: false,
+            save_timer: 0,
             auth_error: None,
             auth_loading: false,
             session: None,

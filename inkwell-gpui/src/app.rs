@@ -6,6 +6,7 @@ use inkwell_core::types::BlockType;
 // Actions for keyboard shortcuts
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt]);
 
+// Dark theme (default)
 fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
 fn bg_secondary() -> Hsla { hsla(230.0 / 360.0, 0.12, 0.10, 1.0) }
 fn bg_tertiary() -> Hsla { hsla(230.0 / 360.0, 0.10, 0.14, 1.0) }
@@ -16,6 +17,12 @@ fn text_muted() -> Hsla { hsla(0.0, 0.0, 0.50, 1.0) }
 fn accent() -> Hsla { hsla(239.0 / 360.0, 0.84, 0.67, 1.0) }
 fn danger() -> Hsla { hsla(0.0, 0.75, 0.55, 1.0) }
 fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, 0.45, 1.0) }
+// Light theme
+fn bg_primary_light() -> Hsla { hsla(0.0, 0.0, 1.0, 1.0) }
+fn bg_secondary_light() -> Hsla { hsla(0.0, 0.0, 0.97, 1.0) }
+fn border_c_light() -> Hsla { hsla(0.0, 0.0, 0.85, 1.0) }
+fn text_primary_light() -> Hsla { hsla(0.0, 0.0, 0.07, 1.0) }
+fn text_secondary_light() -> Hsla { hsla(0.0, 0.0, 0.35, 1.0) }
 
 pub struct InkwellApp {
     pub state: AppState,
@@ -93,6 +100,9 @@ impl InkwellApp {
                 }
                 AsyncMsg::ExportReady(path) => {
                     self.state.playground_response = format!("Exported to {path}");
+                }
+                AsyncMsg::VersionsLoaded(versions) => {
+                    self.state.versions = versions;
                 }
                 AsyncMsg::TerminalOutput(text) => {
                     self.state.terminal_output.push_str(&text);
@@ -335,6 +345,15 @@ impl InkwellApp {
             .children(self.state.session.as_ref().map(|s| {
                 div().text_xs().text_color(text_muted()).child(s.email.clone())
             }))
+            // Theme toggle
+            .child(
+                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                    .text_color(text_muted())
+                    .child(if self.state.dark_mode { "Dark" } else { "Light" })
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.dark_mode = !this.state.dark_mode;
+                    }))
+            )
             .child(div().text_xs().text_color(success()).child("GPUI"))
             // Toggle right panel
             .child(
@@ -383,7 +402,34 @@ impl InkwellApp {
                 .bg(bg_tertiary()).text_xs().text_color(accent())
                 .flex().items_center().justify_center().child("+ New prompt")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                    this.state.project = Project::default_prompt();
+                    let new_proj = Project::default_prompt();
+                    let name = new_proj.name.clone();
+                    let id = new_proj.id.clone();
+                    this.state.project = new_proj;
+                    this.state.block_inputs.clear();
+
+                    // Create on backend
+                    let server = this.state.server_url.clone();
+                    let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                    let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
+                        inkwell_core::types::PromptBlock {
+                            id: b.id.clone(), block_type: b.block_type,
+                            content: b.content.clone(), enabled: b.enabled,
+                        }
+                    }).collect();
+                    this.state.projects.push(ProjectSummary { id: id.clone(), name: name.clone() });
+
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                            client.set_token(token);
+                            let _ = client.create_project(&serde_json::json!({
+                                "id": id, "name": name,
+                                "blocks_json": serde_json::to_string(&blocks).unwrap_or_default(),
+                            })).await;
+                        });
+                    });
                 }))
         );
 
@@ -611,15 +657,75 @@ impl InkwellApp {
                 );
 
                 // Improve button
+                let tx2 = self.state.msg_tx.clone();
+                let server2 = self.state.server_url.clone();
+                let blocks2 = all_blocks.clone();
+                let bt2 = block.block_type;
+                let idx2 = idx;
+                let current_content = block.content.clone();
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                        .text_xs().text_color(text_muted()).child("AI")
+                        .text_xs().text_color(hsla(280.0 / 360.0, 0.7, 0.6, 1.0)).child("AI")
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
+                            let tx = tx2.clone();
+                            let server = server2.clone();
+                            let content = current_content.clone();
+                            let blocks = blocks2.clone();
+                            let bt = bt2;
+                            let idx = idx2;
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let mut context = String::new();
+                                    let phase_order = [BlockType::SddConstitution, BlockType::SddSpecification, BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation];
+                                    for phase in &phase_order {
+                                        if *phase == bt { break; }
+                                        if let Some(b) = blocks.iter().find(|b| b.block_type == *phase && b.enabled) {
+                                            if !b.content.is_empty() { context.push_str(&format!("\n{}\n", b.content)); }
+                                        }
+                                    }
+                                    let prompt = format!("Improve the following content. Make it more precise, complete, and well-structured. Keep the same format.\n\nContext:\n{context}\n\nContent to improve:\n{content}");
+                                    let client = reqwest::Client::new();
+                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                        .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[{"role":"system","content":"You improve SDD specifications. Keep the format strict."},{"role":"user","content":prompt}],"temperature":0.3,"max_tokens":4096,"stream":false}))
+                                        .send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                            let _ = tx.send(AsyncMsg::SddBlockResult { idx, content: text });
+                                        }
+                                    }
+                                });
+                            });
+                        }))
                 );
 
                 // Clarify button
+                let tx3 = self.state.msg_tx.clone();
+                let server3 = self.state.server_url.clone();
+                let content3 = block.content.clone();
                 header = header.child(
                     div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                        .text_xs().text_color(text_muted()).child("?")
+                        .text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("?")
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, _| {
+                            let tx = tx3.clone();
+                            let server = server3.clone();
+                            let content = content3.clone();
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let prompt = format!("Analyze this specification and identify underspecified, ambiguous, or missing areas. Ask max 5 precise questions.\n\nContent:\n{content}");
+                                    let client = reqwest::Client::new();
+                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                        .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[{"role":"system","content":"You are a technical reviewer. Identify underspecified areas."},{"role":"user","content":prompt}],"temperature":0.5,"max_tokens":2048,"stream":false}))
+                                        .send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                            let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Clarify ---\n{text}")));
+                                        }
+                                    }
+                                });
+                            });
+                        }))
                 );
             }
 
@@ -732,7 +838,7 @@ impl InkwellApp {
                 RightTab::Playground => self.render_playground(cx),
                 RightTab::Fleet => self.render_fleet(),
                 RightTab::Export => self.render_export(cx),
-                RightTab::History => self.render_history(),
+                RightTab::History => self.render_history(cx),
                 RightTab::Terminal => self.render_terminal(cx),
                 _ => div().flex_1().p(px(12.0)).child(div().text_xs().text_color(text_muted()).child("Coming soon...")),
             })
@@ -939,10 +1045,85 @@ impl InkwellApp {
             )
     }
 
-    fn render_history(&self) -> Div {
-        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
-            .child(div().text_xs().text_color(text_muted()).child("Execution History"))
-            .child(div().text_xs().text_color(text_muted()).child("No executions yet. Run a prompt in the Playground."))
+    fn render_history(&self, cx: &mut Context<Self>) -> Div {
+        let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0));
+
+        content = content.child(
+            div().flex().items_center().gap(px(8.0))
+                .child(div().text_xs().text_color(text_muted()).child("Version History"))
+                .child(div().flex_1())
+                .child(
+                    div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
+                        .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Save version")
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            let project_id = this.state.project.id.clone();
+                            let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
+                                inkwell_core::types::PromptBlock {
+                                    id: b.id.clone(), block_type: b.block_type,
+                                    content: b.content.clone(), enabled: b.enabled,
+                                }
+                            }).collect();
+                            let server = this.state.server_url.clone();
+                            let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                            let tx = this.state.msg_tx.clone();
+                            let label = format!("v{}", chrono::Utc::now().format("%H:%M"));
+
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                                    client.set_token(token.clone());
+                                    // Save version would need a create_version endpoint
+                                    // For now, load existing versions
+                                    if let Ok(versions) = client.list_versions(&project_id).await {
+                                        let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
+                                    }
+                                });
+                            });
+                        }))
+                )
+                .child(
+                    div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                        .text_xs().text_color(text_muted()).child("Refresh")
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            let project_id = this.state.project.id.clone();
+                            let server = this.state.server_url.clone();
+                            let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                            let tx = this.state.msg_tx.clone();
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                                    client.set_token(token);
+                                    if let Ok(versions) = client.list_versions(&project_id).await {
+                                        let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
+                                    }
+                                });
+                            });
+                        }))
+                )
+        );
+
+        if self.state.versions.is_empty() {
+            content = content.child(div().text_xs().text_color(text_muted()).child("No versions saved yet."));
+        } else {
+            for v in &self.state.versions {
+                content = content.child(
+                    div().px(px(10.0)).py(px(6.0)).rounded(px(6.0))
+                        .border_1().border_color(border_c()).bg(bg_tertiary())
+                        .flex().items_center().gap(px(8.0))
+                        .child(div().text_xs().text_color(text_primary()).child(v.label.clone()))
+                        .child(div().flex_1())
+                        .child(div().text_xs().text_color(text_muted()).child(
+                            chrono::DateTime::from_timestamp_millis(v.created_at)
+                                .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                                .unwrap_or_default()
+                        ))
+                );
+            }
+        }
+
+        content
     }
 
     fn render_terminal(&self, cx: &mut Context<Self>) -> Div {

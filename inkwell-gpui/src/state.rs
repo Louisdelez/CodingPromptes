@@ -25,6 +25,8 @@ pub struct AppState {
     // Save
     pub save_pending: bool,
     pub save_timer: u32,
+    // Versions
+    pub versions: Vec<inkwell_core::types::Version>,
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -34,6 +36,7 @@ pub struct AppState {
     pub right_tab: RightTab,
     pub left_open: bool,
     pub right_open: bool,
+    pub dark_mode: bool,
     pub show_add_menu: bool,
     pub selected_model: String,
     // SDD
@@ -64,6 +67,7 @@ pub enum AsyncMsg {
     TerminalOutput(String),
     SddBlockResult { idx: usize, content: String },
     ExportReady(String),
+    VersionsLoaded(Vec<inkwell_core::types::Version>),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -118,6 +122,7 @@ impl AppState {
             block_inputs: vec![],
             save_pending: false,
             save_timer: 0,
+            versions: vec![],
             auth_error: None,
             auth_loading: false,
             session: None,
@@ -128,6 +133,7 @@ impl AppState {
             right_tab: RightTab::Preview,
             left_open: true,
             right_open: true,
+            dark_mode: true,
             show_add_menu: false,
             selected_model: "gpt-4o-mini".into(),
             sdd_description: String::new(),

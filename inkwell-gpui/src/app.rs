@@ -4,9 +4,14 @@ use crate::state::*;
 use inkwell_core::types::BlockType;
 
 // Actions for keyboard shortcuts
-actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt]);
+actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings]);
 
 use crate::theme::InkwellTheme;
+
+// i18n helper
+fn tr<'a>(key: &'a str, lang: &str) -> &'a str {
+    inkwell_core::i18n::t(key, lang)
+}
 
 // Theme-aware color helpers (called with &self to access dark_mode)
 fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
@@ -79,6 +84,9 @@ impl InkwellApp {
                     self.state.auth_error = Some(e);
                 }
                 AsyncMsg::LlmResponse(text) => {
+                    self.state.playground_response = text;
+                }
+                AsyncMsg::LlmChunk(text) => {
                     self.state.playground_response = text;
                 }
                 AsyncMsg::LlmDone => {
@@ -315,10 +323,13 @@ impl InkwellApp {
             .on_action(cx.listener(|this, _: &RunPrompt, _, _| {
                 this.state.right_tab = RightTab::Playground;
                 this.state.right_open = true;
-                // Trigger playground run (same as clicking "Run prompt")
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSettings, _, _| {
+                this.state.show_settings = !this.state.show_settings;
             }))
             .child(self.render_header(cx))
             .child(main_row)
+            .children(if self.state.show_settings { Some(self.render_settings(cx)) } else { None })
             .child(self.render_bottom_bar(cx))
     }
 
@@ -348,6 +359,24 @@ impl InkwellApp {
             .children(self.state.session.as_ref().map(|s| {
                 div().text_xs().text_color(text_muted()).child(s.email.clone())
             }))
+            // Lang toggle
+            .child(
+                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                    .text_color(text_muted())
+                    .child(self.state.lang.to_uppercase())
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.lang = if this.state.lang == "fr" { "en".into() } else { "fr".into() };
+                    }))
+            )
+            // Settings
+            .child(
+                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                    .text_color(if self.state.show_settings { accent() } else { text_muted() })
+                    .child("Settings")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.show_settings = !this.state.show_settings;
+                    }))
+            )
             // Theme toggle
             .child(
                 div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
@@ -397,7 +426,22 @@ impl InkwellApp {
     }
 
     fn render_library(&self, cx: &mut Context<Self>) -> Div {
+        let lang = &self.state.lang;
         let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
+
+        // Workspaces
+        if !self.state.workspaces.is_empty() {
+            for ws in &self.state.workspaces {
+                let color = hex_to_hsla(&ws.color);
+                content = content.child(
+                    div().px(px(8.0)).py(px(6.0)).rounded(px(4.0))
+                        .flex().items_center().gap(px(6.0))
+                        .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
+                        .child(div().text_xs().text_color(text_primary()).child(ws.name.clone()))
+                );
+            }
+            content = content.child(div().h(px(1.0)).bg(border_c()));
+        }
 
         // New project button
         content = content.child(
@@ -940,7 +984,6 @@ impl InkwellApp {
                         std::thread::spawn(move || {
                             let rt = tokio::runtime::Runtime::new().unwrap();
                             rt.block_on(async {
-                                // Call local Ollama via the server
                                 let client = reqwest::Client::new();
                                 let resp = client.post(format!("{server_url}/v1/chat/completions"))
                                     .json(&serde_json::json!({
@@ -948,16 +991,35 @@ impl InkwellApp {
                                         "messages": [{"role": "user", "content": prompt}],
                                         "temperature": 0.7,
                                         "max_tokens": 2048,
-                                        "stream": false,
+                                        "stream": true,
                                     }))
                                     .send().await;
 
                                 match resp {
                                     Ok(r) if r.status().is_success() => {
-                                        if let Ok(data) = r.json::<serde_json::Value>().await {
-                                            let text = data["choices"][0]["message"]["content"]
-                                                .as_str().unwrap_or("No response").to_string();
-                                            let _ = tx.send(AsyncMsg::LlmResponse(text));
+                                        use futures_util::StreamExt;
+                                        let mut stream = r.bytes_stream();
+                                        let mut buffer = String::new();
+                                        while let Some(chunk) = stream.next().await {
+                                            if let Ok(bytes) = chunk {
+                                                let text = String::from_utf8_lossy(&bytes);
+                                                // Parse SSE lines
+                                                for line in text.lines() {
+                                                    if let Some(data) = line.strip_prefix("data: ") {
+                                                        if data == "[DONE]" { continue; }
+                                                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                                                            if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                                                                buffer.push_str(content);
+                                                                let _ = tx.send(AsyncMsg::LlmChunk(buffer.clone()));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if buffer.is_empty() {
+                                            // Fallback: non-streaming response
+                                            let _ = tx.send(AsyncMsg::LlmResponse("(empty response)".into()));
                                         }
                                         let _ = tx.send(AsyncMsg::LlmDone);
                                     }
@@ -1208,6 +1270,74 @@ impl InkwellApp {
         }
 
         content
+    }
+
+    fn render_settings(&self, cx: &mut Context<Self>) -> Div {
+        let lang = self.state.lang.clone();
+        div().h(px(200.0)).flex_shrink_0()
+            .border_t_1().border_color(border_c()).bg(bg_secondary())
+            .p(px(16.0)).flex().flex_col().gap(px(12.0))
+            .child(
+                div().flex().items_center().gap(px(8.0))
+                    .child(div().text_sm().text_color(text_primary()).child("Settings"))
+                    .child(div().flex_1())
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                            .text_xs().text_color(text_muted()).child("Close")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                this.state.show_settings = false;
+                            }))
+                    )
+            )
+            .child(
+                div().flex().gap(px(16.0))
+                    // Language
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("Language"))
+                        .child(div().flex().gap(px(4.0))
+                            .child(
+                                div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                                    .bg(if lang == "fr" { accent() } else { bg_tertiary() })
+                                    .text_xs().text_color(if lang == "fr" { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .child("Francais")
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "fr".into(); }))
+                            )
+                            .child(
+                                div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                                    .bg(if lang == "en" { accent() } else { bg_tertiary() })
+                                    .text_xs().text_color(if lang == "en" { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .child("English")
+                                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "en".into(); }))
+                            )
+                        )
+                    )
+                    // Server URL
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("Server URL"))
+                        .child(div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                            .border_1().border_color(border_c())
+                            .flex().items_center().text_xs().text_color(text_secondary())
+                            .child(self.state.server_url.clone()))
+                    )
+                    // API Keys
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("API Keys"))
+                        .child(div().text_xs().text_color(text_muted()).child(
+                            format!("OpenAI: {} | Anthropic: {} | Google: {}",
+                                if self.state.api_key_openai.is_empty() { "not set" } else { "set" },
+                                if self.state.api_key_anthropic.is_empty() { "not set" } else { "set" },
+                                if self.state.api_key_google.is_empty() { "not set" } else { "set" },
+                            )
+                        ))
+                    )
+            )
+            .child(
+                div().flex().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+, to toggle settings"))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+N new project"))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+` terminal"))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+Enter run prompt"))
+            )
     }
 
     fn render_terminal(&self, cx: &mut Context<Self>) -> Div {

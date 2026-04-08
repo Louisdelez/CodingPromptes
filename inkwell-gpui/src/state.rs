@@ -29,6 +29,11 @@ pub struct AppState {
     pub versions: Vec<inkwell_core::types::Version>,
     // Fleet
     pub gpu_nodes: Vec<inkwell_core::types::GpuNode>,
+    // Settings
+    pub show_settings: bool,
+    pub api_key_openai: String,
+    pub api_key_anthropic: String,
+    pub api_key_google: String,
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -71,6 +76,7 @@ pub enum AsyncMsg {
     ExportReady(String),
     VersionsLoaded(Vec<inkwell_core::types::Version>),
     NodesLoaded(Vec<inkwell_core::types::GpuNode>),
+    LlmChunk(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -127,6 +133,10 @@ impl AppState {
             save_timer: 0,
             versions: vec![],
             gpu_nodes: vec![],
+            show_settings: false,
+            api_key_openai: String::new(),
+            api_key_anthropic: String::new(),
+            api_key_google: String::new(),
             auth_error: None,
             auth_loading: false,
             session: None,

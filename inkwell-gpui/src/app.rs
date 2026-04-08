@@ -56,6 +56,7 @@ impl Render for InkwellApp {
             Screen::Auth => self.render_auth(window, cx),
             Screen::Ide => {
                 self.ensure_block_inputs(window, cx);
+                self.ensure_terminal_input(window, cx);
                 self.sync_block_content(cx);
                 self.render_ide(cx)
             }
@@ -337,6 +338,14 @@ impl InkwellApp {
                 })).await;
             });
         });
+    }
+
+    fn ensure_terminal_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.terminal_input_entity.is_none() {
+            self.state.terminal_input_entity = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Enter command...")
+            }));
+        }
     }
 
     fn ensure_block_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1770,31 +1779,38 @@ impl InkwellApp {
                     })
             )
             // Input area with real Input widget
-            .child({
-                if self.state.terminal_input_entity.is_none() {
-                    // Can't create InputState here (need window ref)
-                    // Use buffer approach with Run button
-                }
-                div().h(px(32.0)).px(px(8.0)).bg(hsla(0.0, 0.0, 0.06, 1.0))
+            .child(
+                div().h(px(36.0)).px(px(8.0)).bg(hsla(0.0, 0.0, 0.06, 1.0))
                     .border_t_1().border_color(border_c())
                     .flex().items_center().gap(px(6.0))
                     .child(div().text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0)).child("$"))
+                    .child({
+                        if let Some(ref entity) = self.state.terminal_input_entity {
+                            div().flex_1().child(Input::new(entity))
+                        } else {
+                            div().flex_1().text_xs().text_color(text_muted()).child("...")
+                        }
+                    })
                     .child(
-                        div().flex_1().text_xs().text_color(text_primary())
-                            .child(format!("{}_", self.state.terminal_input_buf))
-                    )
-                    .child(
-                        div().px(px(6.0)).py(px(2.0)).rounded(px(3.0)).bg(success())
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(success())
                             .text_xs().text_color(hsla(0.0, 0.0, 0.0, 1.0)).child("Run")
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                                if let Some(ref tx) = this.state.terminal_input_tx {
-                                    let cmd = format!("{}\n", this.state.terminal_input_buf);
-                                    let _ = tx.send(cmd);
-                                    this.state.terminal_input_buf.clear();
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                let cmd = if let Some(ref entity) = this.state.terminal_input_entity {
+                                    let val = entity.read(cx).value().to_string();
+                                    val
+                                } else {
+                                    this.state.terminal_input_buf.clone()
+                                };
+                                if !cmd.is_empty() {
+                                    if let Some(ref tx) = this.state.terminal_input_tx {
+                                        let _ = tx.send(format!("{cmd}\n"));
+                                    }
+                                    // Clear input
+                                    this.state.terminal_input_entity = None; // Will be recreated next frame
                                 }
                             }))
                     )
-            })
+            )
     }
 
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {

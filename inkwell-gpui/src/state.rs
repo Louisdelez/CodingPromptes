@@ -26,6 +26,12 @@ pub struct AppState {
     pub block_inputs: Vec<Option<gpui::Entity<gpui_component::input::InputState>>>,
     // Tags
     pub show_tag_input: bool,
+    // Execution tracking
+    pub last_latency_ms: u64,
+    pub last_tokens_in: u64,
+    pub last_tokens_out: u64,
+    // Chat
+    pub chat_system_prompt: String,
     // Save status
     pub save_status: &'static str, // "idle" | "saving" | "saved"
     // Project name editing
@@ -187,6 +193,10 @@ impl AppState {
             password_input: None,
             block_inputs: vec![],
             show_tag_input: false,
+            last_latency_ms: 0,
+            last_tokens_in: 0,
+            last_tokens_out: 0,
+            chat_system_prompt: String::new(),
             save_status: "idle",
             editing_name: false,
             name_input_entity: None,

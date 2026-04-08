@@ -841,6 +841,7 @@ impl InkwellApp {
 
                                 let server = this.state.server_url.clone();
                                 let tx = this.state.msg_tx.clone();
+                                let self_model_str = this.state.selected_model.clone();
                                 let blocks: Vec<(usize, BlockType)> = this.state.project.blocks.iter().enumerate()
                                     .filter(|(_, b)| b.block_type.is_sdd() && b.enabled)
                                     .map(|(i, b)| (i, b.block_type))
@@ -1648,6 +1649,12 @@ impl InkwellApp {
                         self.state.playground_response.clone()
                     })
             )
+            // Response stats
+            .child(
+                div().flex().items_center().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("Model: {}", self.state.selected_model)))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("~{} tokens", self.state.project.token_count())))
+            )
     }
 
     fn render_fleet(&self, cx: &mut Context<Self>) -> Div {
@@ -1780,6 +1787,11 @@ impl InkwellApp {
                                     let _ = std::fs::write(format!("{dir}/{filename}"), &b.content);
                                 }
                             }
+                            // Agent config files
+                            let all_content: String = blocks.iter().filter(|b| b.enabled).map(|b| b.content.as_str()).collect::<Vec<_>>().join("\n\n");
+                            let constitution = blocks.iter().find(|b| b.block_type == BlockType::SddConstitution).map(|b| b.content.as_str()).unwrap_or("");
+                            let _ = std::fs::write(format!("{dir}/../CLAUDE.md"), format!("# {}\n\n{}\n", name, constitution));
+                            let _ = std::fs::write(format!("{dir}/../AGENTS.md"), format!("# {} Agent Instructions\n\n{}\n", name, all_content));
                         });
                     }))
             )
@@ -1997,8 +2009,18 @@ impl InkwellApp {
         if too_long {
             checks = checks.child(lint_item("warning", "Prompt is very long (>10K chars)", IconName::TriangleAlert));
         }
+        // Check: negative instructions
+        let has_negative = compiled.contains("don't") || compiled.contains("never") || compiled.contains("avoid") || compiled.contains("do not");
+        if has_negative {
+            checks = checks.child(lint_item("info", "Contains negative instructions — consider positive framing", IconName::Info));
+        }
+        // Check: no examples for complex prompts
+        let has_examples = self.state.project.blocks.iter().any(|b| b.block_type == BlockType::Examples && b.enabled);
+        if !has_examples && compiled.len() > 800 {
+            checks = checks.child(lint_item("info", "Complex prompt without examples — consider adding few-shot examples", IconName::Info));
+        }
         // All good
-        if enabled > 0 && empty == 0 && has_task && unresolved == 0 && !too_short && !too_long {
+        if enabled > 0 && empty == 0 && has_task && unresolved == 0 && !too_short && !too_long && !has_negative {
             checks = checks.child(lint_item("success", "All checks passed!", IconName::Check));
         }
 
@@ -2477,6 +2499,15 @@ impl InkwellApp {
             .child(div().text_xs().text_color(text_muted()).child(format!("{chars} chars")))
             .child(div().text_xs().text_color(text_muted()).child(format!("{words} words")))
             .child(div().text_xs().text_color(text_muted()).child(format!("~{tokens} tokens")))
+            .child({
+                let max_ctx = 128000u64;
+                let pct = (tokens as f64 / max_ctx as f64 * 100.0).min(100.0);
+                let bar_color = if pct > 80.0 { danger() } else if pct > 50.0 { hsla(50.0 / 360.0, 0.8, 0.5, 1.0) } else { accent() };
+                div().w(px(40.0)).h(px(4.0)).rounded(px(2.0)).bg(bg_tertiary())
+                    .child(div().h(px(4.0)).rounded(px(2.0)).bg(bar_color)
+                        .w(px(pct as f32 / 100.0 * 40.0)))
+            })
+            .child(div().text_xs().text_color(text_muted()).child(format!("{:.1}%", tokens as f64 / 128000.0 * 100.0)))
             .child(div().w(px(1.0)).h(px(12.0)).bg(border_c()))
             .child(div().text_xs().text_color(text_muted()).child(format!("{enabled}/{total} blocks")))
             .child(div().flex_1())

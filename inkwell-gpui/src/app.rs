@@ -318,13 +318,15 @@ impl InkwellApp {
         if self.state.save_timer > 0 {
             self.state.save_timer -= 1;
             if self.state.save_timer == 0 && self.state.save_pending {
+                self.state.save_status = "saved";
                 self.state.save_pending = false;
                 self.save_to_backend();
             }
         }
     }
 
-    fn save_to_backend(&self) {
+    fn save_to_backend(&mut self) {
+        self.state.save_status = "saving";
         if self.state.session.is_none() { return; }
         let project_id = self.state.project.id.clone();
         let blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
@@ -437,6 +439,11 @@ impl InkwellApp {
             .child(div().text_sm().text_color(accent()).child("Inkwell"))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
             .child(div().text_sm().text_color(text_primary()).child(self.state.project.name.clone()))
+                    .child(match self.state.save_status {
+                        "saving" => div().text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("Saving..."),
+                        "saved" => div().text_xs().text_color(success()).child("Saved"),
+                        _ => div(),
+                    })
             .child(div().flex_1())
             // Framework badge
             .children(self.state.project.framework.as_ref().map(|f| {
@@ -1299,6 +1306,44 @@ impl InkwellApp {
             block_list = block_list.child(var_panel);
         }
 
+        // Tags section
+        if !self.state.project.tags.is_empty() || true {
+            let mut tags_row = div().flex().flex_wrap().gap(px(4.0));
+            for tag in &self.state.project.tags {
+                let tag_name = tag.clone();
+                tags_row = tags_row.child(
+                    div().px(px(8.0)).py(px(3.0)).rounded(px(12.0))
+                        .bg(accent_bg()).text_xs().text_color(accent())
+                        .flex().items_center().gap(px(4.0))
+                        .child(tag.clone())
+                        .child(
+                            div().text_xs().text_color(text_muted()).child("x")
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    this.state.project.tags.retain(|t| t != &tag_name);
+                                }))
+                        )
+                );
+            }
+            // Add tag button
+            tags_row = tags_row.child(
+                div().px(px(8.0)).py(px(3.0)).rounded(px(12.0))
+                    .border_1().border_color(border_c())
+                    .text_xs().text_color(text_muted())
+                    .child("+ tag")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.project.tags.push(format!("tag-{}", this.state.project.tags.len() + 1));
+                    }))
+            );
+            block_list = block_list.child(
+                div().p(px(8.0)).rounded(px(8.0)).bg(bg_secondary()).border_1().border_color(border_c())
+                    .flex().flex_col().gap(px(4.0))
+                    .child(div().flex().items_center().gap(px(4.0))
+                        .child(Icon::new(IconName::Star))
+                        .child(div().text_xs().text_color(text_muted()).child("Tags")))
+                    .child(tags_row)
+            );
+        }
+
         div().flex_1().flex().flex_col().min_w_0().overflow_hidden()
             .child(div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0)).child(block_list))
     }
@@ -1356,7 +1401,15 @@ impl InkwellApp {
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
             .child(
                 div().flex().items_center().gap(px(8.0))
+                    .child(div().flex().items_center().gap(px(8.0))
+                    .child(Icon::new(IconName::Eye))
                     .child(div().text_xs().text_color(text_muted()).child("Compiled Prompt"))
+                    .child(div().flex_1())
+                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                        .text_xs().text_color(accent()).child("Copy")
+                        .cursor_pointer().hover(|s| s.bg(accent_bg()))
+                    )
+                )
                     .child(div().flex_1())
                     .child(div().text_xs().text_color(text_muted()).child(format!("{lines} lines / {chars} chars")))
             )

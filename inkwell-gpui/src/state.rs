@@ -24,6 +24,17 @@ pub struct AppState {
     pub password_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Block input states (one per block)
     pub block_inputs: Vec<Option<gpui::Entity<gpui_component::input::InputState>>>,
+    // Tags
+    pub show_tag_input: bool,
+    // Save status
+    pub save_status: &'static str, // "idle" | "saving" | "saved"
+    // Project name editing
+    pub editing_name: bool,
+    pub name_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Playground
+    pub playground_temperature: f32,
+    pub playground_max_tokens: u32,
+    pub playground_selected_models: Vec<String>,
     // Save
     pub save_pending: bool,
     pub save_timer: u32,
@@ -166,6 +177,13 @@ impl AppState {
             email_input: None,
             password_input: None,
             block_inputs: vec![],
+            show_tag_input: false,
+            save_status: "idle",
+            editing_name: false,
+            name_input_entity: None,
+            playground_temperature: 0.7,
+            playground_max_tokens: 2048,
+            playground_selected_models: vec!["gpt-4o-mini".into()],
             save_pending: false,
             save_timer: 0,
             versions: vec![],

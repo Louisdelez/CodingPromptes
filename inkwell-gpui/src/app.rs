@@ -43,11 +43,32 @@ impl InkwellApp {
                         .child(div().text_xl().text_color(text_primary()).child("Inkwell"))
                         .child(div().text_sm().text_color(text_muted()).child("GPU-Accelerated Prompt IDE"))
                     )
-                    .child(div().text_sm().text_color(text_secondary()).child("Click to enter IDE"))
+                    // Server URL display
+                    .child(div().text_xs().text_color(text_muted()).child(self.state.server_url.clone()))
+                    // Error
+                    .children(self.state.auth_error.clone().map(|e| {
+                        div().text_xs().text_color(danger()).child(e)
+                    }))
+                    // Login button
                     .child(
-                        div().py(px(10.0)).bg(accent()).rounded(px(8.0))
+                        div().py(px(10.0)).bg(if self.state.auth_loading { text_muted() } else { accent() }).rounded(px(8.0))
                             .flex().items_center().justify_center()
-                            .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Sign in")
+                            .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                            .child(if self.state.auth_loading { "Connecting..." } else { "Sign in" })
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _cx| {
+                                if this.state.auth_loading { return; }
+                                // For now, skip to IDE (real auth will use background task)
+                                this.state.screen = Screen::Ide;
+                                this.state.session = Some(inkwell_core::types::AuthSession {
+                                    user_id: "local".into(), email: this.state.email.clone(),
+                                    display_name: "User".into(), avatar: "".into(), token: "".into(),
+                                });
+                            }))
+                    )
+                    // Skip auth (for dev)
+                    .child(
+                        div().py(px(6.0)).flex().items_center().justify_center()
+                            .text_xs().text_color(text_muted()).child("Skip (offline mode)")
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 this.state.screen = Screen::Ide;
                             }))
@@ -78,15 +99,81 @@ impl InkwellApp {
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
+        let is_library = self.state.left_tab == LeftTab::Library;
+
+        div().w(px(250.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
+            .flex().flex_col()
+            // Tab bar
+            .child(
+                div().h(px(36.0)).px(px(8.0)).flex().items_center().gap(px(4.0)).border_b_1().border_color(border_c())
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                            .text_color(if is_library { accent() } else { text_muted() })
+                            .bg(if is_library { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                            .child("Library")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Library; }))
+                    )
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                            .text_color(if !is_library { accent() } else { text_muted() })
+                            .bg(if !is_library { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                            .child("Frameworks")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Frameworks; }))
+                    )
+            )
+            // Content
+            .child(if is_library { self.render_library(cx) } else { self.render_frameworks(cx) })
+    }
+
+    fn render_library(&self, cx: &mut Context<Self>) -> Div {
+        let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
+
+        // New project button
+        content = content.child(
+            div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                .bg(bg_tertiary()).text_xs().text_color(accent())
+                .flex().items_center().justify_center().child("+ New prompt")
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                    this.state.project = Project::default_prompt();
+                }))
+        );
+
+        // Project list
+        for p in &self.state.projects {
+            let id = p.id.clone();
+            let is_active = self.state.project.id == p.id;
+            content = content.child(
+                div().px(px(10.0)).py(px(6.0)).rounded(px(4.0))
+                    .text_xs().text_color(if is_active { text_primary() } else { text_secondary() })
+                    .bg(if is_active { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                    .child(p.name.clone())
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        // Switch to this project (data already loaded)
+                        if let Some(p) = this.state.projects.iter().find(|p| p.id == id) {
+                            this.state.project.id = p.id.clone();
+                            this.state.project.name = p.name.clone();
+                        }
+                    }))
+            );
+        }
+
+        if self.state.projects.is_empty() {
+            content = content.child(div().text_xs().text_color(text_muted()).child("No projects yet"));
+        }
+
+        content
+    }
+
+    fn render_frameworks(&self, cx: &mut Context<Self>) -> Div {
         let frameworks = vec![
             ("CO-STAR", "co-star"), ("RISEN", "risen"), ("RACE", "race"),
             ("SDD (Spec-Driven)", "sdd"), ("STOKE", "stoke"),
         ];
-        let mut fw_list = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
+        let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
         for (name, id) in frameworks {
             let id_str = id.to_string();
             let is_active = self.state.project.framework.as_deref() == Some(id);
-            fw_list = fw_list.child(
+            content = content.child(
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0))
                     .border_1().border_color(if is_active { accent() } else { border_c() })
                     .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { bg_tertiary() })
@@ -98,15 +185,7 @@ impl InkwellApp {
                     }))
             );
         }
-
-        div().w(px(250.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
-            .flex().flex_col()
-            .child(
-                div().h(px(36.0)).px(px(12.0)).flex().items_center()
-                    .border_b_1().border_color(border_c())
-                    .child(div().text_xs().text_color(accent()).child("Frameworks"))
-            )
-            .child(fw_list)
+        content
     }
 
     fn apply_framework(&mut self, id: &str) {

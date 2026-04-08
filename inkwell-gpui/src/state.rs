@@ -1,9 +1,13 @@
 use inkwell_core::types::*;
+use inkwell_core::api_client::ApiClient;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct AppState {
     pub screen: Screen,
     pub lang: String,
+    pub api: Arc<Mutex<ApiClient>>,
     // Auth
     pub server_url: String,
     pub email: String,
@@ -63,10 +67,12 @@ pub struct ProjectSummary {
 
 impl AppState {
     pub fn new() -> Self {
+        let server_url = "http://localhost:8910".to_string();
         Self {
             screen: Screen::Auth,
             lang: "fr".into(),
-            server_url: "http://localhost:8910".into(),
+            api: Arc::new(Mutex::new(ApiClient::new(&server_url))),
+            server_url,
             email: String::new(),
             password: String::new(),
             display_name: String::new(),

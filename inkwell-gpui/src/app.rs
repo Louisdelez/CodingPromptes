@@ -7,7 +7,7 @@ use inkwell_core::types::BlockType;
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
 
 // Import shared UI modules
-use crate::ui::colors::{self, *};
+use crate::ui::colors::*;
 
 pub struct InkwellApp {
     pub state: AppState,
@@ -201,14 +201,14 @@ impl InkwellApp {
                             .child(
                                 div().flex_1().py(px(6.0)).rounded(px(6.0))
                                     .bg(if self.state.auth_mode == AuthMode::Login { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                                    .text_xs().text_color(if self.state.auth_mode == AuthMode::Login { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .text_xs().text_color(if self.state.auth_mode == AuthMode::Login { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .flex().items_center().justify_center().child("Sign in")
                                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Login; }))
                             )
                             .child(
                                 div().flex_1().py(px(6.0)).rounded(px(6.0))
                                     .bg(if self.state.auth_mode == AuthMode::Register { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                                    .text_xs().text_color(if self.state.auth_mode == AuthMode::Register { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .text_xs().text_color(if self.state.auth_mode == AuthMode::Register { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .flex().items_center().justify_center().child("Sign up")
                                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.auth_mode = AuthMode::Register; }))
                             )
@@ -236,7 +236,7 @@ impl InkwellApp {
                     .child(
                         div().py(px(10.0)).bg(if self.state.auth_loading { text_muted() } else { accent() }).rounded(px(8.0))
                             .flex().items_center().justify_center()
-                            .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                            .text_sm().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                             .child(if self.state.auth_loading { "Connecting..." }
                                 else if self.state.auth_mode == AuthMode::Register { "Sign up" }
                                 else { "Sign in" })
@@ -775,7 +775,7 @@ impl InkwellApp {
                     .child(
                         div().px(px(12.0)).py(px(6.0)).rounded(px(4.0))
                             .bg(if self.state.sdd_running { text_muted() } else { accent() })
-                            .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                            .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                             .child(if self.state.sdd_running { "Running..." } else { "Generate all" })
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 if this.state.sdd_running { return; }
@@ -925,7 +925,7 @@ impl InkwellApp {
                 .child(div().flex_1());
 
             if is_sdd {
-                let block_type_str = format!("{:?}", block.block_type);
+                let _block_type_str = format!("{:?}", block.block_type);
                 let all_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
                     inkwell_core::types::PromptBlock {
                         id: b.id.clone(), block_type: b.block_type,
@@ -1326,7 +1326,7 @@ impl InkwellApp {
                 RightTab::History => self.render_history(cx),
                 RightTab::Terminal => self.render_terminal(cx),
                 RightTab::Stt => self.render_stt(),
-                _ => div().flex_1().p(px(12.0)).child(div().text_xs().text_color(text_muted()).child("Coming soon...")),
+
             })
     }
 
@@ -1378,7 +1378,7 @@ impl InkwellApp {
                 div().py(px(10.0))
                     .bg(if self.state.playground_loading { text_muted() } else { accent() })
                     .rounded(px(8.0)).flex().items_center().justify_center()
-                    .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                    .text_sm().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                     .child(if self.state.playground_loading { "Running..." } else { "Run prompt" })
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                         if this.state.playground_loading { return; }
@@ -1609,7 +1609,7 @@ impl InkwellApp {
                 .child(div().flex_1())
                 .child(
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
-                        .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Save version")
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child("Save version")
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                             let project_id = this.state.project.id.clone();
                             let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
@@ -1757,14 +1757,14 @@ impl InkwellApp {
                             .child(
                                 div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                                     .bg(if lang == "fr" { accent() } else { bg_tertiary() })
-                                    .text_xs().text_color(if lang == "fr" { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .text_xs().text_color(if lang == "fr" { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .child("Francais")
                                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "fr".into(); }))
                             )
                             .child(
                                 div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                                     .bg(if lang == "en" { accent() } else { bg_tertiary() })
-                                    .text_xs().text_color(if lang == "en" { hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                                    .text_xs().text_color(if lang == "en" { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
                                     .child("English")
                                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.lang = "en".into(); }))
                             )
@@ -1808,7 +1808,7 @@ impl InkwellApp {
                     .child(div().flex_1())
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(if self.state.terminal_running { danger() } else { success() })
-                            .text_xs().text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                            .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                             .child(if self.state.terminal_running { "Stop" } else { "Start" })
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 if this.state.terminal_running {

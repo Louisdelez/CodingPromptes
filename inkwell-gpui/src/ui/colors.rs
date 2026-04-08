@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use gpui::*;
 use std::cell::RefCell;
 
@@ -20,7 +21,7 @@ pub fn danger() -> Hsla { hsla(0.0, 0.75, if is_dark() { 0.55 } else { 0.45 }, 1
 pub fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, if is_dark() { 0.45 } else { 0.35 }, 1.0) }
 
 pub fn accent_bg() -> Hsla { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) }
-pub fn white() -> Hsla { hsla(0.0, 0.0, 1.0, 1.0) }
+pub fn ink_white() -> Hsla { hsla(0.0, 0.0, 1.0, 1.0) }
 pub fn transparent() -> Hsla { hsla(0.0, 0.0, 0.0, 0.0) }
 
 pub fn hex_to_hsla(hex: &str) -> Hsla {

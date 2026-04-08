@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use gpui::*;
 use super::colors::*;
 
@@ -30,7 +31,7 @@ pub fn primary_button(label: &str, loading: bool) -> Div {
         .bg(if loading { text_muted() } else { accent() })
         .cursor_pointer()
         .flex().items_center().justify_center()
-        .text_sm().text_color(white())
+        .text_sm().text_color(ink_white())
         .hover(|s| s.opacity(0.9))
         .child(label.to_string())
 }

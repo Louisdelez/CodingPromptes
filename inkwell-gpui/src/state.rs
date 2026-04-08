@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::sync::mpsc;
 
+#[allow(dead_code)]
 pub struct AppState {
     pub screen: Screen,
     pub lang: String,
@@ -77,6 +78,7 @@ pub struct AppState {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum AsyncMsg {
     AuthSuccess { session: AuthSession, projects: Vec<PromptProject>, workspaces: Vec<Workspace> },
     AuthError(String),
@@ -102,11 +104,13 @@ pub enum Screen { Auth, Ide }
 pub enum AuthMode { Login, Register }
 
 #[derive(Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub enum LeftTab { Library, Frameworks, Versions }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum RightTab { Preview, Playground, Stt, History, Export, Fleet, Terminal }
 
+#[allow(dead_code)]
 pub struct Project {
     pub id: String,
     pub name: String,
@@ -118,6 +122,7 @@ pub struct Project {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Block {
     pub id: String,
     pub block_type: BlockType,

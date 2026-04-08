@@ -36,9 +36,6 @@ impl InkwellApp {
         crate::theme::InkwellTheme::from_mode(self.state.dark_mode)
     }
 
-    fn i<'a>(&self, fr: &'a str, en: &'a str) -> &'a str {
-        if self.state.lang == "fr" { fr } else { en }
-    }
 }
 
 impl Render for InkwellApp {
@@ -147,7 +144,7 @@ impl InkwellApp {
                         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                         let project_id = self.state.project.id.clone();
                         let model = self.state.selected_model.clone();
-                        let prompt = self.state.project.compiled_prompt();
+                        let prompt = self.state.cached_prompt.clone();
                         let response = self.state.playground_response.clone();
                         std::thread::spawn(move || {
                             rt().block_on(async {
@@ -226,7 +223,11 @@ impl InkwellApp {
                     if let Some(session) = self.state.terminal_sessions.get_mut(idx) {
                         session.output.push_str(&text);
                         if session.output.len() > 10_000 {
-                            let start = session.output.len() - 8_000;
+                            let mut start = session.output.len() - 8_000;
+                            // Ensure we don't split a UTF-8 character
+                            while start < session.output.len() && !session.output.is_char_boundary(start) {
+                                start += 1;
+                            }
                             session.output = session.output[start..].to_string();
                         }
                     }
@@ -461,9 +462,12 @@ impl InkwellApp {
                 });
             }
         }
-        // Read search query from input
+        // Read search query from input (only allocate if changed)
         if let Some(ref input) = self.state.search_input {
-            self.state.search_query = input.read(cx).value().to_string();
+            let val = input.read(cx).value();
+            if val != self.state.search_query.as_str() {
+                self.state.search_query = val.to_string();
+            }
         }
         // Auto-save to backend (debounced via save_timer)
         if changed {
@@ -2073,14 +2077,14 @@ impl InkwellApp {
                         this.state.multi_model_loading = true;
                         this.state.multi_model_responses.clear();
                         let prompt = this.state.project.compiled_prompt();
-                        let models = this.state.playground_selected_models.clone();
+                        let selected_models = this.state.playground_selected_models.clone();
                         let server = this.state.server_url.clone();
                         let tx = this.state.msg_tx.clone();
                         let temp = this.state.playground_temperature;
                         let max_tok = this.state.playground_max_tokens;
                         std::thread::spawn(move || {
                             rt().block_on(async {
-                                for model in MODELS {
+                                for model in &selected_models {
                                     let client = reqwest::Client::new();
                                     let start = std::time::Instant::now();
                                     if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))

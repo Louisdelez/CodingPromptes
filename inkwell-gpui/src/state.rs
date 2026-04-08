@@ -1,20 +1,13 @@
 use inkwell_core::types::*;
-use inkwell_core::api_client::ApiClient;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::sync::mpsc;
 
 #[allow(dead_code)]
 pub struct AppState {
     pub screen: Screen,
     pub lang: String,
-    pub api: Arc<Mutex<ApiClient>>,
     // Auth
     pub server_url: String,
-    pub email: String,
-    pub password: String,
-    pub display_name: String,
     pub auth_error: Option<String>,
     pub auth_loading: bool,
     pub auth_mode: AuthMode,
@@ -24,12 +17,6 @@ pub struct AppState {
     pub password_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Block input states (one per block)
     pub block_inputs: Vec<Option<gpui::Entity<gpui_component::input::InputState>>>,
-    // Tags
-    pub show_tag_input: bool,
-    // Execution tracking
-    pub last_latency_ms: u64,
-    pub last_tokens_in: u64,
-    pub last_tokens_out: u64,
     // Chat
     pub chat_system_prompt: String,
     // Save status
@@ -76,13 +63,10 @@ pub struct AppState {
     pub custom_frameworks: Vec<CustomFramework>,
     pub selected_model: String,
     // SDD
-    pub sdd_description: String,
     pub sdd_running: bool,
     // Playground
     pub playground_response: String,
     pub playground_loading: bool,
-    // Editing
-    pub editing_block_idx: Option<usize>,
     // Chat
     pub chat_messages: Vec<(String, String)>, // (role, content)
     pub chat_input_entity: Option<gpui::Entity<gpui_component::input::InputState>>,
@@ -228,6 +212,7 @@ pub struct ProjectSummary {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Execution {
     pub model: String,
     pub tokens_in: u64,
@@ -246,6 +231,7 @@ pub enum SttProvider { Local, OpenaiWhisper, Groq, Deepgram }
 pub enum AnalyticsRange { Week, Month, All }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct CollabUser {
     pub name: String,
     pub email: String,
@@ -264,19 +250,11 @@ impl AppState {
         Self {
             screen: if has_token { Screen::Ide } else { Screen::Auth },
             lang: if saved.lang.is_empty() { "fr".into() } else { saved.lang },
-            api: Arc::new(Mutex::new(ApiClient::new(&server_url))),
             server_url,
-            email: saved.email.clone(),
-            password: String::new(),
-            display_name: String::new(),
             server_url_input: None,
             email_input: None,
             password_input: None,
             block_inputs: vec![],
-            show_tag_input: false,
-            last_latency_ms: 0,
-            last_tokens_in: 0,
-            last_tokens_out: 0,
             chat_system_prompt: String::new(),
             save_status: "idle",
             save_status_timer: 0,
@@ -315,11 +293,9 @@ impl AppState {
             show_add_menu: false,
             custom_frameworks: vec![],
             selected_model: "gpt-4o-mini".into(),
-            sdd_description: String::new(),
             sdd_running: false,
             playground_response: String::new(),
             playground_loading: false,
-            editing_block_idx: None,
             chat_messages: vec![],
             chat_input_entity: None,
             terminal_sessions: vec![],
@@ -395,20 +371,7 @@ impl Project {
         inkwell_core::prompt::compile_prompt(&blocks, &self.variables)
     }
 
-    pub fn token_count(&self) -> usize {
-        // Simple word-based approximation (4 chars ≈ 1 token)
-        let text = self.compiled_prompt();
-        (text.len() as f64 / 4.0).ceil() as usize
-    }
-
-    pub fn char_count(&self) -> usize {
-        self.compiled_prompt().len()
-    }
-
-    pub fn word_count(&self) -> usize {
-        let text = self.compiled_prompt();
-        if text.is_empty() { 0 } else { text.split_whitespace().count() }
-    }
+    // token_count, char_count, word_count are now cached in AppState
 }
 
 impl Block {

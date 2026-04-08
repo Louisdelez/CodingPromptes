@@ -57,6 +57,10 @@ pub struct AppState {
     pub api_key_openai: String,
     pub api_key_anthropic: String,
     pub api_key_google: String,
+    pub api_key_openai_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub api_key_anthropic_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub api_key_google_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub ssh_port_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -89,11 +93,45 @@ pub struct AppState {
     pub ssh_host: String,
     pub ssh_user: String,
     pub ssh_port: String,
+    pub ssh_host_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub ssh_user_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub tag_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub version_label_input: Option<gpui::Entity<gpui_component::input::InputState>>,
     // Undo
     pub undo_stack: Vec<Vec<Block>>,
     // Persistence
     pub confirm_delete: Option<String>, // project id to confirm delete
     pub search_query: String,
+    pub search_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    pub variable_inputs: HashMap<String, gpui::Entity<gpui_component::input::InputState>>,
+    // Execution history
+    pub executions: Vec<Execution>,
+    // Multi-model
+    pub multi_model_responses: Vec<(String, String)>, // (model, response)
+    pub multi_model_loading: bool,
+    // STT provider
+    pub stt_provider: SttProvider,
+    // Analytics
+    pub analytics_range: AnalyticsRange,
+    // GitHub
+    pub github_repo: String,
+    pub github_repo_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Collab
+    pub collab_users: Vec<CollabUser>,
+    // Workspace rename
+    pub editing_workspace_id: Option<String>,
+    pub workspace_name_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Profile
+    pub show_profile: bool,
+    // Framework name input
+    pub framework_name_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Workspace color
+    pub selected_workspace_color: String,
+    // Copy feedback
+    pub copy_feedback: u32, // countdown frames for "Copied!" display
+    // Auto-poll timers
+    pub fleet_poll_timer: u32,
+    pub collab_poll_timer: u32,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -117,6 +155,15 @@ pub enum AsyncMsg {
     SttError(String),
     // Custom frameworks
     CustomFrameworkSaved,
+    // Multi-model
+    MultiModelResult { model: String, response: String },
+    MultiModelDone,
+    // Execution recorded
+    ExecutionRecorded(Execution),
+    // Collab
+    CollabUsersLoaded(Vec<CollabUser>),
+    // GitHub
+    GitHubPushed(String),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -166,9 +213,35 @@ pub struct TerminalSession {
     pub input_tx: Option<mpsc::Sender<String>>,
 }
 
+#[derive(Clone)]
 pub struct ProjectSummary {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Execution {
+    pub model: String,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub latency_ms: u64,
+    pub cost: f64,
+    pub timestamp: i64,
+    pub prompt_preview: String,
+    pub response_preview: String,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum SttProvider { Local, OpenaiWhisper, Groq, Deepgram }
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum AnalyticsRange { Week, Month, All }
+
+#[derive(Clone, Debug)]
+pub struct CollabUser {
+    pub name: String,
+    pub email: String,
+    pub online: bool,
 }
 
 impl AppState {
@@ -214,6 +287,10 @@ impl AppState {
             api_key_openai: String::new(),
             api_key_anthropic: String::new(),
             api_key_google: String::new(),
+            api_key_openai_input: None,
+            api_key_anthropic_input: None,
+            api_key_google_input: None,
+            ssh_port_input: None,
             auth_error: None,
             auth_loading: false,
             auth_mode: AuthMode::Login,
@@ -243,9 +320,31 @@ impl AppState {
             ssh_host: String::new(),
             ssh_user: String::new(),
             ssh_port: "22".into(),
+            ssh_host_input: None,
+            ssh_user_input: None,
+            tag_input: None,
+            version_label_input: None,
             undo_stack: vec![],
             confirm_delete: None,
             search_query: String::new(),
+            search_input: None,
+            variable_inputs: HashMap::new(),
+            executions: vec![],
+            multi_model_responses: vec![],
+            multi_model_loading: false,
+            stt_provider: SttProvider::Local,
+            analytics_range: AnalyticsRange::All,
+            github_repo: String::new(),
+            github_repo_input: None,
+            collab_users: vec![],
+            editing_workspace_id: None,
+            workspace_name_input: None,
+            show_profile: false,
+            framework_name_input: None,
+            selected_workspace_color: "#6366f1".into(),
+            copy_feedback: 0,
+            fleet_poll_timer: 0,
+            collab_poll_timer: 0,
             msg_rx,
             msg_tx,
         }

@@ -22,6 +22,10 @@ impl InkwellApp {
     fn t(&self) -> crate::theme::InkwellTheme {
         crate::theme::InkwellTheme::from_mode(self.state.dark_mode)
     }
+
+    fn i<'a>(&self, fr: &'a str, en: &'a str) -> &'a str {
+        if self.state.lang == "fr" { fr } else { en }
+    }
 }
 
 impl Render for InkwellApp {
@@ -83,6 +87,18 @@ impl InkwellApp {
                 AsyncMsg::LlmResponse(text) => {
                     if text.starts_with("__CHAT__") {
                         self.state.chat_messages.push(("assistant".into(), text[8..].to_string()));
+                    } else if text.starts_with("__IMPORT__") {
+                        let json_str = &text[10..];
+                        if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(json_str) {
+                            self.state.undo_stack.push(self.state.project.blocks.clone());
+                            self.state.project.blocks = blocks.into_iter().map(|b| {
+                                Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
+                            }).collect();
+                            self.state.block_inputs.clear();
+                            self.state.playground_response = "Imported successfully!".into();
+                        } else {
+                            self.state.playground_response = "Invalid JSON format for import".into();
+                        }
                     } else {
                         self.state.playground_response = text;
                     }
@@ -155,6 +171,21 @@ impl InkwellApp {
                     self.state.playground_response = format!("STT Error: {e}");
                 }
                 AsyncMsg::CustomFrameworkSaved => {}
+                AsyncMsg::MultiModelResult { model, response } => {
+                    self.state.multi_model_responses.push((model, response));
+                }
+                AsyncMsg::MultiModelDone => {
+                    self.state.multi_model_loading = false;
+                }
+                AsyncMsg::ExecutionRecorded(exec) => {
+                    self.state.executions.push(exec);
+                }
+                AsyncMsg::CollabUsersLoaded(users) => {
+                    self.state.collab_users = users;
+                }
+                AsyncMsg::GitHubPushed(msg) => {
+                    self.state.playground_response = msg;
+                }
                 AsyncMsg::TerminalOutput(text) => {
                     let idx = self.state.active_terminal;
                     if let Some(session) = self.state.terminal_sessions.get_mut(idx) {
@@ -310,6 +341,72 @@ impl InkwellApp {
                 }
             }
         }
+        // Read variable values from inputs
+        for (var_name, entity) in &self.state.variable_inputs {
+            let new_val = entity.read(cx).value().to_string();
+            let old_val = self.state.project.variables.get(var_name).cloned().unwrap_or_default();
+            if new_val != old_val && !new_val.is_empty() {
+                self.state.project.variables.insert(var_name.clone(), new_val);
+                changed = true;
+            }
+        }
+        // Copy feedback timer
+        if self.state.copy_feedback > 0 { self.state.copy_feedback -= 1; }
+        // Auto-poll fleet nodes (~every 20s at 60fps = 1200 frames)
+        if self.state.session.is_some() && self.state.right_tab == RightTab::Fleet {
+            self.state.fleet_poll_timer += 1;
+            if self.state.fleet_poll_timer >= 1200 {
+                self.state.fleet_poll_timer = 0;
+                let server = self.state.server_url.clone();
+                let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                let tx = self.state.msg_tx.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let mut client = inkwell_core::api_client::ApiClient::new(&server);
+                        client.set_token(token);
+                        if let Ok(nodes) = client.list_nodes().await {
+                            let _ = tx.send(AsyncMsg::NodesLoaded(nodes));
+                        }
+                    });
+                });
+            }
+        }
+        // Auto-poll collab presence (~every 10s = 600 frames)
+        if self.state.session.is_some() && self.state.right_tab == RightTab::Collab {
+            self.state.collab_poll_timer += 1;
+            if self.state.collab_poll_timer >= 600 {
+                self.state.collab_poll_timer = 0;
+                let server = self.state.server_url.clone();
+                let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                let project_id = self.state.project.id.clone();
+                let tx = self.state.msg_tx.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async {
+                        let client = reqwest::Client::new();
+                        if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
+                            .header("Authorization", format!("Bearer {token}"))
+                            .send().await {
+                            if let Ok(users) = resp.json::<Vec<serde_json::Value>>().await {
+                                let collab_users: Vec<crate::state::CollabUser> = users.iter().map(|u| {
+                                    crate::state::CollabUser {
+                                        name: u["display_name"].as_str().unwrap_or("").to_string(),
+                                        email: u["email"].as_str().unwrap_or("").to_string(),
+                                        online: u["online"].as_bool().unwrap_or(false),
+                                    }
+                                }).collect();
+                                let _ = tx.send(AsyncMsg::CollabUsersLoaded(collab_users));
+                            }
+                        }
+                    });
+                });
+            }
+        }
+        // Read search query from input
+        if let Some(ref input) = self.state.search_input {
+            self.state.search_query = input.read(cx).value().to_string();
+        }
         // Auto-save to backend (debounced via save_timer)
         if changed {
             self.state.save_pending = true;
@@ -367,6 +464,75 @@ impl InkwellApp {
                 InputState::new(window, cx).placeholder("Type a message...")
             }));
         }
+        if self.state.ssh_host_input.is_none() {
+            self.state.ssh_host_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("hostname or IP")
+            }));
+        }
+        if self.state.ssh_user_input.is_none() {
+            self.state.ssh_user_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("username")
+            }));
+        }
+        if self.state.tag_input.is_none() {
+            self.state.tag_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("tag name")
+            }));
+        }
+        if self.state.version_label_input.is_none() {
+            self.state.version_label_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("version label")
+            }));
+        }
+        if self.state.api_key_openai_input.is_none() {
+            self.state.api_key_openai_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("sk-...").masked(true)
+            }));
+        }
+        if self.state.api_key_anthropic_input.is_none() {
+            self.state.api_key_anthropic_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("sk-ant-...").masked(true)
+            }));
+        }
+        if self.state.api_key_google_input.is_none() {
+            self.state.api_key_google_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("AIza...").masked(true)
+            }));
+        }
+        if self.state.ssh_port_input.is_none() {
+            self.state.ssh_port_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).default_value("22")
+            }));
+        }
+        if self.state.workspace_name_input.is_none() && self.state.editing_workspace_id.is_some() {
+            let name = self.state.workspaces.iter()
+                .find(|w| Some(w.id.as_str()) == self.state.editing_workspace_id.as_deref())
+                .map(|w| w.name.clone()).unwrap_or_default();
+            self.state.workspace_name_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).default_value(name)
+            }));
+        }
+        if self.state.search_input.is_none() {
+            self.state.search_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Rechercher...")
+            }));
+        }
+        if self.state.name_input_entity.is_none() {
+            let name = self.state.project.name.clone();
+            self.state.name_input_entity = Some(cx.new(|cx| {
+                InputState::new(window, cx).default_value(name)
+            }));
+        }
+        if self.state.framework_name_input.is_none() {
+            self.state.framework_name_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("Framework name")
+            }));
+        }
+        if self.state.github_repo_input.is_none() {
+            self.state.github_repo_input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder("owner/repo")
+            }));
+        }
     }
 
     fn ensure_block_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -385,6 +551,25 @@ impl InkwellApp {
         }
         // Remove excess
         self.state.block_inputs.truncate(self.state.project.blocks.len());
+
+        // Ensure variable input entities
+        let core_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
+            inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
+        }).collect();
+        let vars = inkwell_core::prompt::extract_variables(&core_blocks);
+        for var in &vars {
+            if !self.state.variable_inputs.contains_key(var) {
+                let val = self.state.project.variables.get(var).cloned().unwrap_or_default();
+                let entity = cx.new(|cx| {
+                    InputState::new(window, cx)
+                        .placeholder(format!("value for {var}"))
+                        .default_value(val)
+                });
+                self.state.variable_inputs.insert(var.clone(), entity);
+            }
+        }
+        // Remove stale variable inputs
+        self.state.variable_inputs.retain(|k, _| vars.contains(k));
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
@@ -423,6 +608,7 @@ impl InkwellApp {
             .child(self.render_header(cx))
             .child(main_row)
             .children(if self.state.show_settings { Some(self.render_settings(cx)) } else { None })
+            .children(if self.state.show_profile { Some(self.render_profile(cx)) } else { None })
             .child(self.render_bottom_bar(cx))
     }
 
@@ -440,7 +626,37 @@ impl InkwellApp {
             )
             .child(div().text_sm().text_color(accent()).child("Inkwell"))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
-            .child(div().text_sm().text_color(text_primary()).child(self.state.project.name.clone()))
+            .child(if self.state.editing_name {
+                if let Some(ref entity) = self.state.name_input_entity {
+                    div().w(px(180.0)).child(Input::new(entity))
+                } else { div() }
+            } else {
+                div().text_sm().text_color(text_primary())
+                    .child(self.state.project.name.clone())
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.editing_name = true;
+                        // Reset name input to current name
+                        this.state.name_input_entity = None;
+                    }))
+            })
+            .child(if self.state.editing_name {
+                div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                    .text_xs().text_color(success()).child(Icon::new(IconName::Check))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        if let Some(ref entity) = this.state.name_input_entity {
+                            let new_name = entity.read(cx).value().to_string();
+                            if !new_name.trim().is_empty() {
+                                this.state.project.name = new_name.trim().to_string();
+                                // Update in project list
+                                if let Some(p) = this.state.projects.iter_mut().find(|p| p.id == this.state.project.id) {
+                                    p.name = this.state.project.name.clone();
+                                }
+                                this.state.save_pending = true;
+                            }
+                        }
+                        this.state.editing_name = false;
+                    }))
+            } else { div() })
                     .child(match self.state.save_status {
                         "saving" => div().text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("Saving..."),
                         "saved" => div().text_xs().text_color(success()).child("Saved"),
@@ -453,9 +669,19 @@ impl InkwellApp {
                     .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1))
                     .text_xs().text_color(accent()).child(f.clone())
             }))
-            // Session info
-            .children(self.state.session.as_ref().map(|s| {
-                div().text_xs().text_color(text_muted()).child(s.email.clone())
+            // Session info (click for profile)
+            .children(self.state.session.as_ref().map(|_s| {
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                    .flex().items_center().gap(px(4.0))
+                    .child(div().w(px(18.0)).h(px(18.0)).rounded(px(9.0)).bg(accent())
+                        .flex().items_center().justify_center()
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                        .child(_s.email.chars().next().unwrap_or('U').to_uppercase().to_string()))
+                    .child(div().text_xs().text_color(text_muted()).child(_s.email.clone()))
+                    .cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.show_profile = !this.state.show_profile;
+                    }))
             }))
             // Lang toggle
             .child(
@@ -508,7 +734,7 @@ impl InkwellApp {
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
                             .text_color(if is_library { accent() } else { text_muted() })
                             .bg(if is_library { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                            .child(Icon::new(IconName::FolderOpen)).child("Library")
+                            .child(Icon::new(IconName::FolderOpen)).child("Bibliotheque")
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| { this.state.left_tab = LeftTab::Library; }))
                     )
                     .child(
@@ -528,20 +754,24 @@ impl InkwellApp {
         let search = &self.state.search_query;
         let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
 
-        // Search bar
-        content = content.child(
-            div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(6.0))
-                .border_1().border_color(border_c())
-                .flex().items_center()
-                .text_xs().text_color(if search.is_empty() { text_muted() } else { text_primary() })
-                .child(if search.is_empty() { "Search projects...".to_string() } else { search.clone() })
-        );
+        // Search bar with real Input widget
+        content = content.child({
+            if let Some(ref entity) = self.state.search_input {
+                div().child(Input::new(entity))
+            } else {
+                div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(6.0))
+                    .border_1().border_color(border_c())
+                    .flex().items_center()
+                    .text_xs().text_color(text_muted())
+                    .child("Rechercher...")
+            }
+        });
 
         // Workspaces
         content = content.child(
             div().flex().items_center().gap(px(4.0))
                 .child(Icon::new(IconName::FolderOpen))
-                .child(div().text_xs().text_color(text_muted()).child("Workspaces"))
+                .child(div().text_xs().text_color(text_muted()).child("Espaces de travail"))
                 .child(div().flex_1())
                 .child(
                     div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
@@ -550,8 +780,7 @@ impl InkwellApp {
                         .cursor_pointer().hover(|s| s.bg(accent_bg()))
                         .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                             let name = format!("Workspace {}", this.state.workspaces.len() + 1);
-                            let colors = vec!["#6366f1","#8b5cf6","#ec4899","#22c55e","#06b6d4","#f97316"];
-                            let color = colors[this.state.workspaces.len() % colors.len()].to_string();
+                            let color = this.state.selected_workspace_color.clone();
                             let ws = inkwell_core::types::Workspace {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 name: name.clone(), description: String::new(), color,
@@ -563,15 +792,62 @@ impl InkwellApp {
                         }))
                 )
         );
+        // Color picker swatches
+        {
+            let palette = vec!["#6366f1","#8b5cf6","#ec4899","#22c55e","#06b6d4","#f97316","#ef4444","#eab308"];
+            let mut swatch_row = div().flex().gap(px(3.0)).px(px(4.0));
+            for hex in palette {
+                let hex_str = hex.to_string();
+                let is_selected = self.state.selected_workspace_color == hex;
+                swatch_row = swatch_row.child(
+                    div().w(px(14.0)).h(px(14.0)).rounded(px(7.0))
+                        .bg(hex_to_hsla(hex))
+                        .border_1().border_color(if is_selected { text_primary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                            this.state.selected_workspace_color = hex_str.clone();
+                        }))
+                );
+            }
+            content = content.child(swatch_row);
+        }
         for ws in &self.state.workspaces {
             let color = hex_to_hsla(&ws.color);
             let ws_id = ws.id.clone();
+            let rename_id = ws.id.clone();
+            let is_editing = self.state.editing_workspace_id.as_deref() == Some(&ws.id);
             content = content.child(
                 div().px(px(8.0)).py(px(6.0)).rounded(px(4.0))
                     .flex().items_center().gap(px(6.0))
                     .hover(|s| s.bg(bg_tertiary()))
                     .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
-                    .child(div().flex_1().text_xs().text_color(text_primary()).child(ws.name.clone()))
+                    .child(if is_editing {
+                        if let Some(ref entity) = self.state.workspace_name_input {
+                            div().flex_1().child(Input::new(entity))
+                        } else {
+                            div().flex_1().text_xs().text_color(text_primary()).child(ws.name.clone())
+                        }
+                    } else {
+                        div().flex_1().text_xs().text_color(text_primary())
+                            .child(ws.name.clone())
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                this.state.editing_workspace_id = Some(rename_id.clone());
+                                this.state.workspace_name_input = None; // Will recreate next frame
+                            }))
+                    })
+                    .children(if is_editing {
+                        Some(div().text_xs().text_color(success()).child(Icon::new(IconName::Check))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                if let Some(ref entity) = this.state.workspace_name_input {
+                                    let new_name = entity.read(cx).value().to_string();
+                                    if !new_name.trim().is_empty() {
+                                        if let Some(w) = this.state.workspaces.iter_mut().find(|w| Some(w.id.as_str()) == this.state.editing_workspace_id.as_deref()) {
+                                            w.name = new_name.trim().to_string();
+                                        }
+                                    }
+                                }
+                                this.state.editing_workspace_id = None;
+                            })))
+                    } else { None })
                     .child(
                         div().text_xs().text_color(danger()).child(Icon::new(IconName::Close))
                             .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.75, 0.55, 0.15)))
@@ -580,6 +856,16 @@ impl InkwellApp {
                             }))
                     )
             );
+            // Show constitution if present
+            if let Some(ref constitution) = ws.constitution {
+                if !constitution.is_empty() {
+                    content = content.child(
+                        div().pl(px(22.0)).pr(px(8.0)).py(px(2.0))
+                            .text_xs().text_color(text_muted())
+                            .child(constitution.chars().take(80).collect::<String>())
+                    );
+                }
+            }
         }
         if !self.state.workspaces.is_empty() {
             content = content.child(div().h(px(1.0)).bg(border_c()));
@@ -589,7 +875,7 @@ impl InkwellApp {
         content = content.child(
             div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
                 .bg(bg_tertiary()).text_xs().text_color(accent())
-                .flex().items_center().justify_center().child(Icon::new(IconName::Plus)).child("New prompt")
+                .flex().items_center().justify_center().child(Icon::new(IconName::Plus)).child("Nouveau prompt")
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                     let new_proj = Project::default_prompt();
                     let name = new_proj.name.clone();
@@ -669,12 +955,12 @@ impl InkwellApp {
                 div().p(px(10.0)).rounded(px(8.0)).bg(hsla(0.0, 0.75, 0.55, 0.1))
                     .border_1().border_color(danger())
                     .flex().flex_col().gap(px(6.0))
-                    .child(div().text_xs().text_color(danger()).child("Delete this project?"))
+                    .child(div().text_xs().text_color(danger()).child("Supprimer ce projet ?"))
                     .child(
                         div().flex().gap(px(6.0))
                             .child(
                                 div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(danger())
-                                    .text_xs().text_color(white()).child("Delete")
+                                    .text_xs().text_color(white()).child("Supprimer")
                                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                                         let id = del.clone();
                                         this.state.projects.retain(|p| p.id != id);
@@ -694,7 +980,7 @@ impl InkwellApp {
                             )
                             .child(
                                 div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(bg_tertiary())
-                                    .text_xs().text_color(text_secondary()).child("Cancel")
+                                    .text_xs().text_color(text_secondary()).child("Annuler")
                                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                         this.state.confirm_delete = None;
                                     }))
@@ -704,9 +990,9 @@ impl InkwellApp {
         }
 
         if filtered.is_empty() && self.state.projects.is_empty() {
-            content = content.child(div().text_xs().text_color(text_muted()).child("No projects yet"));
+            content = content.child(div().text_xs().text_color(text_muted()).child("Rien ici encore"));
         } else if filtered.is_empty() {
-            content = content.child(div().text_xs().text_color(text_muted()).child("No matching projects"));
+            content = content.child(div().text_xs().text_color(text_muted()).child("Aucun projet correspondant"));
         }
 
         content
@@ -719,19 +1005,34 @@ impl InkwellApp {
         ];
         let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(4.0));
 
-        // Save current as framework button
+        // Save current as framework with name input
         content = content.child(
-            div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(accent())
-                .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1))
-                .text_xs().text_color(accent())
-                .flex().items_center().justify_center().child("Save current as framework")
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                    let name = format!("Custom {}", this.state.custom_frameworks.len() + 1);
-                    let blocks: Vec<(BlockType, String)> = this.state.project.blocks.iter()
-                        .map(|b| (b.block_type, b.content.clone()))
-                        .collect();
-                    this.state.custom_frameworks.push(CustomFramework { name, blocks });
-                }))
+            div().flex().items_center().gap(px(4.0))
+                .child({
+                    if let Some(ref entity) = self.state.framework_name_input {
+                        div().flex_1().child(Input::new(entity))
+                    } else {
+                        div().flex_1()
+                    }
+                })
+                .child(
+                    div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent())
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                        .child(Icon::new(IconName::Save)).child("Save")
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            let name = this.state.framework_name_input.as_ref()
+                                .map(|i| i.read(cx).value().to_string())
+                                .unwrap_or_default();
+                            let name = if name.trim().is_empty() {
+                                format!("Custom {}", this.state.custom_frameworks.len() + 1)
+                            } else { name.trim().to_string() };
+                            let blocks: Vec<(BlockType, String)> = this.state.project.blocks.iter()
+                                .map(|b| (b.block_type, b.content.clone()))
+                                .collect();
+                            this.state.custom_frameworks.push(CustomFramework { name, blocks });
+                            this.state.framework_name_input = None; // Reset
+                        }))
+                )
         );
         content = content.child(div().h(px(1.0)).bg(border_c()));
         for (name, id) in frameworks {
@@ -762,18 +1063,49 @@ impl InkwellApp {
                         .flex().items_center().gap(px(6.0))
                         .hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)))
                         .child(div().flex_1().text_xs().text_color(text_secondary())
-                            .child(format!("{} ({} blocks)", fw.name, block_count)))
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                            if let Some(fw) = this.state.custom_frameworks.get(fw_idx) {
-                                this.state.undo_stack.push(this.state.project.blocks.clone());
-                                this.state.project.blocks = fw.blocks.iter().map(|(bt, content)| {
-                                    let mut b = Block::new(*bt);
-                                    b.content = content.clone();
-                                    b
-                                }).collect();
-                                this.state.block_inputs.clear();
-                            }
-                        }))
+                            .child(format!("{} ({} blocks)", fw.name, block_count))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                if let Some(fw) = this.state.custom_frameworks.get(fw_idx) {
+                                    this.state.undo_stack.push(this.state.project.blocks.clone());
+                                    this.state.project.blocks = fw.blocks.iter().map(|(bt, content)| {
+                                        let mut b = Block::new(*bt);
+                                        b.content = content.clone();
+                                        b
+                                    }).collect();
+                                    this.state.block_inputs.clear();
+                                }
+                            }))
+                        )
+                        // Rename button
+                        .child(
+                            div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                                .text_xs().text_color(accent()).child(Icon::new(IconName::Redo))
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    if let Some(fw) = this.state.custom_frameworks.get_mut(fw_idx) {
+                                        // Simple rename: append " (edited)"
+                                        let new_name = if fw.name.ends_with(" (edited)") {
+                                            fw.name.trim_end_matches(" (edited)").to_string()
+                                        } else {
+                                            // Update blocks to match current project
+                                            fw.blocks = this.state.project.blocks.iter()
+                                                .map(|b| (b.block_type, b.content.clone()))
+                                                .collect();
+                                            format!("{} (edited)", fw.name)
+                                        };
+                                        fw.name = new_name;
+                                    }
+                                }))
+                        )
+                        // Delete button
+                        .child(
+                            div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                                .text_xs().text_color(danger()).child(Icon::new(IconName::Close))
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    if fw_idx < this.state.custom_frameworks.len() {
+                                        this.state.custom_frameworks.remove(fw_idx);
+                                    }
+                                }))
+                        )
                 );
             }
         }
@@ -841,7 +1173,7 @@ impl InkwellApp {
 
                                 let server = this.state.server_url.clone();
                                 let tx = this.state.msg_tx.clone();
-                                let self_model_str = this.state.selected_model.clone();
+                                let _self_model_str = this.state.selected_model.clone();
                                 let blocks: Vec<(usize, BlockType)> = this.state.project.blocks.iter().enumerate()
                                     .filter(|(_, b)| b.block_type.is_sdd() && b.enabled)
                                     .map(|(i, b)| (i, b.block_type))
@@ -955,6 +1287,57 @@ impl InkwellApp {
                             .child(Icon::new(IconName::Save))
                             .child("Commit")
                             .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.0, 0.5, 0.08)))
+                    )
+                    // GitHub Issues
+                    .child(
+                        div().px(px(6.0)).py(px(4.0)).rounded(px(4.0))
+                            .text_xs().text_color(hsla(280.0 / 360.0, 0.7, 0.6, 1.0))
+                            .flex().items_center().gap(px(4.0))
+                            .child(Icon::new(IconName::Globe))
+                            .child("GitHub")
+                            .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.0, 0.5, 0.08)))
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                // Extract tasks from SDD tasks block and push to GitHub Issues
+                                let tasks_content = this.state.project.blocks.iter()
+                                    .find(|b| b.block_type == BlockType::SddTasks && b.enabled)
+                                    .map(|b| b.content.clone())
+                                    .unwrap_or_default();
+                                if tasks_content.is_empty() { return; }
+                                let repo = this.state.github_repo_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .unwrap_or_else(|| this.state.github_repo.clone());
+                                if repo.is_empty() {
+                                    this.state.playground_response = "Set a GitHub repo (owner/repo) in settings first".into();
+                                    return;
+                                }
+                                let tx = this.state.msg_tx.clone();
+                                std::thread::spawn(move || {
+                                    // Parse task lines (lines starting with - [ ] or - [x])
+                                    let tasks: Vec<String> = tasks_content.lines()
+                                        .filter(|l| l.trim().starts_with("- [") || l.trim().starts_with("* ["))
+                                        .map(|l| l.trim().trim_start_matches("- [ ] ").trim_start_matches("- [x] ")
+                                            .trim_start_matches("* [ ] ").trim_start_matches("* [x] ").to_string())
+                                        .collect();
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let client = reqwest::Client::new();
+                                        let mut created = 0;
+                                        for task in &tasks {
+                                            let res = client.post(format!("https://api.github.com/repos/{repo}/issues"))
+                                                .header("Accept", "application/vnd.github+json")
+                                                .header("User-Agent", "inkwell-gpui")
+                                                .json(&serde_json::json!({"title": task, "labels": ["sdd"]}))
+                                                .send().await;
+                                            if let Ok(r) = res {
+                                                if r.status().is_success() { created += 1; }
+                                            }
+                                        }
+                                        let _ = tx.send(AsyncMsg::GitHubPushed(
+                                            format!("Created {created}/{} GitHub issues on {repo}", tasks.len())
+                                        ));
+                                    });
+                                });
+                            }))
                     )
                     // Presets (functional)
                     .child({
@@ -1306,10 +1689,13 @@ impl InkwellApp {
         ];
 
         block_list = block_list.child(
-            div().py(px(12.0)).flex().items_center().justify_center()
-                .rounded(px(8.0)).border_1().border_color(border_c())
-                .text_sm().text_color(text_muted()).child(Icon::new(IconName::Plus)).child("Add block")
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+            div().py(px(14.0)).flex().items_center().justify_center()
+                .rounded(px(8.0)).border_2().border_color(hsla(0.0, 0.0, 0.5, 0.2))
+                .bg(hsla(0.0, 0.0, 0.5, 0.03))
+                .text_sm().text_color(text_muted())
+                .child(Icon::new(IconName::Plus)).child(" Ajouter un bloc")
+                .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.0, 0.5, 0.06)))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                     this.state.show_add_menu = !this.state.show_add_menu;
                 }))
         );
@@ -1334,7 +1720,7 @@ impl InkwellApp {
             block_list = block_list.child(menu);
         }
 
-        // Variables panel
+        // Variables panel with real Input widgets
         let core_blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
             inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
         }).collect();
@@ -1344,26 +1730,39 @@ impl InkwellApp {
                 .border_1().border_color(border_c()).flex().flex_col().gap(px(6.0))
                 .child(div().text_xs().text_color(text_muted()).child(Icon::new(IconName::Asterisk)).child("Variables"));
             for var in &vars {
-                let val = self.state.project.variables.get(var).cloned().unwrap_or_default();
-                let var_name = var.clone();
+                let input_entity = self.state.variable_inputs.get(var).cloned();
                 var_panel = var_panel.child(
                     div().flex().items_center().gap(px(8.0))
-                        .child(div().text_xs().text_color(accent()).child(format!("{{{{{var_name}}}}}")))
-                        .child(
+                        .child(div().w(px(80.0)).text_xs().text_color(accent()).child(format!("{{{{{var}}}}}")))
+                        .child(if let Some(entity) = input_entity {
+                            div().flex_1().child(Input::new(&entity))
+                        } else {
                             div().flex_1().h(px(28.0)).px(px(8.0)).bg(bg_tertiary())
                                 .rounded(px(4.0)).border_1().border_color(border_c())
-                                .flex().items_center().text_xs().text_color(text_secondary())
-                                .child(if val.is_empty() { "click to set...".to_string() } else { val })
-                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                                    // Simple prompt-based variable input (GPUI doesn't have modal text input easily)
-                                    let new_val = format!("[{var_name}]");
-                                    this.state.project.variables.insert(var_name.clone(), new_val);
-                                }))
-                        )
+                                .flex().items_center().text_xs().text_color(text_muted())
+                                .child("loading...")
+                        })
                 );
             }
             block_list = block_list.child(var_panel);
         }
+
+        // Variable hint (like web app)
+        block_list = block_list.child(
+            div().px(px(12.0)).py(px(10.0)).rounded(px(8.0))
+                .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.08))
+                .border_1().border_color(hsla(239.0 / 360.0, 0.84, 0.67, 0.15))
+                .flex().items_center()
+                .child(div().text_xs().text_color(text_muted())
+                    .child("Utilisez ")
+                )
+                .child(div().px(px(4.0)).py(px(1.0)).rounded(px(3.0)).bg(accent_bg())
+                    .text_xs().text_color(accent()).child("{{variable}}")
+                )
+                .child(div().text_xs().text_color(text_muted())
+                    .child(" dans vos blocs pour creer des variables.")
+                )
+        );
 
         // Tags section
         if !self.state.project.tags.is_empty() || true {
@@ -1383,16 +1782,36 @@ impl InkwellApp {
                         )
                 );
             }
-            // Add tag button
-            tags_row = tags_row.child(
-                div().px(px(8.0)).py(px(3.0)).rounded(px(12.0))
-                    .border_1().border_color(border_c())
-                    .text_xs().text_color(text_muted())
-                    .child("+ tag")
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                        this.state.project.tags.push(format!("tag-{}", this.state.project.tags.len() + 1));
-                    }))
-            );
+            // Add tag with real Input widget
+            if let Some(ref entity) = self.state.tag_input {
+                tags_row = tags_row.child(
+                    div().flex().items_center().gap(px(4.0))
+                        .child(div().w(px(100.0)).child(Input::new(entity)))
+                        .child(
+                            div().px(px(8.0)).py(px(3.0)).rounded(px(12.0))
+                                .bg(accent()).text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                                .child("+")
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    let name = this.state.tag_input.as_ref()
+                                        .map(|i| i.read(cx).value().to_string())
+                                        .unwrap_or_default();
+                                    let tag = if name.trim().is_empty() { format!("tag-{}", this.state.project.tags.len() + 1) } else { name.trim().to_string() };
+                                    this.state.project.tags.push(tag);
+                                    this.state.tag_input = None; // Reset input
+                                }))
+                        )
+                );
+            } else {
+                tags_row = tags_row.child(
+                    div().px(px(8.0)).py(px(3.0)).rounded(px(12.0))
+                        .border_1().border_color(border_c())
+                        .text_xs().text_color(text_muted())
+                        .child("+ tag")
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            this.state.project.tags.push(format!("tag-{}", this.state.project.tags.len() + 1));
+                        }))
+                );
+            }
             block_list = block_list.child(
                 div().p(px(8.0)).rounded(px(8.0)).bg(bg_secondary()).border_1().border_color(border_c())
                     .flex().flex_col().gap(px(4.0))
@@ -1443,12 +1862,12 @@ impl InkwellApp {
                 RightTab::Export => self.render_export(cx),
                 RightTab::History => self.render_history(cx),
                 RightTab::Terminal => self.render_terminal(cx),
-                RightTab::Stt => self.render_stt(),
+                RightTab::Stt => self.render_stt(cx),
                 RightTab::Optimize => self.render_optimize(cx),
                 RightTab::Lint => self.render_lint(),
                 RightTab::Chat => self.render_chat(cx),
-                RightTab::Analytics => self.render_analytics(),
-                RightTab::Collab => self.render_collab(),
+                RightTab::Analytics => self.render_analytics(cx),
+                RightTab::Collab => self.render_collab(cx),
                 RightTab::Chain => self.render_chain(cx),
             })
     }
@@ -1462,18 +1881,20 @@ impl InkwellApp {
                 div().flex().items_center().gap(px(8.0))
                     .child(div().flex().items_center().gap(px(8.0))
                     .child(Icon::new(IconName::Eye))
-                    .child(div().text_xs().text_color(text_muted()).child("Compiled Prompt"))
+                    .child(div().text_xs().text_color(text_muted()).child("Prompt compile"))
                     .child(div().flex_1())
                     .child({
                         let compiled_copy = self.state.project.compiled_prompt();
+                        let is_copied = self.state.copy_feedback > 0;
                         div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
-                            .text_xs().text_color(accent())
+                            .text_xs().text_color(if is_copied { success() } else { accent() })
                             .flex().items_center().gap(px(4.0))
-                            .child(Icon::new(IconName::Copy))
-                            .child("Copy")
+                            .child(Icon::new(if is_copied { IconName::Check } else { IconName::Copy }))
+                            .child(if is_copied { "Copie !" } else { "Copier" })
                             .cursor_pointer().hover(|s| s.bg(accent_bg()))
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                 cx.write_to_clipboard(ClipboardItem::new_string(compiled_copy.clone()));
+                                this.state.copy_feedback = 120; // ~2s at 60fps
                             }))
                     })
                 )
@@ -1484,7 +1905,7 @@ impl InkwellApp {
                 div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary())
                     .border_1().border_color(border_c())
                     .text_xs().text_color(text_primary())
-                    .child(if compiled.is_empty() { "No content yet...".into() } else { compiled })
+                    .child(if compiled.is_empty() { "Commencez a ecrire dans les blocs pour voir le prompt compile...".into() } else { compiled })
             )
     }
 
@@ -1569,6 +1990,53 @@ impl InkwellApp {
             .child(div().text_xs().text_color(text_muted()).child(Icon::new(IconName::Bot)).child("Select Model"))
             .child(model_list)
             .child(div().h(px(1.0)).bg(border_c()))
+            // Run all selected models
+            .child(
+                div().py(px(6.0))
+                    .bg(if self.state.multi_model_loading { text_muted() } else { hsla(280.0 / 360.0, 0.7, 0.5, 1.0) })
+                    .rounded(px(6.0)).flex().items_center().justify_center()
+                    .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                    .child(format!("Run all ({} models)", self.state.playground_selected_models.len()))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        if this.state.multi_model_loading || this.state.playground_selected_models.is_empty() { return; }
+                        this.state.multi_model_loading = true;
+                        this.state.multi_model_responses.clear();
+                        let prompt = this.state.project.compiled_prompt();
+                        let models = this.state.playground_selected_models.clone();
+                        let server = this.state.server_url.clone();
+                        let tx = this.state.msg_tx.clone();
+                        let temp = this.state.playground_temperature;
+                        let max_tok = this.state.playground_max_tokens;
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                for model in &models {
+                                    let client = reqwest::Client::new();
+                                    let start = std::time::Instant::now();
+                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
+                                        .json(&serde_json::json!({"model":model,"messages":[{"role":"user","content":prompt}],"temperature":temp,"max_tokens":max_tok,"stream":false}))
+                                        .send().await {
+                                        let latency = start.elapsed().as_millis() as u64;
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                                            let tokens_out = (text.len() as f64 / 4.0).ceil() as u64;
+                                            let _ = tx.send(AsyncMsg::MultiModelResult { model: model.clone(), response: text.clone() });
+                                            let _ = tx.send(AsyncMsg::ExecutionRecorded(crate::state::Execution {
+                                                model: model.clone(),
+                                                tokens_in: (prompt.len() as f64 / 4.0).ceil() as u64,
+                                                tokens_out, latency_ms: latency,
+                                                cost: 0.0, timestamp: chrono::Utc::now().timestamp_millis(),
+                                                prompt_preview: prompt.chars().take(80).collect(),
+                                                response_preview: text.chars().take(100).collect(),
+                                            }));
+                                        }
+                                    }
+                                }
+                                let _ = tx.send(AsyncMsg::MultiModelDone);
+                            });
+                        });
+                    }))
+            )
             .child(
                 div().py(px(10.0))
                     .bg(if self.state.playground_loading { text_muted() } else { accent() })
@@ -1584,17 +2052,20 @@ impl InkwellApp {
                         let model = this.state.selected_model.clone();
                         let server_url = this.state.server_url.clone();
                         let tx = this.state.msg_tx.clone();
+                        let temp = this.state.playground_temperature;
+                        let max_tok = this.state.playground_max_tokens;
 
                         std::thread::spawn(move || {
                             let rt = tokio::runtime::Runtime::new().unwrap();
                             rt.block_on(async {
+                                let start = std::time::Instant::now();
                                 let client = reqwest::Client::new();
                                 let resp = client.post(format!("{server_url}/v1/chat/completions"))
                                     .json(&serde_json::json!({
                                         "model": model,
                                         "messages": [{"role": "user", "content": prompt}],
-                                        "temperature": 0.7,
-                                        "max_tokens": 2048,
+                                        "temperature": temp,
+                                        "max_tokens": max_tok,
                                         "stream": true,
                                     }))
                                     .send().await;
@@ -1607,7 +2078,6 @@ impl InkwellApp {
                                         while let Some(chunk) = stream.next().await {
                                             if let Ok(bytes) = chunk {
                                                 let text = String::from_utf8_lossy(&bytes);
-                                                // Parse SSE lines
                                                 for line in text.lines() {
                                                     if let Some(data) = line.strip_prefix("data: ") {
                                                         if data == "[DONE]" { continue; }
@@ -1621,10 +2091,21 @@ impl InkwellApp {
                                                 }
                                             }
                                         }
+                                        let latency = start.elapsed().as_millis() as u64;
+                                        let tokens_in = (prompt.len() as f64 / 4.0).ceil() as u64;
+                                        let tokens_out = (buffer.len() as f64 / 4.0).ceil() as u64;
                                         if buffer.is_empty() {
-                                            // Fallback: non-streaming response
                                             let _ = tx.send(AsyncMsg::LlmResponse("(empty response)".into()));
                                         }
+                                        // Record execution
+                                        let _ = tx.send(AsyncMsg::ExecutionRecorded(crate::state::Execution {
+                                            model: model.clone(),
+                                            tokens_in, tokens_out, latency_ms: latency,
+                                            cost: (tokens_in as f64 * 0.000003) + (tokens_out as f64 * 0.000006),
+                                            timestamp: chrono::Utc::now().timestamp_millis(),
+                                            prompt_preview: prompt.chars().take(100).collect(),
+                                            response_preview: buffer.chars().take(100).collect(),
+                                        }));
                                         let _ = tx.send(AsyncMsg::LlmDone);
                                     }
                                     Ok(r) => {
@@ -1649,12 +2130,34 @@ impl InkwellApp {
                         self.state.playground_response.clone()
                     })
             )
+            // Multi-model results
+            .children(if self.state.multi_model_responses.is_empty() { None } else {
+                let mut results = div().flex().flex_col().gap(px(4.0));
+                for (model, resp) in &self.state.multi_model_responses {
+                    results = results.child(
+                        div().p(px(8.0)).rounded(px(6.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                            .flex().flex_col().gap(px(2.0))
+                            .child(div().text_xs().text_color(accent()).child(model.clone()))
+                            .child(div().text_xs().text_color(text_primary()).child(
+                                resp.chars().take(300).collect::<String>()
+                            ))
+                    );
+                }
+                Some(results)
+            })
             // Response stats
-            .child(
-                div().flex().items_center().gap(px(8.0))
+            .child({
+                let last = self.state.executions.last();
+                div().flex().items_center().gap(px(8.0)).flex_wrap()
                     .child(div().text_xs().text_color(text_muted()).child(format!("Model: {}", self.state.selected_model)))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("~{} tokens", self.state.project.token_count())))
-            )
+                    .child(div().text_xs().text_color(text_muted()).child(format!("~{} tokens in", self.state.project.token_count())))
+                    .children(last.map(|e| {
+                        div().flex().items_center().gap(px(6.0))
+                            .child(div().text_xs().text_color(accent()).child(format!("{}ms", e.latency_ms)))
+                            .child(div().text_xs().text_color(success()).child(format!("{} in / {} out", e.tokens_in, e.tokens_out)))
+                            .child(div().text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child(format!("${:.6}", e.cost)))
+                    }))
+            })
     }
 
     fn render_fleet(&self, cx: &mut Context<Self>) -> Div {
@@ -1795,13 +2298,150 @@ impl InkwellApp {
                         });
                     }))
             )
+            // Export Anthropic format
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child(Icon::new(IconName::File)).child("Anthropic (Messages API)")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let blocks = &this.state.project.blocks;
+                        let system_parts: Vec<String> = blocks.iter()
+                            .filter(|b| b.enabled && (b.block_type == BlockType::Role || b.block_type == BlockType::Context || b.block_type == BlockType::Constraints || b.block_type == BlockType::Format))
+                            .map(|b| b.content.clone())
+                            .collect();
+                        let user_parts: Vec<String> = blocks.iter()
+                            .filter(|b| b.enabled && (b.block_type == BlockType::Task || b.block_type == BlockType::Examples))
+                            .map(|b| b.content.clone())
+                            .collect();
+                        let json = serde_json::json!({
+                            "model": "claude-sonnet-4-6-20250514",
+                            "max_tokens": 4096,
+                            "system": system_parts.join("\n\n"),
+                            "messages": [{"role": "user", "content": user_parts.join("\n\n")}]
+                        });
+                        let name = this.state.project.name.clone();
+                        std::thread::spawn(move || {
+                            let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+                            let path = format!("{}-anthropic.json", name.replace(' ', "-").to_lowercase());
+                            let _ = std::fs::write(&path, &content);
+                        });
+                    }))
+            )
+            // Export OpenAI format
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child(Icon::new(IconName::File)).child("OpenAI (Chat API)")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let blocks = &this.state.project.blocks;
+                        let system_content: String = blocks.iter()
+                            .filter(|b| b.enabled && (b.block_type == BlockType::Role || b.block_type == BlockType::Context || b.block_type == BlockType::Constraints || b.block_type == BlockType::Format))
+                            .map(|b| b.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+                        let user_content: String = blocks.iter()
+                            .filter(|b| b.enabled && (b.block_type == BlockType::Task || b.block_type == BlockType::Examples))
+                            .map(|b| b.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+                        let json = serde_json::json!({
+                            "model": "gpt-4o",
+                            "messages": [
+                                {"role": "system", "content": system_content},
+                                {"role": "user", "content": user_content}
+                            ]
+                        });
+                        let name = this.state.project.name.clone();
+                        std::thread::spawn(move || {
+                            let content = serde_json::to_string_pretty(&json).unwrap_or_default();
+                            let path = format!("{}-openai.json", name.replace(' ', "-").to_lowercase());
+                            let _ = std::fs::write(&path, &content);
+                        });
+                    }))
+            )
             // Copy to clipboard
             .child(
                 div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).text_xs().text_color(accent())
-                    .child(Icon::new(IconName::Copy)).child("Clipboard")
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
+                    .bg(bg_tertiary()).text_xs()
+                    .text_color(if self.state.copy_feedback > 0 { success() } else { accent() })
+                    .child(Icon::new(if self.state.copy_feedback > 0 { IconName::Check } else { IconName::Copy }))
+                    .child(if self.state.copy_feedback > 0 { "Copied!" } else { "Copier" })
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(compiled.clone()));
+                        this.state.copy_feedback = 120;
+                    }))
+            )
+            // Export as ZIP
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child(Icon::new(IconName::Download)).child("All projects (.zip)")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let projects = this.state.projects.clone();
+                        let current_blocks = this.state.project.blocks.clone();
+                        let current_name = this.state.project.name.clone();
+                        std::thread::spawn(move || {
+                            let path = "inkwell-export.zip";
+                            let file = std::fs::File::create(path).unwrap();
+                            let mut zip = zip::ZipWriter::new(file);
+                            let options = zip::write::SimpleFileOptions::default();
+                            // Export current project
+                            let blocks: Vec<inkwell_core::types::PromptBlock> = current_blocks.iter().map(|b| {
+                                inkwell_core::types::PromptBlock {
+                                    id: b.id.clone(), block_type: b.block_type,
+                                    content: b.content.clone(), enabled: b.enabled,
+                                }
+                            }).collect();
+                            let json = serde_json::to_string_pretty(&blocks).unwrap_or_default();
+                            let _ = zip.start_file(format!("{}.json", current_name.replace(' ', "-")), options);
+                            use std::io::Write;
+                            let _ = zip.write_all(json.as_bytes());
+                            // Export list of all projects as index
+                            let index: Vec<serde_json::Value> = projects.iter().map(|p| {
+                                serde_json::json!({"id": p.id, "name": p.name})
+                            }).collect();
+                            let _ = zip.start_file("index.json", options);
+                            let _ = zip.write_all(serde_json::to_string_pretty(&index).unwrap_or_default().as_bytes());
+                            let _ = zip.finish();
+                        });
+                    }))
+            )
+            .child(div().h(px(1.0)).bg(border_c()).my(px(4.0)))
+            // Import from JSON
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(success())
+                    .child(Icon::new(IconName::Upload)).child("Import from JSON file")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        let tx = this.state.msg_tx.clone();
+                        std::thread::spawn(move || {
+                            // Try to read from default import path
+                            let home = dirs::home_dir().unwrap_or_default();
+                            let import_path = home.join("inkwell-import.json");
+                            if let Ok(data) = std::fs::read_to_string(&import_path) {
+                                let _ = tx.send(AsyncMsg::LlmResponse(format!("__IMPORT__{data}")));
+                            } else {
+                                let _ = tx.send(AsyncMsg::LlmResponse("Place a JSON file at ~/inkwell-import.json to import".into()));
+                            }
+                        });
+                    }))
+            )
+            // Import from clipboard
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(success())
+                    .child(Icon::new(IconName::Copy)).child("Import from clipboard")
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        if let Some(item) = cx.read_from_clipboard() {
+                            let text = item.text().unwrap_or_default().to_string();
+                            if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&text) {
+                                this.state.undo_stack.push(this.state.project.blocks.clone());
+                                this.state.project.blocks = blocks.into_iter().map(|b| {
+                                    Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
+                                }).collect();
+                                this.state.block_inputs.clear();
+                            }
+                        }
                     }))
             )
     }
@@ -1813,10 +2453,17 @@ impl InkwellApp {
             div().flex().items_center().gap(px(8.0))
                 .child(div().text_xs().text_color(text_muted()).child("Version History"))
                 .child(div().flex_1())
+                .child({
+                    if let Some(ref entity) = self.state.version_label_input {
+                        div().w(px(100.0)).child(Input::new(entity))
+                    } else {
+                        div()
+                    }
+                })
                 .child(
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
                         .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child(Icon::new(IconName::Save)).child("Save version")
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                             let project_id = this.state.project.id.clone();
                             let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
                                 inkwell_core::types::PromptBlock {
@@ -1827,7 +2474,15 @@ impl InkwellApp {
                             let server = this.state.server_url.clone();
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                             let tx = this.state.msg_tx.clone();
-                            let label = format!("v{}", chrono::Utc::now().format("%H:%M"));
+                            let custom_label = this.state.version_label_input.as_ref()
+                                .map(|i| i.read(cx).value().to_string())
+                                .unwrap_or_default();
+                            let label = if custom_label.trim().is_empty() {
+                                format!("v{}", chrono::Utc::now().format("%H:%M"))
+                            } else {
+                                custom_label.trim().to_string()
+                            };
+                            this.state.version_label_input = None; // Reset
 
                             std::thread::spawn(move || {
                                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1882,11 +2537,42 @@ impl InkwellApp {
                                 .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
                                 .unwrap_or_default()
                         ))
+                        .child({
+                            let diff_json = blocks_json.clone();
+                            div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                                .text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("Diff")
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                    // Show diff between current and version
+                                    if let Ok(v_blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&diff_json) {
+                                        let current = this.state.project.compiled_prompt();
+                                        let mut version_text = String::new();
+                                        for b in &v_blocks {
+                                            if b.enabled { version_text.push_str(&format!("{}\n", b.content)); }
+                                        }
+                                        // Line-by-line diff
+                                        let cur_lines: Vec<&str> = current.lines().collect();
+                                        let ver_lines: Vec<&str> = version_text.lines().collect();
+                                        let mut diff = String::from("--- Diff ---\n");
+                                        let max = cur_lines.len().max(ver_lines.len());
+                                        for i in 0..max {
+                                            let cur = cur_lines.get(i).copied().unwrap_or("");
+                                            let ver = ver_lines.get(i).copied().unwrap_or("");
+                                            if cur != ver {
+                                                if !ver.is_empty() { diff.push_str(&format!("- {ver}\n")); }
+                                                if !cur.is_empty() { diff.push_str(&format!("+ {cur}\n")); }
+                                            } else if !cur.is_empty() {
+                                                diff.push_str(&format!("  {cur}\n"));
+                                            }
+                                        }
+                                        this.state.playground_response = diff;
+                                        this.state.right_tab = RightTab::Playground;
+                                    }
+                                }))
+                        })
                         .child(
                             div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                                 .text_xs().text_color(accent()).child(Icon::new(IconName::Undo)).child("Restore")
                                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                                    // Parse blocks from version
                                     if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&blocks_json) {
                                         this.state.project.blocks = blocks.into_iter().map(|b| {
                                             Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
@@ -1899,21 +2585,81 @@ impl InkwellApp {
             }
         }
 
+        // Execution history
+        content = content.child(div().h(px(1.0)).bg(border_c()).my(px(4.0)));
+        content = content.child(
+            div().text_xs().text_color(text_muted()).child(format!("Executions ({})", self.state.executions.len()))
+        );
+        if self.state.executions.is_empty() {
+            content = content.child(div().text_xs().text_color(text_muted()).child("No executions yet. Run a prompt in Playground."));
+        } else {
+            let execs: Vec<_> = self.state.executions.iter().rev().take(20).cloned().collect();
+            for exec in execs {
+                let preview = if exec.response_preview.is_empty() { "...".to_string() } else { exec.response_preview };
+                content = content.child(
+                    div().px(px(8.0)).py(px(6.0)).rounded(px(6.0))
+                        .border_1().border_color(border_c()).bg(bg_tertiary())
+                        .flex().flex_col().gap(px(2.0))
+                        .child(div().flex().items_center().gap(px(6.0))
+                            .child(div().text_xs().text_color(accent()).child(exec.model))
+                            .child(div().flex_1())
+                            .child(div().text_xs().text_color(text_muted()).child(
+                                chrono::DateTime::from_timestamp_millis(exec.timestamp)
+                                    .map(|d| d.format("%H:%M:%S").to_string())
+                                    .unwrap_or_default()
+                            ))
+                        )
+                        .child(div().flex().items_center().gap(px(8.0))
+                            .child(div().text_xs().text_color(success()).child(format!("{}ms", exec.latency_ms)))
+                            .child(div().text_xs().text_color(text_secondary()).child(format!("{}/{} tok", exec.tokens_in, exec.tokens_out)))
+                            .child(div().text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child(format!("${:.6}", exec.cost)))
+                        )
+                        .child(div().text_xs().text_color(text_muted()).child(preview))
+                );
+            }
+        }
+
         content
     }
 
-    fn render_stt(&self) -> Div {
+    fn render_stt(&self, cx: &mut Context<Self>) -> Div {
+        let providers = vec![
+            ("Local (Whisper)", SttProvider::Local),
+            ("OpenAI Whisper", SttProvider::OpenaiWhisper),
+            ("Groq", SttProvider::Groq),
+            ("Deepgram", SttProvider::Deepgram),
+        ];
+        let mut provider_row = div().flex().flex_wrap().gap(px(4.0));
+        for (label, provider) in providers {
+            let is_active = self.state.stt_provider == provider;
+            provider_row = provider_row.child(
+                div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                    .bg(if is_active { accent() } else { bg_tertiary() })
+                    .text_xs().text_color(if is_active { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                    .child(label.to_string())
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        this.state.stt_provider = provider;
+                    }))
+            );
+        }
+
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
             .child(div().text_xs().text_color(text_muted()).child(Icon::new(IconName::Mic)).child("Speech-to-Text"))
+            // Provider selection
+            .child(
+                div().flex().flex_col().gap(px(4.0))
+                    .child(div().text_xs().text_color(text_muted()).child("Provider"))
+                    .child(provider_row)
+            )
             .child(
                 div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                     .flex().flex_col().gap(px(6.0))
                     .child(div().text_xs().text_color(text_primary()).child("How to use"))
                     .child(div().text_xs().text_color(text_secondary()).child(
-                        "Click the 'Mic' button on any block header to start recording."
+                        "Click the Mic button on any block header to start recording."
                     ))
                     .child(div().text_xs().text_color(text_secondary()).child(
-                        "Click 'REC' again to stop. The transcription will be appended to the block."
+                        "Click again to stop. The transcription will be appended to the block."
                     ))
             )
             .child(
@@ -1927,13 +2673,9 @@ impl InkwellApp {
                         ))
                     )
                     .child(div().text_xs().text_color(text_muted()).child(
-                        format!("Server: {}", self.state.server_url)
+                        format!("Server: {} | Provider: {:?}", self.state.server_url,
+                            match self.state.stt_provider { SttProvider::Local => "Local", SttProvider::OpenaiWhisper => "OpenAI", SttProvider::Groq => "Groq", SttProvider::Deepgram => "Deepgram" })
                     ))
-            )
-            .child(
-                div().text_xs().text_color(text_muted()).child(
-                    "Requires a Whisper model loaded on a GPU server node."
-                )
             )
     }
 
@@ -1970,6 +2712,8 @@ impl InkwellApp {
                         });
                         this.state.right_tab = RightTab::Playground;
                     }))
+            )
+            .child(div().text_xs().text_color(text_muted()).child("The optimized prompt will appear in the Playground tab. Copy it back to your blocks manually.")
             )
     }
 
@@ -2102,41 +2846,145 @@ impl InkwellApp {
             )
     }
 
-    fn render_analytics(&self) -> Div {
-        let exec_count = self.state.versions.len(); // Approximate
+    fn render_analytics(&self, cx: &mut Context<Self>) -> Div {
+        let now = chrono::Utc::now().timestamp_millis();
+        let range_ms: i64 = match self.state.analytics_range {
+            AnalyticsRange::Week => 7 * 24 * 3600 * 1000,
+            AnalyticsRange::Month => 30 * 24 * 3600 * 1000,
+            AnalyticsRange::All => i64::MAX,
+        };
+        let filtered: Vec<&Execution> = self.state.executions.iter()
+            .filter(|e| now - e.timestamp < range_ms)
+            .collect();
+        let exec_count = filtered.len();
+        let total_tokens_in: u64 = filtered.iter().map(|e| e.tokens_in).sum();
+        let total_tokens_out: u64 = filtered.iter().map(|e| e.tokens_out).sum();
+        let total_cost: f64 = filtered.iter().map(|e| e.cost).sum();
+        let avg_latency = if exec_count > 0 { filtered.iter().map(|e| e.latency_ms).sum::<u64>() / exec_count as u64 } else { 0 };
         let token_count = self.state.project.token_count();
+
+        let ranges = vec![
+            ("7d", AnalyticsRange::Week), ("30d", AnalyticsRange::Month), ("All", AnalyticsRange::All),
+        ];
+        let mut range_row = div().flex().gap(px(4.0));
+        for (label, range) in ranges {
+            let is_active = self.state.analytics_range == range;
+            range_row = range_row.child(
+                div().px(px(8.0)).py(px(3.0)).rounded(px(4.0))
+                    .bg(if is_active { accent() } else { bg_tertiary() })
+                    .text_xs().text_color(if is_active { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_muted() })
+                    .child(label.to_string())
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        this.state.analytics_range = range;
+                    }))
+            );
+        }
+
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(12.0))
             .child(div().flex().items_center().gap(px(6.0))
                 .child(Icon::new(IconName::ChartPie))
-                .child(div().text_xs().text_color(text_muted()).child("Analytics")))
+                .child(div().text_xs().text_color(text_muted()).child("Analytics"))
+                .child(div().flex_1())
+                .child(range_row))
             // KPI cards
             .child(div().flex().gap(px(8.0))
-                .child(kpi_card("Versions", &exec_count.to_string(), accent()))
+                .child(kpi_card("Executions", &exec_count.to_string(), accent()))
                 .child(kpi_card("Tokens", &format!("~{token_count}"), success()))
                 .child(kpi_card("Blocks", &self.state.project.blocks.len().to_string(), text_secondary()))
             )
-            .child(div().text_xs().text_color(text_muted()).child("Run prompts in the Playground to see execution analytics."))
+            .child(div().flex().gap(px(8.0))
+                .child(kpi_card("Tokens In", &total_tokens_in.to_string(), accent()))
+                .child(kpi_card("Tokens Out", &total_tokens_out.to_string(), success()))
+                .child(kpi_card("Avg Latency", &format!("{}ms", avg_latency), hsla(50.0 / 360.0, 0.8, 0.5, 1.0)))
+            )
+            .child(
+                div().p(px(8.0)).rounded(px(6.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().items_center().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child("Total cost:"))
+                    .child(div().text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child(format!("${:.6}", total_cost)))
+                    .child(div().flex_1())
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} versions", self.state.versions.len())))
+            )
     }
 
-    fn render_collab(&self) -> Div {
-        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+    fn render_collab(&self, cx: &mut Context<Self>) -> Div {
+        let colors = vec![accent(), success(), hsla(280.0 / 360.0, 0.7, 0.6, 1.0), hsla(50.0 / 360.0, 0.8, 0.5, 1.0), danger()];
+
+        let mut content = div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
             .child(div().flex().items_center().gap(px(6.0))
                 .child(Icon::new(IconName::User))
-                .child(div().text_xs().text_color(text_muted()).child("Collaboration")))
-            .child(
+                .child(div().text_xs().text_color(text_muted()).child("Collaboration"))
+                .child(div().flex_1())
+                .child(
+                    div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                        .text_xs().text_color(text_muted()).child(Icon::new(IconName::Redo)).child("Refresh")
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            // Poll collab users from backend
+                            let server = this.state.server_url.clone();
+                            let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                            let project_id = this.state.project.id.clone();
+                            let tx = this.state.msg_tx.clone();
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let client = reqwest::Client::new();
+                                    if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
+                                        .header("Authorization", format!("Bearer {token}"))
+                                        .send().await {
+                                        if let Ok(users) = resp.json::<Vec<serde_json::Value>>().await {
+                                            let collab_users: Vec<crate::state::CollabUser> = users.iter().map(|u| {
+                                                crate::state::CollabUser {
+                                                    name: u["display_name"].as_str().unwrap_or("").to_string(),
+                                                    email: u["email"].as_str().unwrap_or("").to_string(),
+                                                    online: u["online"].as_bool().unwrap_or(false),
+                                                }
+                                            }).collect();
+                                            let _ = tx.send(AsyncMsg::CollabUsersLoaded(collab_users));
+                                        }
+                                    }
+                                });
+                            });
+                        }))
+                ));
+
+        // Current user
+        content = content.child(
+            div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                .flex().items_center().gap(px(8.0))
+                .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent())
+                    .flex().items_center().justify_center()
+                    .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                    .child(self.state.session.as_ref().map(|s| s.email.chars().next().unwrap_or('U').to_uppercase().to_string()).unwrap_or("U".into())))
+                .child(div().flex().flex_col()
+                    .child(div().text_xs().text_color(text_primary()).child(
+                        self.state.session.as_ref().map(|s| s.display_name.clone()).unwrap_or("You".into())))
+                    .child(div().text_xs().text_color(success()).child("Online (you)"))
+                )
+        );
+
+        // Other collaborators
+        for (i, user) in self.state.collab_users.iter().enumerate() {
+            let color = colors[i % colors.len()];
+            content = content.child(
                 div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                     .flex().items_center().gap(px(8.0))
-                    .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent())
+                    .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(color)
                         .flex().items_center().justify_center()
                         .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
-                        .child(self.state.session.as_ref().map(|s| s.email.chars().next().unwrap_or('U').to_uppercase().to_string()).unwrap_or("U".into())))
+                        .child(user.name.chars().next().unwrap_or('?').to_uppercase().to_string()))
                     .child(div().flex().flex_col()
-                        .child(div().text_xs().text_color(text_primary()).child(
-                            self.state.session.as_ref().map(|s| s.display_name.clone()).unwrap_or("You".into())))
-                        .child(div().text_xs().text_color(success()).child("Online"))
+                        .child(div().text_xs().text_color(text_primary()).child(user.name.clone()))
+                        .child(div().text_xs().text_color(if user.online { success() } else { text_muted() })
+                            .child(if user.online { "Online" } else { "Offline" }))
                     )
-            )
-            .child(div().text_xs().text_color(text_muted()).child("Other users editing this project will appear here."))
+            );
+        }
+
+        if self.state.collab_users.is_empty() {
+            content = content.child(div().text_xs().text_color(text_muted()).child("Click Refresh to check for collaborators."));
+        }
+
+        content
     }
 
     fn render_chain(&self, cx: &mut Context<Self>) -> Div {
@@ -2190,7 +3038,7 @@ impl InkwellApp {
 
     fn render_settings(&self, cx: &mut Context<Self>) -> Div {
         let lang = self.state.lang.clone();
-        div().h(px(200.0)).flex_shrink_0()
+        div().h(px(280.0)).flex_shrink_0()
             .border_t_1().border_color(border_c()).bg(bg_secondary())
             .p(px(16.0)).flex().flex_col().gap(px(12.0))
             .child(
@@ -2236,24 +3084,142 @@ impl InkwellApp {
                             .child(self.state.server_url.clone()))
                     )
                     // API Keys
-                    .child(div().flex().flex_col().gap(px(4.0))
+                    .child(div().flex().flex_col().gap(px(6.0))
                         .child(div().text_xs().text_color(text_muted()).child("API Keys"))
-                        .child(div().text_xs().text_color(text_muted()).child(
-                            format!("OpenAI: {} | Anthropic: {} | Google: {}",
-                                if self.state.api_key_openai.is_empty() { "not set" } else { "set" },
-                                if self.state.api_key_anthropic.is_empty() { "not set" } else { "set" },
-                                if self.state.api_key_google.is_empty() { "not set" } else { "set" },
-                            )
-                        ))
+                        .child(div().flex().items_center().gap(px(6.0))
+                            .child(div().w(px(60.0)).text_xs().text_color(text_muted()).child("OpenAI"))
+                            .child({
+                                if let Some(ref entity) = self.state.api_key_openai_input {
+                                    div().flex_1().child(Input::new(entity))
+                                } else {
+                                    div().flex_1().text_xs().text_color(text_muted()).child("not set")
+                                }
+                            })
+                        )
+                        .child(div().flex().items_center().gap(px(6.0))
+                            .child(div().w(px(60.0)).text_xs().text_color(text_muted()).child("Anthropic"))
+                            .child({
+                                if let Some(ref entity) = self.state.api_key_anthropic_input {
+                                    div().flex_1().child(Input::new(entity))
+                                } else {
+                                    div().flex_1().text_xs().text_color(text_muted()).child("not set")
+                                }
+                            })
+                        )
+                        .child(div().flex().items_center().gap(px(6.0))
+                            .child(div().w(px(60.0)).text_xs().text_color(text_muted()).child("Google"))
+                            .child({
+                                if let Some(ref entity) = self.state.api_key_google_input {
+                                    div().flex_1().child(Input::new(entity))
+                                } else {
+                                    div().flex_1().text_xs().text_color(text_muted()).child("not set")
+                                }
+                            })
+                        )
+                        .child(
+                            div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
+                                .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                                .flex().items_center().justify_center().child("Save keys")
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    if let Some(ref e) = this.state.api_key_openai_input {
+                                        let v = e.read(cx).value().to_string();
+                                        if !v.is_empty() { this.state.api_key_openai = v; }
+                                    }
+                                    if let Some(ref e) = this.state.api_key_anthropic_input {
+                                        let v = e.read(cx).value().to_string();
+                                        if !v.is_empty() { this.state.api_key_anthropic = v; }
+                                    }
+                                    if let Some(ref e) = this.state.api_key_google_input {
+                                        let v = e.read(cx).value().to_string();
+                                        if !v.is_empty() { this.state.api_key_google = v; }
+                                    }
+                                }))
+                        )
+                    )
+                    // GitHub repo
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("GitHub Repo"))
+                        .child({
+                            if let Some(ref entity) = self.state.github_repo_input {
+                                div().child(Input::new(entity))
+                            } else {
+                                div().text_xs().text_color(text_muted()).child("owner/repo")
+                            }
+                        })
                     )
             )
             .child(
                 div().flex().gap(px(8.0))
-                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+, to toggle settings"))
-                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+N new project"))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+, settings"))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+N new"))
                     .child(div().text_xs().text_color(text_muted()).child("Ctrl+` terminal"))
-                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+Enter run prompt"))
+                    .child(div().text_xs().text_color(text_muted()).child("Ctrl+Enter run"))
+                    .child(div().flex_1())
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(danger())
+                            .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child("Logout")
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                this.state.session = None;
+                                this.state.screen = Screen::Auth;
+                                this.state.projects.clear();
+                                this.state.workspaces.clear();
+                                crate::persistence::save_session(&crate::persistence::SavedSession {
+                                    server_url: this.state.server_url.clone(),
+                                    token: String::new(),
+                                    email: String::new(),
+                                    dark_mode: this.state.dark_mode,
+                                    lang: this.state.lang.clone(),
+                                    last_project_id: None,
+                                    left_open: this.state.left_open,
+                                    right_open: this.state.right_open,
+                                });
+                            }))
+                    )
             )
+    }
+
+    fn render_profile(&self, cx: &mut Context<Self>) -> Div {
+        let session = self.state.session.as_ref();
+        let email = session.map(|s| s.email.clone()).unwrap_or_default();
+        let display_name = session.map(|s| s.display_name.clone()).unwrap_or("User".into());
+        let initial = email.chars().next().unwrap_or('U').to_uppercase().to_string();
+
+        div().h(px(180.0)).flex_shrink_0()
+            .border_t_1().border_color(border_c()).bg(bg_secondary())
+            .p(px(16.0)).flex().flex_col().gap(px(12.0))
+            .child(
+                div().flex().items_center().gap(px(8.0))
+                    .child(div().text_sm().text_color(text_primary()).child(Icon::new(IconName::User)).child("Profile"))
+                    .child(div().flex_1())
+                    .child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                            .text_xs().text_color(text_muted()).child(Icon::new(IconName::Close)).child("Close")
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                                this.state.show_profile = false;
+                            }))
+                    )
+            )
+            .child(
+                div().flex().items_center().gap(px(16.0))
+                    .child(
+                        div().w(px(48.0)).h(px(48.0)).rounded(px(24.0)).bg(accent())
+                            .flex().items_center().justify_center()
+                            .text_xl().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                            .child(initial)
+                    )
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_sm().text_color(text_primary()).child(display_name))
+                        .child(div().text_xs().text_color(text_secondary()).child(email))
+                        .child(div().text_xs().text_color(success()).child("Connected"))
+                    )
+            )
+            .child(
+                div().flex().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("Server: {}", self.state.server_url)))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} projects", self.state.projects.len())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} workspaces", self.state.workspaces.len())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} executions", self.state.executions.len())))
+                )
     }
 
     fn render_terminal(&mut self, cx: &mut Context<Self>) -> Div {
@@ -2416,18 +3382,34 @@ impl InkwellApp {
                             })))
                     )
                     .child(div().flex().gap(px(6.0))
-                        .child(div().flex_1().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
-                            .border_1().border_color(border_c()).flex().items_center()
-                            .text_xs().text_color(text_secondary())
-                            .child(if self.state.ssh_host.is_empty() { "host".to_string() } else { self.state.ssh_host.clone() }))
-                        .child(div().w(px(50.0)).h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
-                            .border_1().border_color(border_c()).flex().items_center()
-                            .text_xs().text_color(text_secondary()).child(self.state.ssh_port.clone()))
+                        .child({
+                            if let Some(ref entity) = self.state.ssh_host_input {
+                                div().flex_1().child(Input::new(entity))
+                            } else {
+                                div().flex_1().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                                    .border_1().border_color(border_c()).flex().items_center()
+                                    .text_xs().text_color(text_muted()).child("host")
+                            }
+                        })
+                        .child({
+                            if let Some(ref entity) = self.state.ssh_port_input {
+                                div().w(px(60.0)).child(Input::new(entity))
+                            } else {
+                                div().w(px(60.0)).h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                                    .border_1().border_color(border_c()).flex().items_center()
+                                    .text_xs().text_color(text_secondary()).child("22")
+                            }
+                        })
                     )
-                    .child(div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
-                        .border_1().border_color(border_c()).flex().items_center()
-                        .text_xs().text_color(text_secondary())
-                        .child(if self.state.ssh_user.is_empty() { "username".to_string() } else { self.state.ssh_user.clone() }))
+                    .child({
+                        if let Some(ref entity) = self.state.ssh_user_input {
+                            div().child(Input::new(entity))
+                        } else {
+                            div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
+                                .border_1().border_color(border_c()).flex().items_center()
+                                .text_xs().text_color(text_muted()).child("username")
+                        }
+                    })
                     .child(
                         div().py(px(6.0)).bg(accent()).rounded(px(6.0))
                             .flex().items_center().justify_center().gap(px(6.0))
@@ -2435,10 +3417,19 @@ impl InkwellApp {
                             .child(Icon::new(IconName::Globe))
                             .child("Connect")
                             .cursor_pointer()
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                                let host = if this.state.ssh_host.is_empty() { "localhost".to_string() } else { this.state.ssh_host.clone() };
-                                let user = if this.state.ssh_user.is_empty() { "root".to_string() } else { this.state.ssh_user.clone() };
-                                let port = this.state.ssh_port.clone();
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                let host = this.state.ssh_host_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| "localhost".into());
+                                let user = this.state.ssh_user_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| "root".into());
+                                let port = this.state.ssh_port_input.as_ref()
+                                    .map(|i| i.read(cx).value().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| "22".into());
                                 let (input_tx, input_rx) = std::sync::mpsc::channel::<String>();
                                 this.state.terminal_sessions.push(crate::state::TerminalSession {
                                     label: format!("{}@{}", user, host),
@@ -2488,17 +3479,22 @@ impl InkwellApp {
     }
 
     fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {
-        let chars = self.state.project.char_count();
-        let words = self.state.project.word_count();
+        let compiled = self.state.project.compiled_prompt();
+        let chars = compiled.len();
+        let words = if compiled.is_empty() { 0 } else { compiled.split_whitespace().count() };
+        let lines = compiled.lines().count();
         let tokens = self.state.project.token_count();
+        let cost = tokens as f64 * 0.000003; // Approximate input cost
         let enabled = self.state.project.blocks.iter().filter(|b| b.enabled).count();
         let total = self.state.project.blocks.len();
 
         div().h(px(28.0)).px(px(12.0)).flex().items_center().gap(px(10.0))
             .border_t_1().border_color(border_c()).bg(bg_secondary())
-            .child(div().text_xs().text_color(text_muted()).child(format!("{chars} chars")))
-            .child(div().text_xs().text_color(text_muted()).child(format!("{words} words")))
+            .child(div().text_xs().text_color(text_muted()).child(format!("{chars} car.")))
+            .child(div().text_xs().text_color(text_muted()).child(format!("{words} mots")))
+            .child(div().text_xs().text_color(text_muted()).child(format!("{lines} lignes")))
             .child(div().text_xs().text_color(text_muted()).child(format!("~{tokens} tokens")))
+            .child(div().text_xs().text_color(text_muted()).child(format!("~${cost:.6}")))
             .child({
                 let max_ctx = 128000u64;
                 let pct = (tokens as f64 / max_ctx as f64 * 100.0).min(100.0);
@@ -2509,7 +3505,7 @@ impl InkwellApp {
             })
             .child(div().text_xs().text_color(text_muted()).child(format!("{:.1}%", tokens as f64 / 128000.0 * 100.0)))
             .child(div().w(px(1.0)).h(px(12.0)).bg(border_c()))
-            .child(div().text_xs().text_color(text_muted()).child(format!("{enabled}/{total} blocks")))
+            .child(div().text_xs().text_color(text_muted()).child(format!("{enabled}/{total} blocs")))
             .child(div().flex_1())
             // Terminal button
             .child(

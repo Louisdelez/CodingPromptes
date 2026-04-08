@@ -1,0 +1,33 @@
+use crate::types::PromptBlock;
+use std::collections::HashMap;
+
+pub fn compile_prompt(blocks: &[PromptBlock], variables: &HashMap<String, String>) -> String {
+    let mut result = String::new();
+    for block in blocks {
+        if !block.enabled { continue; }
+        let mut content = block.content.clone();
+        for (key, value) in variables {
+            content = content.replace(&format!("{{{{{key}}}}}"), value);
+        }
+        if !result.is_empty() && !content.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(&content);
+    }
+    result
+}
+
+pub fn extract_variables(blocks: &[PromptBlock]) -> Vec<String> {
+    let mut vars = Vec::new();
+    let re = regex_lite::Regex::new(r"\{\{(\w+)\}\}").unwrap();
+    for block in blocks {
+        if !block.enabled { continue; }
+        for cap in re.captures_iter(&block.content) {
+            let var = cap.get(1).unwrap().as_str().to_string();
+            if !vars.contains(&var) {
+                vars.push(var);
+            }
+        }
+    }
+    vars
+}

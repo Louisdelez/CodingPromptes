@@ -536,16 +536,50 @@ impl InkwellApp {
         );
 
         // Workspaces
+        content = content.child(
+            div().flex().items_center().gap(px(4.0))
+                .child(Icon::new(IconName::FolderOpen))
+                .child(div().text_xs().text_color(text_muted()).child("Workspaces"))
+                .child(div().flex_1())
+                .child(
+                    div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+                        .child(Icon::new(IconName::Plus))
+                        .text_color(text_muted())
+                        .cursor_pointer().hover(|s| s.bg(accent_bg()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                            let name = format!("Workspace {}", this.state.workspaces.len() + 1);
+                            let colors = vec!["#6366f1","#8b5cf6","#ec4899","#22c55e","#06b6d4","#f97316"];
+                            let color = colors[this.state.workspaces.len() % colors.len()].to_string();
+                            let ws = inkwell_core::types::Workspace {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                name: name.clone(), description: String::new(), color,
+                                constitution: None,
+                                created_at: chrono::Utc::now().timestamp_millis(),
+                                updated_at: chrono::Utc::now().timestamp_millis(),
+                            };
+                            this.state.workspaces.push(ws);
+                        }))
+                )
+        );
+        for ws in &self.state.workspaces {
+            let color = hex_to_hsla(&ws.color);
+            let ws_id = ws.id.clone();
+            content = content.child(
+                div().px(px(8.0)).py(px(6.0)).rounded(px(4.0))
+                    .flex().items_center().gap(px(6.0))
+                    .hover(|s| s.bg(bg_tertiary()))
+                    .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
+                    .child(div().flex_1().text_xs().text_color(text_primary()).child(ws.name.clone()))
+                    .child(
+                        div().text_xs().text_color(danger()).child(Icon::new(IconName::Close))
+                            .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.75, 0.55, 0.15)))
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                                this.state.workspaces.retain(|w| w.id != ws_id);
+                            }))
+                    )
+            );
+        }
         if !self.state.workspaces.is_empty() {
-            for ws in &self.state.workspaces {
-                let color = hex_to_hsla(&ws.color);
-                content = content.child(
-                    div().px(px(8.0)).py(px(6.0)).rounded(px(4.0))
-                        .flex().items_center().gap(px(6.0))
-                        .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
-                        .child(div().text_xs().text_color(text_primary()).child(ws.name.clone()))
-                );
-            }
             content = content.child(div().h(px(1.0)).bg(border_c()));
         }
 
@@ -1400,7 +1434,7 @@ impl InkwellApp {
             .flex().flex_col()
             .child(tab_bar)
             .child(match self.state.right_tab {
-                RightTab::Preview => self.render_preview(),
+                RightTab::Preview => self.render_preview(cx),
                 RightTab::Playground => self.render_playground(cx),
                 RightTab::Fleet => self.render_fleet(cx),
                 RightTab::Export => self.render_export(cx),
@@ -1416,7 +1450,7 @@ impl InkwellApp {
             })
     }
 
-    fn render_preview(&self) -> Div {
+    fn render_preview(&self, cx: &mut Context<Self>) -> Div {
         let compiled = self.state.project.compiled_prompt();
         let lines = compiled.lines().count();
         let chars = compiled.len();
@@ -1427,10 +1461,18 @@ impl InkwellApp {
                     .child(Icon::new(IconName::Eye))
                     .child(div().text_xs().text_color(text_muted()).child("Compiled Prompt"))
                     .child(div().flex_1())
-                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
-                        .text_xs().text_color(accent()).child("Copy")
-                        .cursor_pointer().hover(|s| s.bg(accent_bg()))
-                    )
+                    .child({
+                        let compiled_copy = self.state.project.compiled_prompt();
+                        div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                            .text_xs().text_color(accent())
+                            .flex().items_center().gap(px(4.0))
+                            .child(Icon::new(IconName::Copy))
+                            .child("Copy")
+                            .cursor_pointer().hover(|s| s.bg(accent_bg()))
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |_this, _, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(compiled_copy.clone()));
+                            }))
+                    })
                 )
                     .child(div().flex_1())
                     .child(div().text_xs().text_color(text_muted()).child(format!("{lines} lines / {chars} chars")))
@@ -1452,17 +1494,45 @@ impl InkwellApp {
         let mut model_list = div().flex().flex_col().gap(px(2.0));
         for model in &models {
             let model_str = model.to_string();
+            let is_selected = self.state.playground_selected_models.contains(&model_str);
             let is_active = self.state.selected_model == *model;
             model_list = model_list.child(
                 div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                    .flex().items_center().gap(px(6.0))
                     .text_xs().text_color(if is_active { accent() } else { text_secondary() })
-                    .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                    .bg(if is_active { accent_bg() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                    .hover(|s| s.bg(bg_tertiary()))
+                    .child(div().w(px(12.0)).h(px(12.0)).rounded(px(2.0))
+                        .border_1().border_color(if is_selected { accent() } else { border_c() })
+                        .bg(if is_selected { accent() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                        .flex().items_center().justify_center()
+                        .child(if is_selected { Icon::new(IconName::Check).text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)) } else { Icon::new(IconName::Check).text_color(hsla(0.0, 0.0, 0.0, 0.0)) })
+                    )
                     .child(model_str.clone())
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
                         this.state.selected_model = model_str.clone();
+                        // Toggle in selected models list
+                        let ms = model_str.clone();
+                        if this.state.playground_selected_models.contains(&ms) {
+                            this.state.playground_selected_models.retain(|m| m != &ms);
+                        } else {
+                            this.state.playground_selected_models.push(ms);
+                        }
                     }))
             );
         }
+
+        // Temperature + Max tokens
+        model_list = model_list
+            .child(div().h(px(1.0)).bg(border_c()).my(px(4.0)))
+            .child(div().flex().items_center().gap(px(8.0))
+                .child(div().text_xs().text_color(text_muted()).child("Temp:"))
+                .child(div().text_xs().text_color(text_primary()).child(format!("{:.1}", self.state.playground_temperature)))
+            )
+            .child(div().flex().items_center().gap(px(8.0))
+                .child(div().text_xs().text_color(text_muted()).child("Tokens:"))
+                .child(div().text_xs().text_color(text_primary()).child(format!("{}", self.state.playground_max_tokens)))
+            );
 
         div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
             .child(div().text_xs().text_color(text_muted()).child(Icon::new(IconName::Bot)).child("Select Model"))

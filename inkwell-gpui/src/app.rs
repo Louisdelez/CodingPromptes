@@ -80,22 +80,50 @@ impl InkwellApp {
         let mut main_row = div().flex_1().flex().overflow_hidden();
         if self.state.left_open { main_row = main_row.child(self.render_sidebar(cx)); }
         main_row = main_row.child(self.render_editor(cx));
-        if self.state.right_open { main_row = main_row.child(self.render_right_panel()); }
+        if self.state.right_open { main_row = main_row.child(self.render_right_panel(cx)); }
 
         div().size_full().bg(bg_primary()).flex().flex_col()
-            .child(self.render_header())
+            .child(self.render_header(cx))
             .child(main_row)
-            .child(self.render_bottom_bar())
+            .child(self.render_bottom_bar(cx))
     }
 
-    fn render_header(&self) -> Div {
-        div().h(px(40.0)).px(px(16.0)).flex().items_center().gap(px(12.0))
+    fn render_header(&self, cx: &mut Context<Self>) -> Div {
+        div().h(px(40.0)).px(px(12.0)).flex().items_center().gap(px(8.0))
             .border_b_1().border_color(border_c()).bg(bg_secondary())
+            // Toggle left sidebar
+            .child(
+                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                    .text_color(if self.state.left_open { text_secondary() } else { text_muted() })
+                    .child(if self.state.left_open { "[<]" } else { "[>]" })
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.left_open = !this.state.left_open;
+                    }))
+            )
             .child(div().text_sm().text_color(accent()).child("Inkwell"))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
             .child(div().text_sm().text_color(text_primary()).child(self.state.project.name.clone()))
             .child(div().flex_1())
+            // Framework badge
+            .children(self.state.project.framework.as_ref().map(|f| {
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                    .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1))
+                    .text_xs().text_color(accent()).child(f.clone())
+            }))
+            // Session info
+            .children(self.state.session.as_ref().map(|s| {
+                div().text_xs().text_color(text_muted()).child(s.email.clone())
+            }))
             .child(div().text_xs().text_color(success()).child("GPUI"))
+            // Toggle right panel
+            .child(
+                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                    .text_color(if self.state.right_open { text_secondary() } else { text_muted() })
+                    .child(if self.state.right_open { "[>]" } else { "[<]" })
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.right_open = !this.state.right_open;
+                    }))
+            )
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> Div {
@@ -320,40 +348,170 @@ impl InkwellApp {
             .child(div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0)).child(block_list))
     }
 
-    fn render_right_panel(&self) -> Div {
-        let compiled = self.state.project.compiled_prompt();
+    fn render_right_panel(&self, cx: &mut Context<Self>) -> Div {
+        let tabs = vec![
+            ("Preview", RightTab::Preview), ("Playground", RightTab::Playground),
+            ("STT", RightTab::Stt), ("GPU", RightTab::Fleet), ("Terminal", RightTab::Terminal),
+            ("Export", RightTab::Export), ("History", RightTab::History),
+        ];
+
+        let mut tab_bar = div().h(px(36.0)).px(px(6.0)).flex().items_center().gap(px(2.0))
+            .border_b_1().border_color(border_c());
+        for (label, tab) in tabs {
+            let is_active = self.state.right_tab == tab;
+            tab_bar = tab_bar.child(
+                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
+                    .text_color(if is_active { accent() } else { text_muted() })
+                    .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                    .child(label.to_string())
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        this.state.right_tab = tab;
+                    }))
+            );
+        }
+
         div().w(px(380.0)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col()
+            .child(tab_bar)
+            .child(match self.state.right_tab {
+                RightTab::Preview => self.render_preview(),
+                RightTab::Playground => self.render_playground(cx),
+                RightTab::Fleet => self.render_fleet(),
+                RightTab::Export => self.render_export(),
+                RightTab::History => self.render_history(),
+                _ => div().flex_1().p(px(12.0)).child(div().text_xs().text_color(text_muted()).child("Coming soon...")),
+            })
+    }
+
+    fn render_preview(&self) -> Div {
+        let compiled = self.state.project.compiled_prompt();
+        let lines = compiled.lines().count();
+        let chars = compiled.len();
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
             .child(
-                div().h(px(36.0)).px(px(8.0)).flex().items_center().gap(px(4.0))
-                    .border_b_1().border_color(border_c())
-                    .child(div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
-                        .text_color(accent()).bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)).child("Preview"))
-                    .child(div().px(px(8.0)).py(px(4.0)).text_xs().text_color(text_muted()).child("Playground"))
-                    .child(div().px(px(8.0)).py(px(4.0)).text_xs().text_color(text_muted()).child("Terminal"))
+                div().flex().items_center().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child("Compiled Prompt"))
+                    .child(div().flex_1())
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{lines} lines / {chars} chars")))
             )
             .child(
-                div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
-                    .child(div().text_xs().text_color(text_muted()).child("Compiled Prompt"))
-                    .child(
-                        div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary())
-                            .border_1().border_color(border_c())
-                            .text_xs().text_color(text_primary())
-                            .child(if compiled.is_empty() { "No content yet...".into() } else { compiled })
-                    )
+                div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary())
+                    .border_1().border_color(border_c())
+                    .text_xs().text_color(text_primary())
+                    .child(if compiled.is_empty() { "No content yet...".into() } else { compiled })
             )
     }
 
-    fn render_bottom_bar(&self) -> Div {
+    fn render_playground(&self, cx: &mut Context<Self>) -> Div {
+        let models = vec![
+            "gpt-4o-mini", "gpt-4o", "gpt-4.1", "claude-sonnet-4-6", "claude-opus-4-6",
+            "gemini-2.5-pro", "gemini-2.5-flash",
+        ];
+
+        let mut model_list = div().flex().flex_col().gap(px(2.0));
+        for model in &models {
+            let model_str = model.to_string();
+            let is_active = self.state.selected_model == *model;
+            model_list = model_list.child(
+                div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                    .text_xs().text_color(if is_active { accent() } else { text_secondary() })
+                    .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                    .child(model_str.clone())
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
+                        this.state.selected_model = model_str.clone();
+                    }))
+            );
+        }
+
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(10.0))
+            .child(div().text_xs().text_color(text_muted()).child("Select Model"))
+            .child(model_list)
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child(
+                div().py(px(10.0)).bg(accent()).rounded(px(8.0))
+                    .flex().items_center().justify_center()
+                    .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0)).child("Run prompt")
+            )
+            .child(
+                div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary())
+                    .border_1().border_color(border_c())
+                    .text_xs().text_color(text_muted()).child("Response will appear here...")
+            )
+    }
+
+    fn render_fleet(&self) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
+            .child(div().text_xs().text_color(text_muted()).child("GPU Nodes"))
+            .child(
+                div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().flex_col().gap(px(4.0))
+                    .child(div().flex().items_center().gap(px(6.0))
+                        .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(success()))
+                        .child(div().text_xs().text_color(text_primary()).child("Local server"))
+                    )
+                    .child(div().text_xs().text_color(text_muted()).child(self.state.server_url.clone()))
+            )
+            .child(
+                div().text_xs().text_color(text_muted()).child("Connect more GPU servers in the GPU Server app")
+            )
+    }
+
+    fn render_export(&self) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
+            .child(div().text_xs().text_color(text_muted()).child("Export"))
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child("Export .specify/ (Spec Kit compatible)")
+            )
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child("Export JSON")
+            )
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child("Export Markdown")
+            )
+            .child(
+                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                    .child("Copy to clipboard")
+            )
+    }
+
+    fn render_history(&self) -> Div {
+        div().flex_1().p(px(12.0)).flex().flex_col().gap(px(8.0))
+            .child(div().text_xs().text_color(text_muted()).child("Execution History"))
+            .child(div().text_xs().text_color(text_muted()).child("No executions yet. Run a prompt in the Playground."))
+    }
+
+    fn render_bottom_bar(&self, cx: &mut Context<Self>) -> Div {
         let chars = self.state.project.char_count();
         let words = self.state.project.word_count();
         let tokens = self.state.project.token_count();
-        div().h(px(28.0)).px(px(12.0)).flex().items_center().gap(px(12.0))
+        let enabled = self.state.project.blocks.iter().filter(|b| b.enabled).count();
+        let total = self.state.project.blocks.len();
+
+        div().h(px(28.0)).px(px(12.0)).flex().items_center().gap(px(10.0))
             .border_t_1().border_color(border_c()).bg(bg_secondary())
             .child(div().text_xs().text_color(text_muted()).child(format!("{chars} chars")))
             .child(div().text_xs().text_color(text_muted()).child(format!("{words} words")))
             .child(div().text_xs().text_color(text_muted()).child(format!("~{tokens} tokens")))
+            .child(div().w(px(1.0)).h(px(12.0)).bg(border_c()))
+            .child(div().text_xs().text_color(text_muted()).child(format!("{enabled}/{total} blocks")))
             .child(div().flex_1())
+            // Terminal button
+            .child(
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).text_xs()
+                    .text_color(text_muted()).child("Terminal")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
+                        this.state.right_tab = RightTab::Terminal;
+                        this.state.right_open = true;
+                    }))
+            )
+            .child(div().w(px(1.0)).h(px(12.0)).bg(border_c()))
             .child(div().text_xs().text_color(text_secondary()).child(self.state.selected_model.clone()))
     }
 }

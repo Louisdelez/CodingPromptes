@@ -58,6 +58,7 @@ export function createRecorder(): {
   start: () => Promise<void>;
   stop: () => Promise<Blob>;
   isRecording: () => boolean;
+  getStream: () => MediaStream | null;
 } {
   let mediaRecorder: MediaRecorder | null = null;
   let stream: MediaStream | null = null;
@@ -94,6 +95,7 @@ export function createRecorder(): {
     },
 
     isRecording: () => mediaRecorder?.state === 'recording',
+    getStream: () => stream,
   };
 }
 

@@ -15,11 +15,18 @@ import {
   Mic,
   MicOff,
   Loader2,
+  Sparkles,
+  Wand2,
+  HelpCircle,
 } from 'lucide-react';
 import type { PromptBlock as PromptBlockType } from '../lib/types';
-import { BLOCK_CONFIG } from '../lib/types';
+import { BLOCK_CONFIG, MODELS } from '../lib/types';
 import { BlockEditor } from './BlockEditor';
 import { createRecorder, transcribe, getSttConfig } from '../lib/stt';
+import { callLLM } from '../lib/api';
+import { getApiKeys } from '../lib/db';
+import { buildGeneratePrompt, buildImprovePrompt, buildClarifyPrompt } from '../lib/sdd-prompts';
+import { AudioBars } from './AudioBars';
 import { useT, type TranslationKey } from '../lib/i18n';
 
 const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
@@ -33,21 +40,64 @@ const ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
 
 interface PromptBlockProps {
   block: PromptBlockType;
+  allBlocks?: PromptBlockType[];
   onUpdate: (changes: Partial<PromptBlockType>) => void;
   onRemove: () => void;
   onToggle: () => void;
   variables: string[];
 }
 
-export function PromptBlockComponent({ block, onUpdate, onRemove, onToggle, variables }: PromptBlockProps) {
+export function PromptBlockComponent({ block, allBlocks, onUpdate, onRemove, onToggle, variables }: PromptBlockProps) {
   const t = useT();
   const config = BLOCK_CONFIG[block.type];
   const Icon = ICONS[config.icon];
 
+  const isSddBlock = block.type.startsWith('sdd-');
+
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [sttError, setSttError] = useState<string | null>(null);
+  const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const [sddLoading, setSddLoading] = useState<string | null>(null); // 'generate' | 'improve' | 'clarify'
+  const [clarifyResult, setClarifyResult] = useState<string | null>(null);
   const recorderRef = useRef(createRecorder());
+
+  const handleSddAction = useCallback(async (action: 'generate' | 'improve' | 'clarify') => {
+    if (!allBlocks) return;
+    setSddLoading(action);
+    setClarifyResult(null);
+    try {
+      const model = MODELS[1]; // gpt-4o-mini default
+      const apiKeys = getApiKeys();
+      let systemPrompt: string, userPrompt: string;
+
+      if (action === 'generate') {
+        ({ systemPrompt, userPrompt } = buildGeneratePrompt(allBlocks, block.type));
+      } else if (action === 'improve') {
+        ({ systemPrompt, userPrompt } = buildImprovePrompt(allBlocks, block.type, block.content));
+      } else {
+        ({ systemPrompt, userPrompt } = buildClarifyPrompt(allBlocks, block.type, block.content));
+      }
+
+      const result = await callLLM(userPrompt, model, apiKeys, {
+        systemPrompt,
+        temperature: action === 'clarify' ? 0.5 : 0.3,
+        maxTokens: 4096,
+      });
+
+      if (result.text) {
+        if (action === 'clarify') {
+          setClarifyResult(result.text);
+        } else {
+          onUpdate({ content: result.text });
+        }
+      }
+    } catch (err) {
+      console.error('SDD action error:', err);
+    } finally {
+      setSddLoading(null);
+    }
+  }, [allBlocks, block.type, block.content, onUpdate]);
 
   const handleMicClick = useCallback(async () => {
     setSttError(null);
@@ -55,6 +105,7 @@ export function PromptBlockComponent({ block, onUpdate, onRemove, onToggle, vari
     if (recording) {
       // Stop recording and transcribe
       setRecording(false);
+      setAudioStream(null);
       setTranscribing(true);
 
       try {
@@ -83,6 +134,7 @@ export function PromptBlockComponent({ block, onUpdate, onRemove, onToggle, vari
         recorderRef.current = createRecorder();
         await recorderRef.current.start();
         setRecording(true);
+        setAudioStream(recorderRef.current.getStream());
       } catch (err) {
         setSttError(err instanceof Error ? err.message : 'Impossible d\'acceder au micro');
         setTimeout(() => setSttError(null), 4000);
@@ -129,13 +181,16 @@ export function PromptBlockComponent({ block, onUpdate, onRemove, onToggle, vari
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Audio waveform bars when recording */}
+          {recording && <AudioBars stream={audioStream} barCount={5} height={18} />}
+
           {/* Mic button - always visible */}
           <button
             onClick={handleMicClick}
             disabled={transcribing}
             className={`p-1 rounded transition-all ${
               recording
-                ? 'bg-[var(--color-danger)]/20 text-[var(--color-danger)] animate-pulse'
+                ? 'bg-[var(--color-danger)]/20 text-[var(--color-danger)]'
                 : transcribing
                 ? 'text-[var(--color-accent)]'
                 : 'text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] opacity-0 group-hover:opacity-100'
@@ -150,6 +205,36 @@ export function PromptBlockComponent({ block, onUpdate, onRemove, onToggle, vari
               <Mic size={14} />
             )}
           </button>
+
+          {/* SDD action buttons */}
+          {isSddBlock && allBlocks && (
+            <>
+              <button
+                onClick={() => handleSddAction('generate')}
+                disabled={!!sddLoading}
+                className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] opacity-0 group-hover:opacity-100 transition-all"
+                title={t('sdd.generate')}
+              >
+                {sddLoading === 'generate' ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+              </button>
+              <button
+                onClick={() => handleSddAction('improve')}
+                disabled={!!sddLoading}
+                className="p-1 rounded text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] opacity-0 group-hover:opacity-100 transition-all"
+                title={t('sdd.improve')}
+              >
+                {sddLoading === 'improve' ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              </button>
+              <button
+                onClick={() => handleSddAction('clarify')}
+                disabled={!!sddLoading}
+                className="p-1 rounded text-[var(--color-text-muted)] hover:text-yellow-400 hover:bg-[var(--color-bg-hover)] opacity-0 group-hover:opacity-100 transition-all"
+                title={t('sdd.clarify')}
+              >
+                {sddLoading === 'clarify' ? <Loader2 size={14} className="animate-spin" /> : <HelpCircle size={14} />}
+              </button>
+            </>
+          )}
 
           {/* Toggle & Delete - visible on hover */}
           <button
@@ -192,6 +277,17 @@ export function PromptBlockComponent({ block, onUpdate, onRemove, onToggle, vari
           placeholder={t(`placeholder.${block.type}` as TranslationKey)}
           variables={variables}
         />
+
+        {/* Clarify result */}
+        {clarifyResult && (
+          <div className="mx-3 mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-xs text-[var(--color-text-primary)] space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-yellow-400">{t('sdd.clarifyResult')}</span>
+              <button onClick={() => setClarifyResult(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">&times;</button>
+            </div>
+            <pre className="whitespace-pre-wrap text-[11px] leading-relaxed">{clarifyResult}</pre>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -61,6 +61,12 @@ pub struct UpdateNodeReq { pub name: Option<String> }
 #[derive(Deserialize)]
 pub struct RouteQuery { pub capability: Option<String>, pub model: Option<String> }
 
+#[derive(Deserialize)]
+pub struct GitExecReq { pub cmd: String, pub args: Vec<String> }
+
+#[derive(Serialize)]
+pub struct GitExecResp { pub output: String }
+
 fn now() -> i64 { chrono::Utc::now().timestamp_millis() }
 fn new_id() -> String { uuid::Uuid::new_v4().to_string() }
 
@@ -104,6 +110,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/frameworks", get(list_frameworks).post(create_framework))
         .route("/frameworks/{id}", put(update_framework).delete(delete_framework))
         .route("/config", get(get_config).put(set_config))
+        // Git
+        .route("/git/exec", post(git_exec))
         // GPU Nodes (Fleet)
         .route("/nodes", get(list_nodes).post(register_node))
         .route("/nodes/route", get(route_node))
@@ -290,6 +298,32 @@ async fn set_config(State(state): State<Arc<AppState>>, auth: AuthUser, Json(req
         db.set_config(&auth.user_id, key, value);
     }
     StatusCode::OK
+}
+
+// --- Git handler ---
+
+async fn git_exec(Json(req): Json<GitExecReq>) -> Result<Json<GitExecResp>, (StatusCode, String)> {
+    if req.cmd != "git" {
+        return Err((StatusCode::BAD_REQUEST, "Only git commands allowed".into()));
+    }
+    // Block dangerous git commands
+    let blocked = ["push", "remote", "config", "--global"];
+    for arg in &req.args {
+        if blocked.contains(&arg.as_str()) {
+            return Err((StatusCode::FORBIDDEN, format!("Command blocked: {arg}")));
+        }
+    }
+    let output = std::process::Command::new("git")
+        .args(&req.args)
+        .output()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Git exec error: {e}")))?;
+
+    if output.status.success() {
+        Ok(Json(GitExecResp { output: String::from_utf8_lossy(&output.stdout).to_string() }))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        Err((StatusCode::BAD_REQUEST, stderr))
+    }
 }
 
 // --- GPU Node handlers ---

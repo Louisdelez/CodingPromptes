@@ -321,6 +321,22 @@ export const translations = {
   'stt.selectNode': { fr: 'Node GPU pour Whisper', en: 'GPU node for Whisper' },
   'stt.noSttNodes': { fr: 'Aucun serveur GPU avec Whisper charge. Lancez un serveur GPU et chargez un modele Whisper.', en: 'No GPU server with Whisper loaded. Start a GPU server and load a Whisper model.' },
 
+  // SDD (Spec-Driven Development)
+  'block.sdd-constitution': { fr: 'Constitution', en: 'Constitution' },
+  'block.sdd-specification': { fr: 'Specification', en: 'Specification' },
+  'block.sdd-plan': { fr: 'Plan', en: 'Plan' },
+  'block.sdd-tasks': { fr: 'Taches', en: 'Tasks' },
+  'block.sdd-implementation': { fr: 'Implementation', en: 'Implementation' },
+  'sdd.generate': { fr: 'Generer avec IA (base sur les phases precedentes)', en: 'Generate with AI (based on previous phases)' },
+  'sdd.improve': { fr: 'Ameliorer avec IA', en: 'Improve with AI' },
+  'sdd.clarify': { fr: 'Identifier les zones floues', en: 'Identify underspecified areas' },
+  'sdd.clarifyResult': { fr: 'Points a clarifier', en: 'Points to clarify' },
+  'sdd.validate': { fr: 'Valider', en: 'Validate' },
+  'sdd.runAll': { fr: 'Generer tout', en: 'Generate all' },
+  'sdd.descriptionPlaceholder': { fr: 'Decris ton projet en une phrase...', en: 'Describe your project in one sentence...' },
+  'sdd.exportSpecify': { fr: 'Exporter .specify/', en: 'Export .specify/' },
+  'sdd.exportSpecifyDesc': { fr: 'Compatible Spec Kit, Claude Code, Codex', en: 'Compatible with Spec Kit, Claude Code, Codex' },
+
   // Terminal
   'tab.terminal': { fr: 'Terminal', en: 'Terminal' },
   'terminal.new': { fr: 'Nouvelle session', en: 'New session' },

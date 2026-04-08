@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Download, Check, Upload, AlertCircle, Archive } from 'lucide-react';
+import { Download, Check, Upload, AlertCircle, Archive, FolderDown } from 'lucide-react';
 import JSZip from 'jszip';
 import type { PromptProject, PromptBlock } from '../lib/types';
 import { compilePrompt } from '../lib/prompt';
@@ -305,6 +305,79 @@ export function ExportPanel({ project, onImport }: ExportPanelProps) {
           <p className="text-xs text-[var(--color-danger)] mt-1">{t('import.error')}</p>
         )}
       </div>
+      {/* Export SDD .specify/ */}
+      {project.blocks.some(b => b.type.startsWith('sdd-')) && (
+        <>
+          <div className="h-px bg-[var(--color-border)]" />
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-text-secondary)]">
+            <FolderDown size={14} />
+            <span>{t('sdd.exportSpecify')}</span>
+          </div>
+          <button
+            onClick={() => {
+              const SDD_FILE_MAP: Record<string, string> = {
+                'sdd-constitution': 'constitution.md',
+                'sdd-specification': 'spec.md',
+                'sdd-plan': 'plan.md',
+                'sdd-tasks': 'tasks.md',
+                'sdd-implementation': 'implementation.md',
+              };
+              const zip = new JSZip();
+              const folder = zip.folder('.specify')!;
+              const specFolder = folder.folder(`001-${project.name.toLowerCase().replace(/\s+/g, '-')}`)!;
+              const constitutionContent = project.blocks.find(b => b.type === 'sdd-constitution')?.content || '';
+              const tasksContent = project.blocks.find(b => b.type === 'sdd-tasks')?.content || '';
+
+              for (const block of project.blocks) {
+                if (block.type.startsWith('sdd-') && block.enabled) {
+                  const filename = SDD_FILE_MAP[block.type] || `${block.type}.md`;
+                  specFolder.file(filename, block.content);
+                }
+              }
+
+              // Agent config files
+              const allPhasesText = project.blocks
+                .filter(b => b.type.startsWith('sdd-') && b.enabled)
+                .map(b => b.content).join('\n\n---\n\n');
+
+              // CLAUDE.md
+              zip.file('CLAUDE.md', `# ${project.name} — Inkwell SDD\n\nThis project uses Spec-Driven Development.\n\n## Constitution\n${constitutionContent}\n\n## Current Tasks\n${tasksContent}\n\n## Rules\n- Follow the specification exactly\n- One commit per task\n- Update implementation notes after each task\n`);
+
+              // .cursor/rules/sdd.md
+              const cursorFolder = zip.folder('.cursor')!.folder('rules')!;
+              cursorFolder.file('sdd.md', `# SDD Rules for ${project.name}\n\n${constitutionContent}\n\n## Implementation Guidelines\n- Follow task IDs (T001, T002...)\n- Respect dependencies between tasks\n- Mark [P] tasks can run in parallel\n`);
+
+              // AGENTS.md
+              zip.file('AGENTS.md', `# ${project.name} — Agent Instructions\n\n## Overview\nThis project uses Spec-Driven Development (SDD). All specifications are in the \`.specify/\` directory.\n\n## Workflow\n1. Read the constitution for project principles\n2. Read the spec for requirements (FR-001, SC-001)\n3. Read the plan for architecture decisions\n4. Execute tasks in order from tasks.md\n5. Update implementation.md after each task\n\n## Full Specification\n${allPhasesText}\n`);
+
+              // .github/copilot-instructions.md
+              const ghFolder = zip.folder('.github')!;
+              ghFolder.file('copilot-instructions.md', `# ${project.name}\n\n${constitutionContent}\n\n## Tasks\n${tasksContent}\n`);
+              zip.generateAsync({ type: 'blob' }).then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${project.name}-specify.zip`;
+                a.click();
+                URL.revokeObjectURL(url);
+              });
+              setExported('specify');
+              setTimeout(() => setExported(null), 2000);
+            }}
+            className="w-full flex items-center justify-between p-2.5 rounded-lg border border-[var(--color-border)] hover:border-[var(--color-text-muted)] bg-[var(--color-bg-tertiary)] transition-colors text-left"
+          >
+            <div>
+              <div className="text-sm text-[var(--color-text-primary)]">{t('sdd.exportSpecify')}</div>
+              <div className="text-xs text-[var(--color-text-muted)]">{t('sdd.exportSpecifyDesc')}</div>
+            </div>
+            {exported === 'specify' ? (
+              <Check size={16} className="text-[var(--color-success)]" />
+            ) : (
+              <FolderDown size={14} className="text-[var(--color-text-muted)]" />
+            )}
+          </button>
+        </>
+      )}
     </div>
   );
 }

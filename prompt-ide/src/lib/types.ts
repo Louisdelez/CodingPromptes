@@ -1,4 +1,4 @@
-export type BlockType = 'role' | 'context' | 'task' | 'examples' | 'constraints' | 'format';
+export type BlockType = 'role' | 'context' | 'task' | 'examples' | 'constraints' | 'format' | 'sdd-constitution' | 'sdd-specification' | 'sdd-plan' | 'sdd-tasks' | 'sdd-implementation';
 
 export interface PromptBlock {
   id: string;
@@ -12,6 +12,7 @@ export interface Workspace {
   name: string;
   description: string;
   color: string;
+  constitution?: string;
   userId?: string;
   createdAt: number;
   updatedAt: number;
@@ -136,6 +137,36 @@ export const BLOCK_CONFIG: Record<BlockType, { label: string; color: string; ico
     icon: 'layout',
     placeholder: 'JSON, Markdown, liste numérotée, tableau...',
   },
+  'sdd-constitution': {
+    label: 'Constitution',
+    color: '#a78bfa',
+    icon: 'shield',
+    placeholder: '# Constitution du Projet\n\n## Nom du Projet\n## Vision\n## Principes Fondamentaux',
+  },
+  'sdd-specification': {
+    label: 'Specification',
+    color: '#60a5fa',
+    icon: 'book-open',
+    placeholder: '# Specification Technique\n\n## Vue d\'Ensemble\n## Modele de Donnees\n## Surface API',
+  },
+  'sdd-plan': {
+    label: 'Plan',
+    color: '#34d399',
+    icon: 'target',
+    placeholder: '# Plan d\'Implementation\n\n## Decisions Architecturales\n## Decomposition en Modules',
+  },
+  'sdd-tasks': {
+    label: 'Tasks',
+    color: '#fbbf24',
+    icon: 'lightbulb',
+    placeholder: '# Liste des Taches\n\n## Task 1:\n- Fichier(s):\n- Complexite: S/M/L/XL',
+  },
+  'sdd-implementation': {
+    label: 'Implementation',
+    color: '#f87171',
+    icon: 'layout',
+    placeholder: '# Notes d\'Implementation\n\n## Taches Completees\n## Tache en Cours',
+  },
 };
 
 export const MODELS: ModelConfig[] = [
@@ -216,6 +247,17 @@ export const FRAMEWORKS: Record<string, { name: string; description: string; blo
       { type: 'format', content: '## Objectif\n', enabled: true },
       { type: 'context', content: '## Connaissances\n', enabled: true },
       { type: 'examples', content: '## Exemples\n<example>\n\n</example>', enabled: true },
+    ],
+  },
+  sdd: {
+    name: 'SDD (Spec-Driven)',
+    description: 'Constitution → Specification → Plan → Tasks → Implementation (Spec Kit compatible)',
+    blocks: [
+      { type: 'sdd-constitution' as BlockType, content: '# Project Constitution\n\n## Core Principles\n\n### Principle 1\nDescription.\n\n### Principle 2\nDescription.\n\n### Principle 3\nDescription.\n\n## Technical Stack\n- **Language/Version:**\n- **Framework:**\n- **Database:**\n- **Testing:**\n\n## Coding Conventions\n- **Style:**\n- **Tests:**\n\n## Governance\n- Review process\n- Branching strategy\n\n**Version**: 1.0.0', enabled: true },
+      { type: 'sdd-specification' as BlockType, content: '# Feature Specification\n\n**Status**: Draft\n\n## User Scenarios & Testing\n\n### User Story 1 - [Title] (Priority: P1)\n[Description]\n**Acceptance Scenarios**:\n1. **Given** [...], **When** [...], **Then** [...]\n\n### Edge Cases\n- What happens when [...]?\n\n## Requirements\n\n### Functional Requirements\n- **FR-001**: System MUST [...]\n- **FR-002**: System MUST [...]\n\n### Key Entities\n- **Entity 1**: [...]\n\n## Success Criteria\n- **SC-001**: [Measurable metric]\n- **SC-002**: [Measurable metric]\n\n## Assumptions\n- [...]', enabled: true },
+      { type: 'sdd-plan' as BlockType, content: '# Implementation Plan\n\n## Summary\n[Overview]\n\n## Technical Context\n- **Language/Version:**\n- **Dependencies:**\n- **Performance Goals:**\n\n## Constitution Check\n- [ ] Principle 1: [how respected]\n- [ ] Principle 2: [how respected]\n\n## Architecture Decisions\n\n### ADR-001: [Title]\n- **Context**: [...]\n- **Decision**: [...]\n- **Consequences**: [...]\n\n## Module Breakdown\n\n### Module: [Name]\n- **Responsibility**: [...]\n- **Files**: `src/path/`\n\n## Risk Assessment\n| Risk | Probability | Impact | Mitigation |\n|------|------------|--------|------------|', enabled: true },
+      { type: 'sdd-tasks' as BlockType, content: '# Task Breakdown\n\n## Phase 1: Setup\n- [ ] T001 Create project structure\n- [ ] T002 Configure dependencies\n\n## Phase 2: Foundational\n- [ ] T003 [P] Create data models in `src/models/`\n- [ ] T004 [P] Setup database in `src/db/`\n- [ ] T005 Implement base services in `src/services/`\n\n## Phase 3: User Stories\n\n### Story US1 - [Title] (P1)\n- [ ] T006 [P] [US1] Create model `src/models/file.ts`\n- [ ] T007 [US1] Create service `src/services/file.ts`\n- [ ] T008 [US1] Create route `src/routes/file.ts`\n- [ ] T009 [US1] Write tests `tests/file.test.ts`\n\n## Phase 4: Polish\n- [ ] T010 Error handling\n- [ ] T011 Integration tests\n- [ ] T012 Documentation', enabled: true },
+      { type: 'sdd-implementation' as BlockType, content: '# Implementation Notes\n\n## Completed Tasks\n\n## Current Task\n\n## Deviations from Spec\n| Change | Reason | Impact |\n|--------|--------|--------|\n\n## Blockers & Open Questions\n- [ ] [...]\n\n## Retrospective\n- **What worked**: [...]\n- **What to improve**: [...]', enabled: true },
     ],
   },
 };

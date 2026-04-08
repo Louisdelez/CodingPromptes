@@ -70,14 +70,19 @@ import { UserMenu } from './components/UserMenu';
 import { getSession, type AuthSession } from './lib/auth';
 import { extractVariables } from './lib/prompt';
 import type { BlockType, PromptBlock } from './lib/types';
-import { BLOCK_CONFIG } from './lib/types';
+import { BLOCK_CONFIG, MODELS } from './lib/types';
 import { I18nContext, getLang, setLang, useT, type Lang } from './lib/i18n';
+import { runAllCascade, buildValidatePrompt, buildChecklistPrompt } from './lib/sdd-prompts';
+import type { SddPhase } from './lib/sdd-conventions';
+import { callLLM } from './lib/api';
+import { getApiKeys } from './lib/db';
 import { ThemeContext, getThemeMode, setThemeMode, resolveTheme, applyTheme, type ThemeMode, type ResolvedTheme } from './lib/theme';
 
 type LeftTab = 'library' | 'frameworks' | 'versions';
 type RightTab = 'preview' | 'playground' | 'history' | 'stt' | 'export' | 'optimize' | 'lint' | 'analytics' | 'chain' | 'chat' | 'collab' | 'fleet';
 
 const BLOCK_TYPES: BlockType[] = ['role', 'context', 'task', 'examples', 'constraints', 'format'];
+const SDD_BLOCK_TYPES: BlockType[] = ['sdd-constitution', 'sdd-specification', 'sdd-plan', 'sdd-tasks', 'sdd-implementation'];
 
 export default function App() {
   const [language, setLanguage] = useState<Lang>(getLang);
@@ -194,6 +199,9 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
   const [triggerExecute, setTriggerExecute] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(300);
+  const [sddRunning, setSddRunning] = useState<SddPhase | null>(null);
+  const [sddDescription, setSddDescription] = useState('');
+  const [sddResult, setSddResult] = useState<string | null>(null);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -324,6 +332,11 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
     examples: t('block.examples'),
     constraints: t('block.constraints'),
     format: t('block.format'),
+    'sdd-constitution': t('block.sdd-constitution'),
+    'sdd-specification': t('block.sdd-specification'),
+    'sdd-plan': t('block.sdd-plan'),
+    'sdd-tasks': t('block.sdd-tasks'),
+    'sdd-implementation': t('block.sdd-implementation'),
   };
 
   return (
@@ -535,12 +548,94 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
         {/* Center: Block Editor */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <div className="flex-1 overflow-auto p-4 space-y-3">
+            {/* SDD Toolbar — shown when SDD blocks exist */}
+            {project.blocks.some(b => b.type.startsWith('sdd-')) && (
+              <div className="flex items-center gap-2 p-3 rounded-lg border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/5">
+                <span className="text-xs font-bold text-[var(--color-accent)]">SDD</span>
+                <input
+                  value={sddDescription}
+                  onChange={e => setSddDescription(e.target.value)}
+                  placeholder={t('sdd.descriptionPlaceholder')}
+                  className="flex-1 text-xs bg-transparent border border-[var(--color-border)] rounded px-2 py-1.5 text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-text-muted)]"
+                />
+                <button
+                  disabled={!!sddRunning || !sddDescription.trim()}
+                  onClick={async () => {
+                    const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+                    const apiKeys = getApiKeys();
+                    await runAllCascade(
+                      project.blocks, model, apiKeys, sddDescription,
+                      (phase) => setSddRunning(phase),
+                      (phase, content) => {
+                        const block = project.blocks.find(b => b.type === phase);
+                        if (block) updateBlock(block.id, { content });
+                      },
+                      (phase, error) => { setSddResult(`Error (${phase}): ${error}`); },
+                    );
+                    setSddRunning(null);
+                    setSddResult(null);
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-[var(--color-accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity whitespace-nowrap"
+                >
+                  {sddRunning ? (
+                    <><span className="animate-spin">-</span> {sddRunning.replace('sdd-', '')}</>
+                  ) : (
+                    t('sdd.runAll')
+                  )}
+                </button>
+                <button
+                  disabled={!!sddRunning}
+                  onClick={async () => {
+                    setSddRunning('sdd-constitution' as SddPhase);
+                    try {
+                      const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+                      const { systemPrompt, userPrompt } = buildValidatePrompt(project.blocks);
+                      const result = await callLLM(userPrompt, model, getApiKeys(), { systemPrompt, temperature: 0.3, maxTokens: 4096 });
+                      setSddResult(result.text);
+                    } catch (e) { setSddResult(`Error: ${e}`); }
+                    finally { setSddRunning(null); }
+                  }}
+                  className="px-2 py-1.5 rounded text-xs text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg-hover)] transition-colors whitespace-nowrap"
+                >
+                  {t('sdd.validate')}
+                </button>
+                <button
+                  disabled={!!sddRunning}
+                  onClick={async () => {
+                    setSddRunning('sdd-constitution' as SddPhase);
+                    try {
+                      const model = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+                      const { systemPrompt, userPrompt } = buildChecklistPrompt(project.blocks);
+                      const result = await callLLM(userPrompt, model, getApiKeys(), { systemPrompt, temperature: 0.3, maxTokens: 4096 });
+                      setSddResult(result.text);
+                    } catch (e) { setSddResult(`Error: ${e}`); }
+                    finally { setSddRunning(null); }
+                  }}
+                  className="px-2 py-1.5 rounded text-xs text-[var(--color-text-muted)] hover:text-yellow-400 hover:bg-[var(--color-bg-hover)] transition-colors whitespace-nowrap"
+                >
+                  Checklist
+                </button>
+              </div>
+            )}
+
+            {/* SDD Result panel */}
+            {sddResult && (
+              <div className="p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[var(--color-accent)]">SDD Analysis</span>
+                  <button onClick={() => setSddResult(null)} className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]">&times;</button>
+                </div>
+                <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-[var(--color-text-primary)]">{sddResult}</pre>
+              </div>
+            )}
+
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={project.blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
                 {project.blocks.map((block) => (
                   <PromptBlockComponent
                     key={block.id}
                     block={block}
+                    allBlocks={project.blocks}
                     onUpdate={(changes) => updateBlock(block.id, changes)}
                     onRemove={() => removeBlock(block.id)}
                     onToggle={() => toggleBlock(block.id)}
@@ -563,7 +658,7 @@ function AppInner({ session, setSession, onLogout, language, onLanguageChange, t
 
               {showAddMenu && (
                 <div className="absolute top-full left-0 right-0 mt-1 p-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg shadow-xl z-10 grid grid-cols-2 gap-1 animate-fadeIn">
-                  {BLOCK_TYPES.map((type) => {
+                  {[...BLOCK_TYPES, ...SDD_BLOCK_TYPES].map((type) => {
                     const config = BLOCK_CONFIG[type];
                     return (
                       <button

@@ -126,8 +126,20 @@ export function usePromptProject(_userId: string) {
     updateProject((p) => ({ ...p, framework: frameworkId, blocks: blocks.map((b) => ({ ...b, id: uuid() })) }));
   }, [updateProject]);
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const updateWorkspace = useCallback(async (_id: string, _changes: Partial<Workspace>) => {}, []);
+  const updateWorkspace = useCallback(async (id: string, changes: Partial<Workspace>) => {
+    const existing = await localdb.workspaces.get(id);
+    if (existing) {
+      await localdb.workspaces.update(id, {
+        ...(changes.name !== undefined ? { name: changes.name } : {}),
+        ...(changes.description !== undefined ? { description: changes.description } : {}),
+        ...(changes.color !== undefined ? { color: changes.color } : {}),
+        ...(changes.constitution !== undefined ? { constitution: changes.constitution } : {}),
+        updatedAt: Date.now(),
+      });
+      triggerLibraryRefresh();
+      flashSaved();
+    }
+  }, [triggerLibraryRefresh, flashSaved]);
 
   const createWorkspace = useCallback(async (name: string, color?: string): Promise<Workspace> => {
     const now = Date.now();
@@ -208,8 +220,20 @@ export function usePromptProject(_userId: string) {
     });
   }, []);
 
+  // Get workspace constitution for SDD chaining
+  const [workspaceConstitution, setWorkspaceConstitution] = useState<string>('');
+  useEffect(() => {
+    if (project.workspaceId) {
+      localdb.workspaces.get(project.workspaceId).then(ws => {
+        setWorkspaceConstitution(ws?.constitution || '');
+      });
+    } else {
+      setWorkspaceConstitution('');
+    }
+  }, [project.workspaceId]);
+
   return {
-    project, saveStatus, libraryRefreshKey,
+    project, saveStatus, libraryRefreshKey, workspaceConstitution,
     addBlock, removeBlock, updateBlock, toggleBlock, reorderBlocks, setVariable,
     loadProject, newProject, deleteProject, movePromptToWorkspace, loadFramework,
     saveVersion, updateProject,

@@ -19,6 +19,7 @@ export interface LocalWorkspace {
   name: string;
   description: string;
   color: string;
+  constitution?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -65,6 +66,13 @@ class InkwellLocalDB extends Dexie {
   constructor() {
     super('InkwellLocalDB');
     this.version(2).stores({
+      projects: 'id, workspaceId, updatedAt',
+      workspaces: 'id, updatedAt',
+      versions: 'id, projectId, createdAt',
+      executions: 'id, projectId, createdAt',
+      frameworks: 'id, updatedAt',
+    });
+    this.version(3).stores({
       projects: 'id, workspaceId, updatedAt',
       workspaces: 'id, updatedAt',
       versions: 'id, projectId, createdAt',

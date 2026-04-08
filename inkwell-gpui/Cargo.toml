@@ -8,6 +8,7 @@ description = "Inkwell native IDE — GPU-accelerated prompt engineering"
 inkwell-core = { path = "../inkwell-core" }
 gpui = { git = "https://github.com/zed-industries/zed", branch = "main" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", branch = "main", features = ["x11", "wayland"] }
+# gpui-component = { git = "https://github.com/longbridge/gpui-component" }  # waiting for GPUI version alignment
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

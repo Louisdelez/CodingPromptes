@@ -1,7 +1,6 @@
 use gpui::*;
 use crate::state::*;
 use inkwell_core::types::BlockType;
-use std::time::Duration;
 
 fn bg_primary() -> Hsla { hsla(230.0 / 360.0, 0.15, 0.07, 1.0) }
 fn bg_secondary() -> Hsla { hsla(230.0 / 360.0, 0.12, 0.10, 1.0) }
@@ -25,12 +24,11 @@ impl InkwellApp {
 }
 
 impl Render for InkwellApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Poll async messages
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.poll_messages();
 
         match self.state.screen {
-            Screen::Auth => self.render_auth(cx),
+            Screen::Auth => self.render_auth(window, cx),
             Screen::Ide => self.render_ide(cx),
         }
     }
@@ -89,7 +87,7 @@ impl InkwellApp {
 }
 
 impl InkwellApp {
-    fn render_auth(&mut self, cx: &mut Context<Self>) -> Div {
+    fn render_auth(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Div {
         div()
             .size_full().bg(bg_primary()).flex().items_center().justify_center()
             .child(
@@ -99,8 +97,29 @@ impl InkwellApp {
                         .child(div().text_xl().text_color(text_primary()).child("Inkwell"))
                         .child(div().text_sm().text_color(text_muted()).child("GPU-Accelerated Prompt IDE"))
                     )
-                    // Server URL display
-                    .child(div().text_xs().text_color(text_muted()).child(self.state.server_url.clone()))
+                    // Server URL
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("Server"))
+                        .child(div().h(px(32.0)).px(px(10.0)).bg(bg_tertiary()).rounded(px(6.0))
+                            .border_1().border_color(border_c()).flex().items_center()
+                            .text_sm().text_color(text_secondary()).child(self.state.server_url.clone()))
+                    )
+                    // Email
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("Email"))
+                        .child(div().h(px(32.0)).px(px(10.0)).bg(bg_tertiary()).rounded(px(6.0))
+                            .border_1().border_color(border_c()).flex().items_center()
+                            .text_sm().text_color(text_muted()).child(
+                                if self.state.email.is_empty() { "email@example.com".to_string() } else { self.state.email.clone() }
+                            ))
+                    )
+                    // Password
+                    .child(div().flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().text_color(text_muted()).child("Password"))
+                        .child(div().h(px(32.0)).px(px(10.0)).bg(bg_tertiary()).rounded(px(6.0))
+                            .border_1().border_color(border_c()).flex().items_center()
+                            .text_sm().text_color(text_muted()).child("••••••••"))
+                    )
                     // Error
                     .children(self.state.auth_error.clone().map(|e| {
                         div().text_xs().text_color(danger()).child(e)
@@ -111,7 +130,7 @@ impl InkwellApp {
                             .flex().items_center().justify_center()
                             .text_sm().text_color(hsla(0.0, 0.0, 1.0, 1.0))
                             .child(if self.state.auth_loading { "Connecting..." } else { "Sign in" })
-                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _cx| {
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                 if this.state.auth_loading { return; }
                                 this.state.auth_loading = true;
                                 this.state.auth_error = None;

@@ -157,8 +157,7 @@ impl InkwellApp {
 
 impl Render for InkwellApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // PURE render — zero state mutation, zero timers, zero sync
-        set_dark_mode(self.state.dark_mode);
+        // PURE render — zero state mutation
 
         // One-time init
         if !self.state.inputs_initialized {
@@ -750,27 +749,40 @@ impl InkwellApp {
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.t();
+        // Read layout state from store (not self.state) to avoid bridge re-renders
+        let s = self.store.read(cx);
+        let left_open = s.left_open;
+        let right_open = s.right_open;
+        let show_settings = s.show_settings;
+        let show_profile = s.show_profile;
+        let dark_mode = s.dark_mode;
+        drop(s);
+
+        set_dark_mode(dark_mode);
+        let t = crate::theme::InkwellTheme::from_mode(dark_mode);
         let mut main_row = div().flex_1().flex().overflow_hidden();
-        if self.state.left_open { main_row = main_row.child(self.render_sidebar(cx)); }
-        main_row = main_row.child(self.editor.clone()); // Entity<EditorPane> — blocks render independently
-        if self.state.right_open { main_row = main_row.child(self.render_right_panel(cx)); }
+        if left_open { main_row = main_row.child(self.render_sidebar(cx)); }
+        main_row = main_row.child(self.editor.clone());
+        if right_open { main_row = main_row.child(self.render_right_panel(cx)); }
 
         div().size_full().bg(t.bg_primary).flex().flex_col()
             .on_action(cx.listener(|this, _: &NewProject, _, _| {
                 this.state.project = Project::default_prompt();
                 this.state.block_inputs.clear();
             }))
-            .on_action(cx.listener(|this, _: &ToggleTerminal, _, _| {
+            .on_action(cx.listener(|this, _: &ToggleTerminal, _, cx| {
                 this.state.right_tab = RightTab::Terminal;
                 this.state.right_open = true;
+                this.store.update(cx, |s, cx| { s.right_tab = RightTab::Terminal; s.right_open = true; cx.emit(crate::store::StoreEvent::SwitchRightTab(RightTab::Terminal)); });
             }))
-            .on_action(cx.listener(|this, _: &RunPrompt, _, _| {
+            .on_action(cx.listener(|this, _: &RunPrompt, _, cx| {
                 this.state.right_tab = RightTab::Playground;
                 this.state.right_open = true;
+                this.store.update(cx, |s, cx| { s.right_tab = RightTab::Playground; s.right_open = true; cx.emit(crate::store::StoreEvent::SwitchRightTab(RightTab::Playground)); });
             }))
-            .on_action(cx.listener(|this, _: &ToggleSettings, _, _| {
+            .on_action(cx.listener(|this, _: &ToggleSettings, _, cx| {
                 this.state.show_settings = !this.state.show_settings;
+                this.store.update(cx, |s, cx| { s.show_settings = !s.show_settings; cx.emit(crate::store::StoreEvent::SettingsChanged); });
             }))
             .on_action(cx.listener(|this, _: &Undo, _, _| {
                 if let Some(prev_blocks) = this.state.undo_stack.pop_back() {
@@ -784,8 +796,8 @@ impl InkwellApp {
             }))
             .child(self.header.clone()) // Entity<HeaderBar> — only re-renders when store emits relevant event
             .child(main_row)
-            .children(if self.state.show_settings { Some(self.render_settings(cx)) } else { None })
-            .children(if self.state.show_profile { Some(self.render_profile(cx)) } else { None })
+            .children(if show_settings { Some(self.render_settings(cx)) } else { None })
+            .children(if show_profile { Some(self.render_profile(cx)) } else { None })
             .child(self.bottom_bar.clone()) // Entity<BottomBar> — only re-renders on PromptCacheUpdated
     }
 

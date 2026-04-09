@@ -170,15 +170,17 @@ impl InkwellApp {
                 AsyncMsg::LlmDone => {
                     self.state.playground_loading = false;
                     self.state.sdd_running = false;
-                    // Save execution to backend
+                    // Execution already tracked via ExecutionRecorded message (local).
+                    // Optionally sync to server in background.
                     if !self.state.playground_response.is_empty() {
-                        let server = self.state.server_url.clone();
                         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                        let project_id = self.state.project.id.clone();
-                        let model = self.state.selected_model.clone();
-                        let prompt = self.state.cached_prompt.clone();
-                        let response = self.state.playground_response.clone();
-                        rt().spawn(async move {
+                        if !token.is_empty() {
+                            let server = self.state.server_url.clone();
+                            let project_id = self.state.project.id.clone();
+                            let model = self.state.selected_model.clone();
+                            let prompt = self.state.cached_prompt.clone();
+                            let response = self.state.playground_response.clone();
+                            rt().spawn(async move {
                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                 client.set_token(token);
                                 let _ = client.create_execution(&project_id, &serde_json::json!({
@@ -187,6 +189,7 @@ impl InkwellApp {
                                     "cost": 0.0, "latency_ms": 0,
                                 })).await;
                             });
+                        }
                     }
                 }
                 AsyncMsg::LlmError(e) => {
@@ -1612,6 +1615,7 @@ impl InkwellApp {
                                 this.state.stt_stop_tx = Some(stop_tx);
                                 let tx = this.state.msg_tx.clone();
                                 let server = this.state.server_url.clone();
+                                let stt_provider = this.state.stt_provider;
 
                                 std::thread::spawn(move || {
                                     // Record audio via cpal
@@ -1655,12 +1659,31 @@ impl InkwellApp {
                                             }
                                             let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &wav_buf);
 
-                                            // Send to STT server
+                                            // Send to STT (routes via API keys or server fallback)
                                             rt().block_on(async {
+                                                let settings = crate::persistence::load_settings();
+                                                let (stt_url, stt_hdrs) = crate::llm::stt_endpoint(&stt_provider, &settings.api_key_openai, &server);
                                                 let client = reqwest::Client::new();
-                                                if let Ok(resp) = client.post(format!("{server}/transcribe"))
-                                                    .json(&serde_json::json!({"audio": b64, "language": "auto"}))
-                                                    .send().await {
+
+                                                let resp = if stt_url.contains("openai.com") || stt_url.contains("groq.com") {
+                                                    // OpenAI Whisper / Groq API — multipart form
+                                                    let wav_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).unwrap_or_default();
+                                                    let part = reqwest::multipart::Part::bytes(wav_bytes).file_name("audio.wav").mime_str("audio/wav").unwrap();
+                                                    let form = reqwest::multipart::Form::new()
+                                                        .part("file", part)
+                                                        .text("model", "whisper-1");
+                                                    let mut req = client.post(&stt_url).multipart(form);
+                                                    for (k, v) in &stt_hdrs { req = req.header(k.as_str(), v.as_str()); }
+                                                    req.send().await
+                                                } else {
+                                                    // Local server — JSON with base64
+                                                    let mut req = client.post(&stt_url)
+                                                        .json(&serde_json::json!({"audio": b64, "language": "auto"}));
+                                                    for (k, v) in &stt_hdrs { req = req.header(k.as_str(), v.as_str()); }
+                                                    req.send().await
+                                                };
+
+                                                if let Ok(resp) = resp {
                                                     if let Ok(data) = resp.json::<serde_json::Value>().await {
                                                         let text = data["text"].as_str().unwrap_or("").to_string();
                                                         if !text.is_empty() {
@@ -2223,16 +2246,18 @@ impl InkwellApp {
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                         .text_xs().text_color(text_muted()).child(Icon::new(IconName::Redo)).child("Refresh")
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                            let server = this.state.server_url.clone();
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                            let tx = this.state.msg_tx.clone();
-                            rt().spawn(async move {
+                            if !token.is_empty() {
+                                let server = this.state.server_url.clone();
+                                let tx = this.state.msg_tx.clone();
+                                rt().spawn(async move {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token);
                                     if let Ok(nodes) = client.list_nodes().await {
                                         let _ = tx.send(AsyncMsg::NodesLoaded(nodes));
                                     }
                                 });
+                            }
                         }))
                 )
         );
@@ -2533,33 +2558,45 @@ impl InkwellApp {
                             };
                             this.state.version_label_input = None; // Reset
 
-                            rt().spawn(async move {
+                            // Save version locally
+                            let blocks_json = serde_json::to_string(&blocks).unwrap_or_default();
+                            let version = inkwell_core::types::Version {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                project_id: project_id.clone(),
+                                blocks_json: blocks_json.clone(),
+                                variables_json: "{}".into(),
+                                label: label.clone(),
+                                created_at: chrono::Utc::now().timestamp_millis(),
+                            };
+                            this.state.versions.push(version);
+                            // Background sync to server (optional)
+                            if !token.is_empty() {
+                                rt().spawn(async move {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
-                                    client.set_token(token.clone());
-                                    let blocks_json = serde_json::to_string(&blocks).unwrap_or_default();
+                                    client.set_token(token);
                                     let _ = client.create_version(&project_id, &blocks_json, "{}", &label).await;
-                                    // Then reload versions
-                                    if let Ok(versions) = client.list_versions(&project_id).await {
-                                        let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
-                                    }
                                 });
+                            }
                         }))
                 )
                 .child(
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
                         .text_xs().text_color(text_muted()).child("Refresh")
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                            let project_id = this.state.project.id.clone();
-                            let server = this.state.server_url.clone();
+                            // Refresh from server only if connected
                             let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                            let tx = this.state.msg_tx.clone();
-                            rt().spawn(async move {
+                            if !token.is_empty() {
+                                let project_id = this.state.project.id.clone();
+                                let server = this.state.server_url.clone();
+                                let tx = this.state.msg_tx.clone();
+                                rt().spawn(async move {
                                     let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                     client.set_token(token);
                                     if let Ok(versions) = client.list_versions(&project_id).await {
                                         let _ = tx.send(AsyncMsg::VersionsLoaded(versions));
                                     }
                                 });
+                            }
                         }))
                 )
         );

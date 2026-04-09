@@ -4,6 +4,7 @@ use gpui_component::Root;
 use gpui_component_assets::Assets;
 
 mod app;
+mod llm;
 mod persistence;
 mod state;
 mod theme;

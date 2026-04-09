@@ -23,6 +23,22 @@ pub fn rt() -> &'static tokio::runtime::Runtime {
     &RT
 }
 
+/// Build an LLM request with proper API routing and auth headers.
+/// Routes to OpenAI/Anthropic/Google directly if API keys are set, else falls back to server proxy.
+fn llm_post(client: &reqwest::Client, model: &str, server_url: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
+    let (ko, ka, kg, _) = crate::llm::load_local_keys();
+    let (url, hdrs) = crate::llm::llm_endpoint(model, &ko, &ka, &kg, server_url);
+    let msgs = body["messages"].as_array().cloned().unwrap_or_default();
+    let rebuilt = crate::llm::build_llm_body(model, &msgs,
+        body["temperature"].as_f64().unwrap_or(0.7) as f32,
+        body["max_tokens"].as_u64().unwrap_or(4096) as u32,
+        body["stream"].as_bool().unwrap_or(false),
+    );
+    let mut req = client.post(&url).json(&rebuilt);
+    for (k, v) in &hdrs { req = req.header(k.as_str(), v.as_str()); }
+    req
+}
+
 pub struct InkwellApp {
     pub state: AppState,
 }
@@ -1268,9 +1284,7 @@ impl InkwellApp {
                                                 format!("Based on:\n{}\n\nGenerate the {:?} phase.", context, bt)
                                             };
 
-                                            if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                                .json(&serde_json::json!({
-                                                    "model": "qwen3.5:4b",
+                                            if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({                                                    "model": "gpt-4o-mini",
                                                     "messages": [
                                                         {"role": "system", "content": "You are an expert software architect. Write in Spec Kit SDD format."},
                                                         {"role": "user", "content": prompt}
@@ -1300,9 +1314,7 @@ impl InkwellApp {
                                 for b in &blocks { if b.enabled { all_content.push_str(&format!("\n### {:?}\n{}\n", b.block_type, b.content)); } }
                                 rt().spawn(async move {
                                         let client = reqwest::Client::new();
-                                        if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                            .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
-                                                {"role":"system","content":"Analyze cross-phase consistency. Check: coverage gaps, contradictions, underspecification, constitution alignment. Output: COHERENT/MISSING/CONTRADICTION/RECOMMENDATION items."},
+                                        if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":[                                                {"role":"system","content":"Analyze cross-phase consistency. Check: coverage gaps, contradictions, underspecification, constitution alignment. Output: COHERENT/MISSING/CONTRADICTION/RECOMMENDATION items."},
                                                 {"role":"user","content":format!("Validate these SDD phases:\n{all_content}")}
                                             ],"temperature":0.3,"max_tokens":4096,"stream":false})).send().await {
                                             if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -1325,9 +1337,7 @@ impl InkwellApp {
                                 let tx = this.state.msg_tx.clone();
                                 rt().spawn(async move {
                                         let client = reqwest::Client::new();
-                                        if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                            .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
-                                                {"role":"system","content":"Generate a quality checklist (Unit Tests for English). Format: - [ ] CHK001 [Quality Dimension] Question. Validate requirements quality, not implementation."},
+                                        if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":[                                                {"role":"system","content":"Generate a quality checklist (Unit Tests for English). Format: - [ ] CHK001 [Quality Dimension] Question. Validate requirements quality, not implementation."},
                                                 {"role":"user","content":format!("Generate checklist for:\n{all_content}")}
                                             ],"temperature":0.3,"max_tokens":4096,"stream":false})).send().await {
                                             if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -1497,9 +1507,7 @@ impl InkwellApp {
                                     };
 
                                     let client = reqwest::Client::new();
-                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                        .json(&serde_json::json!({
-                                            "model": "qwen3.5:4b",
+                                    if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({                                            "model": "gpt-4o-mini",
                                             "messages": [
                                                 {"role": "system", "content": "You are an expert software architect writing SDD specifications."},
                                                 {"role": "user", "content": prompt}
@@ -1543,9 +1551,7 @@ impl InkwellApp {
                                     }
                                     let prompt = format!("Improve the following content. Make it more precise, complete, and well-structured. Keep the same format.\n\nContext:\n{context}\n\nContent to improve:\n{content}");
                                     let client = reqwest::Client::new();
-                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                        .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[{"role":"system","content":"You improve SDD specifications. Keep the format strict."},{"role":"user","content":prompt}],"temperature":0.3,"max_tokens":4096,"stream":false}))
-                                        .send().await {
+                                    if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":[{"role":"system","content":"You improve SDD specifications. Keep the format strict."},{"role":"user","content":prompt}],"temperature":0.3,"max_tokens":4096,"stream":false}))                                        .send().await {
                                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                                             let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
                                             let _ = tx.send(AsyncMsg::SddBlockResult { idx, content: text });
@@ -1569,9 +1575,7 @@ impl InkwellApp {
                             rt().spawn(async move {
                                     let prompt = format!("Analyze this specification and identify underspecified, ambiguous, or missing areas. Ask max 5 precise questions.\n\nContent:\n{content}");
                                     let client = reqwest::Client::new();
-                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                        .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[{"role":"system","content":"You are a technical reviewer. Identify underspecified areas."},{"role":"user","content":prompt}],"temperature":0.5,"max_tokens":2048,"stream":false}))
-                                        .send().await {
+                                    if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":[{"role":"system","content":"You are a technical reviewer. Identify underspecified areas."},{"role":"user","content":prompt}],"temperature":0.5,"max_tokens":2048,"stream":false}))                                        .send().await {
                                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                                             let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
                                             let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Clarify ---\n{text}")));
@@ -2069,9 +2073,7 @@ impl InkwellApp {
                                 for model in &selected_models {
                                     let client = reqwest::Client::new();
                                     let start = std::time::Instant::now();
-                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                        .json(&serde_json::json!({"model":model,"messages":[{"role":"user","content":prompt}],"temperature":temp,"max_tokens":max_tok,"stream":false}))
-                                        .send().await {
+                                    if let Ok(resp) = llm_post(&client, &model, &server, serde_json::json!({"model":model,"messages":[{"role":"user","content":prompt}],"temperature":temp,"max_tokens":max_tok,"stream":false}))                                        .send().await {
                                         let latency = start.elapsed().as_millis() as u64;
                                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                                             let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
@@ -2113,9 +2115,7 @@ impl InkwellApp {
                         rt().spawn(async move {
                                 let start = std::time::Instant::now();
                                 let client = reqwest::Client::new();
-                                let resp = client.post(format!("{server_url}/v1/chat/completions"))
-                                    .json(&serde_json::json!({
-                                        "model": model,
+                                let resp = llm_post(&client, &model, &server_url, serde_json::json!({                                        "model": model,
                                         "messages": [{"role": "user", "content": prompt}],
                                         "temperature": temp,
                                         "max_tokens": max_tok,
@@ -2739,9 +2739,7 @@ impl InkwellApp {
                         let tx = this.state.msg_tx.clone();
                         rt().spawn(async move {
                                 let client = reqwest::Client::new();
-                                if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                    .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[
-                                        {"role":"system","content":"You are a prompt engineering expert. Rewrite the following prompt to be clearer, more specific, and more effective. Keep the same intent."},
+                                if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":[                                        {"role":"system","content":"You are a prompt engineering expert. Rewrite the following prompt to be clearer, more specific, and more effective. Keep the same intent."},
                                         {"role":"user","content":format!("Optimize this prompt:\n\n{prompt}")}
                                     ],"temperature":0.3,"max_tokens":4096,"stream":false})).send().await {
                                     if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -2869,9 +2867,7 @@ impl InkwellApp {
                                     .collect();
                                 rt().spawn(async move {
                                         let client = reqwest::Client::new();
-                                        if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                            .json(&serde_json::json!({"model":"qwen3.5:4b","messages":messages,"temperature":0.7,"max_tokens":2048,"stream":false}))
-                                            .send().await {
+                                        if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":messages,"temperature":0.7,"max_tokens":2048,"stream":false}))                                            .send().await {
                                             if let Ok(data) = resp.json::<serde_json::Value>().await {
                                                 let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
                                                 let _ = tx.send(AsyncMsg::LlmResponse(format!("__CHAT__{text}")));
@@ -3050,9 +3046,7 @@ impl InkwellApp {
                                     } else {
                                         format!("Previous output:\n{chain_output}\n\nNow:\n{block_content}")
                                     };
-                                    if let Ok(resp) = client.post(format!("{server}/v1/chat/completions"))
-                                        .json(&serde_json::json!({"model":"qwen3.5:4b","messages":[{"role":"user","content":prompt}],"temperature":0.7,"max_tokens":2048,"stream":false}))
-                                        .send().await {
+                                    if let Ok(resp) = llm_post(&client, "gpt-4o-mini", &server, serde_json::json!({"model":"gpt-4o-mini","messages":[{"role":"user","content":prompt}],"temperature":0.7,"max_tokens":2048,"stream":false}))                                        .send().await {
                                         if let Ok(data) = resp.json::<serde_json::Value>().await {
                                             let text = data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
                                             chain_output = text.clone();

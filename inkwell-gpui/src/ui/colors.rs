@@ -9,16 +9,32 @@ thread_local! {
 pub fn set_dark_mode(dark: bool) { DARK_MODE.with(|d| *d.borrow_mut() = dark); }
 pub fn is_dark() -> bool { DARK_MODE.with(|d| *d.borrow()) }
 
-pub fn bg_primary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.15, 0.07, 1.0) } else { hsla(0.0, 0.0, 1.0, 1.0) } }
-pub fn bg_secondary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.12, 0.10, 1.0) } else { hsla(220.0/360.0, 0.10, 0.97, 1.0) } }
-pub fn bg_tertiary() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.10, 0.14, 1.0) } else { hsla(220.0/360.0, 0.08, 0.93, 1.0) } }
-pub fn border_c() -> Hsla { if is_dark() { hsla(230.0/360.0, 0.10, 0.20, 1.0) } else { hsla(220.0/360.0, 0.10, 0.85, 1.0) } }
-pub fn text_primary() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.95, 1.0) } else { hsla(220.0/360.0, 0.15, 0.10, 1.0) } }
-pub fn text_secondary() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.70, 1.0) } else { hsla(220.0/360.0, 0.10, 0.35, 1.0) } }
-pub fn text_muted() -> Hsla { if is_dark() { hsla(0.0, 0.0, 0.50, 1.0) } else { hsla(220.0/360.0, 0.05, 0.55, 1.0) } }
-pub fn accent() -> Hsla { hsla(239.0 / 360.0, 0.84, if is_dark() { 0.67 } else { 0.55 }, 1.0) }
-pub fn danger() -> Hsla { hsla(0.0, 0.75, if is_dark() { 0.55 } else { 0.45 }, 1.0) }
-pub fn success() -> Hsla { hsla(150.0 / 360.0, 0.65, if is_dark() { 0.45 } else { 0.35 }, 1.0) }
+// Dark: #0f1117, Light: #ffffff
+pub fn bg_primary() -> Hsla { if is_dark() { hex_to_hsla("0f1117") } else { hsla(0.0, 0.0, 1.0, 1.0) } }
+// Dark: #1a1b23, Light: #f8f9fa
+pub fn bg_secondary() -> Hsla { if is_dark() { hex_to_hsla("1a1b23") } else { hex_to_hsla("f8f9fa") } }
+// Dark: #22232d, Light: #f0f1f3
+pub fn bg_tertiary() -> Hsla { if is_dark() { hex_to_hsla("22232d") } else { hex_to_hsla("f0f1f3") } }
+// Dark: #2a2b37 (hover)
+pub fn bg_hover() -> Hsla { if is_dark() { hex_to_hsla("2a2b37") } else { hex_to_hsla("e8e9ed") } }
+// Dark: #2e303a, Light: #d1d5db
+pub fn border_c() -> Hsla { if is_dark() { hex_to_hsla("2e303a") } else { hex_to_hsla("d1d5db") } }
+// Dark: #f3f4f6, Light: #111827
+pub fn text_primary() -> Hsla { if is_dark() { hex_to_hsla("f3f4f6") } else { hex_to_hsla("111827") } }
+// Dark: #9ca3af, Light: #4b5563
+pub fn text_secondary() -> Hsla { if is_dark() { hex_to_hsla("9ca3af") } else { hex_to_hsla("4b5563") } }
+// Dark: #6b7280, Light: #9ca3af
+pub fn text_muted() -> Hsla { if is_dark() { hex_to_hsla("6b7280") } else { hex_to_hsla("9ca3af") } }
+// Dark: #6366f1, Light: #4f46e5
+pub fn accent() -> Hsla { if is_dark() { hex_to_hsla("6366f1") } else { hex_to_hsla("4f46e5") } }
+// Dark: #818cf8 (hover accent)
+pub fn accent_hover() -> Hsla { if is_dark() { hex_to_hsla("818cf8") } else { hex_to_hsla("6366f1") } }
+// Dark: #f87171, Light: #dc2626
+pub fn danger() -> Hsla { if is_dark() { hex_to_hsla("f87171") } else { hex_to_hsla("dc2626") } }
+// Dark: #34d399, Light: #059669
+pub fn success() -> Hsla { if is_dark() { hex_to_hsla("34d399") } else { hex_to_hsla("059669") } }
+// Dark: #fbbf24, Light: #d97706
+pub fn warning() -> Hsla { if is_dark() { hex_to_hsla("fbbf24") } else { hex_to_hsla("d97706") } }
 
 pub fn accent_bg() -> Hsla { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) }
 pub fn ink_white() -> Hsla { hsla(0.0, 0.0, 1.0, 1.0) }

@@ -36,17 +36,16 @@ impl Render for RightPanel {
         const TABS: &[(&str, RightTab, IconName)] = &[
             ("Preview", RightTab::Preview, IconName::File),
             ("Playground", RightTab::Playground, IconName::Play),
-            ("Chat", RightTab::Chat, IconName::Bot),
+            ("Historique", RightTab::History, IconName::Clock),
             ("STT", RightTab::Stt, IconName::Mic),
             ("IA", RightTab::Optimize, IconName::Sparkles),
             ("Lint", RightTab::Lint, IconName::TriangleAlert),
-            ("GPU", RightTab::Fleet, IconName::Settings),
-            ("Terminal", RightTab::Terminal, IconName::SquareTerminal),
             ("Export", RightTab::Export, IconName::Download),
-            ("Historique", RightTab::History, IconName::Redo),
             ("Stats", RightTab::Analytics, IconName::ChartPie),
             ("Chain", RightTab::Chain, IconName::Network),
+            ("Chat", RightTab::Chat, IconName::Bot),
             ("Collab", RightTab::Collab, IconName::User),
+            ("GPU", RightTab::Fleet, IconName::Globe),
         ];
 
         let active = self.active_tab;
@@ -100,7 +99,7 @@ impl Render for RightPanel {
             RightTab::Collab => self.tab_collab(cx),
         };
 
-        div().w(px(380.0)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
+        div().w(px(384.0)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col().child(header).children(dropdown).child(content)
     }
 }
@@ -110,14 +109,13 @@ impl RightPanel {
     fn tab_preview(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let compiled = s.cached_prompt.clone();
-        let lines = s.cached_lines; let chars = s.cached_chars;
         let is_copied = self.copy_feedback > 0;
         drop(s);
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(8.0))
-            .child(div().flex().items_center().gap(px(8.0))
+        div().flex_1().flex().flex_col()
+            .child(div().px(px(16.0)).py(px(10.0)).flex().items_center().gap(px(8.0))
+                .border_b_1().border_color(border_c())
                 .child(Icon::new(IconName::File).text_color(text_muted()))
-                .child(div().text_xs().text_color(text_muted()).child("Prompt compile"))
-                .child(div().flex_1())
+                .child(div().flex_1().text_xs().text_color(text_muted()).child("Prompt compile"))
                 .child({ let cc = compiled.clone();
                     div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).flex().items_center().gap(px(4.0))
                         .text_xs().text_color(if is_copied { success() } else { accent() })
@@ -129,8 +127,7 @@ impl RightPanel {
                             this.copy_feedback = 120;
                         }))
                 }))
-            .child(div().text_xs().text_color(text_muted()).child(format!("{lines} lignes / {chars} car.")))
-            .child(div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+            .child(div().flex_1().p(px(16.0))
                 .text_xs().text_color(if compiled.is_empty() { text_muted() } else { text_primary() })
                 .child(if compiled.is_empty() { "Commencez a ecrire dans les blocs pour voir le prompt compile...".into() } else { compiled }))
     }
@@ -138,18 +135,23 @@ impl RightPanel {
     fn tab_playground(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let response = s.playground_response.clone(); let loading = s.playground_loading;
-        let model = s.selected_model.clone(); let tokens = s.cached_tokens;
+        let selected = s.selected_model.clone();
         let last_exec = s.executions.last().cloned();
         drop(s);
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
-            .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::Play).text_color(text_muted()))
-                .child(div().text_xs().text_color(text_muted()).child("Playground"))
-                .child(div().flex_1())
-                .child(div().text_xs().text_color(text_secondary()).child(model.clone())))
-            .child(div().py(px(10.0)).bg(if loading { text_muted() } else { accent() })
-                .rounded(px(8.0)).flex().items_center().justify_center()
+
+        const CLOUD_MODELS: &[&str] = &[
+            "GPT-4o", "GPT-4o Mini", "GPT-4.1", "GPT-4.1 Mini",
+            "GPT-4.1 Nano", "o3-mini", "Claude Sonnet 4.6",
+            "Claude Opus 4.6", "Claude Haiku 4.5", "Gemini 2.5 Pro",
+            "Gemini 2.5 Flash",
+        ];
+
+        // Execute + settings buttons
+        let controls = div().flex().items_center().gap(px(8.0))
+            .child(div().py(px(8.0)).px(px(16.0)).bg(if loading { text_muted() } else { accent() })
+                .rounded(px(8.0)).flex().items_center().gap(px(6.0))
                 .text_sm().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                .child(Icon::new(IconName::Play))
                 .child(if loading { "Execution..." } else { "Executer" })
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     this.store.update(cx, |s, _| { if s.playground_loading { return; } s.playground_loading = true; s.playground_response.clear(); });
@@ -170,34 +172,97 @@ impl RightPanel {
                         let _ = tx.send(AsyncMsg::LlmDone);
                     }); });
                 })))
+            .child(div().p(px(8.0)).rounded(px(8.0)).border_1().border_color(border_c())
+                .child(Icon::new(IconName::Settings).text_color(text_muted()))
+                .cursor_pointer().hover(|s| s.bg(bg_tertiary())));
+
+        // Cloud models chips
+        let mut cloud_chips = div().flex().flex_wrap().gap(px(6.0));
+        for &m in CLOUD_MODELS {
+            let model_id: String = m.to_lowercase().replace(' ', "-");
+            let is_sel = selected == model_id || selected == m.to_lowercase().replace(' ', "-");
+            let mid = model_id.clone();
+            cloud_chips = cloud_chips.child(
+                div().px(px(10.0)).py(px(4.0)).rounded(px(12.0))
+                    .text_xs().cursor_pointer()
+                    .bg(if is_sel { accent() } else { bg_tertiary() })
+                    .text_color(if is_sel { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_secondary() })
+                    .border_1().border_color(if is_sel { accent() } else { border_c() })
+                    .hover(|s| s.bg(if is_sel { accent() } else { bg_secondary() }))
+                    .child(m.to_string())
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, _| { s.selected_model = mid.clone(); }); cx.notify();
+                    }))
+            );
+        }
+
+        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
+            .child(controls)
+            .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("MODELES CLOUD (API)"))
+            .child(cloud_chips)
             .child(div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                 .text_xs().text_color(if response.is_empty() { text_muted() } else { text_primary() })
-                .child(if response.is_empty() { "La reponse apparaitra ici...".into() } else { response }))
-            .child(div().flex().items_center().gap(px(8.0)).flex_wrap()
-                .child(div().text_xs().text_color(text_muted()).child(format!("~{tokens} tokens")))
-                .children(last_exec.map(|e| div().flex().gap(px(6.0))
-                    .child(div().text_xs().text_color(accent()).child(format!("{}ms", e.latency_ms)))
-                    .child(div().text_xs().text_color(success()).child(format!("{}/{} tok", e.tokens_in, e.tokens_out))))))
+                .child(if response.is_empty() { "Selectionnez un ou plusieurs modeles et cliquez sur Executer".into() } else { response }))
+            .children(last_exec.map(|e| div().flex().items_center().gap(px(8.0)).flex_wrap()
+                .child(div().text_xs().text_color(accent()).child(format!("{}ms", e.latency_ms)))
+                .child(div().text_xs().text_color(success()).child(format!("{}/{} tok", e.tokens_in, e.tokens_out)))))
     }
 
     fn tab_chat(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let messages: Vec<(String, String)> = s.chat_messages.clone();
+        let model = s.selected_model.clone();
+        let system_prompt = s.chat_system_prompt.clone();
         drop(s);
-        let mut msg_view = div().flex().flex_col().gap(px(6.0));
+
+        // Messages area
+        let mut msg_view = div().flex().flex_col().gap(px(8.0));
         for (role, content) in &messages {
             let is_user = role == "user";
-            msg_view = msg_view.child(div().px(px(10.0)).py(px(6.0)).rounded(px(8.0))
-                .bg(if is_user { accent_bg() } else { bg_tertiary() })
-                .child(div().text_xs().text_color(if is_user { accent() } else { text_muted() }).child(if is_user { "Vous" } else { "Assistant" }))
-                .child(div().text_xs().text_color(text_primary()).child(content.clone())));
+            let row = if is_user {
+                div().flex().w_full().justify_end()
+            } else {
+                div().flex().w_full()
+            };
+            msg_view = msg_view.child(
+                row.child(div().max_w(px(280.0)).px(px(12.0)).py(px(8.0)).rounded(px(12.0))
+                    .bg(if is_user { accent() } else { bg_tertiary() })
+                    .text_xs().text_color(if is_user { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_primary() })
+                    .child(content.clone()))
+            );
         }
+
         div().flex_1().flex().flex_col()
+            // Header with model + clear
+            .child(div().px(px(12.0)).py(px(8.0)).border_b_1().border_color(border_c()).flex().items_center().gap(px(6.0))
+                .child(div().text_xs().text_color(text_muted()).child("Modele:"))
+                .child(div().px(px(8.0)).py(px(3.0)).rounded(px(6.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .text_xs().text_color(text_secondary()).child(model))
+                .child(div().flex_1())
+                .children(if messages.is_empty() { None } else {
+                    Some(div().p(px(4.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                        .child(Icon::new(IconName::Trash2).text_color(text_muted()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            this.store.update(cx, |s, _| { s.chat_messages.clear(); }); cx.notify();
+                        })))
+                }))
+            // System prompt hint
+            .child(div().px(px(12.0)).py(px(6.0)).border_b_1().border_color(border_c()).flex().items_center().gap(px(4.0))
+                .child(div().text_xs().text_color(text_muted()).child("Systeme:"))
+                .child(div().flex_1().text_xs().text_color(text_secondary()).overflow_hidden()
+                    .child(if system_prompt.is_empty() { "(prompt courant)".to_string() } else {
+                        if system_prompt.len() > 40 { format!("{}...", &system_prompt[..40]) } else { system_prompt }
+                    }))
+                .child(div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .text_xs().text_color(accent()).child(Icon::new(IconName::File))
+                    .cursor_pointer().hover(|s| s.bg(bg_secondary()))))
+            // Messages
             .child(div().flex_1().p(px(12.0)).child(msg_view)
                 .child(if messages.is_empty() { div().text_xs().text_color(text_muted()).child("Commencez une conversation...") } else { div() }))
-            .child(div().h(px(40.0)).px(px(12.0)).border_t_1().border_color(border_c()).flex().items_center().gap(px(6.0))
+            // Input area
+            .child(div().px(px(12.0)).py(px(8.0)).border_t_1().border_color(border_c()).flex().items_center().gap(px(6.0))
                 .child(if let Some(ref e) = self.chat_input { div().flex_1().child(Input::new(e)) } else { div().flex_1() })
-                .child(div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
+                .child(div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent())
                     .child(Icon::new(IconName::Play).text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)))
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                         let msg = this.chat_input.as_ref().map(|e| e.read(cx).value().to_string()).unwrap_or_default();
@@ -223,47 +288,128 @@ impl RightPanel {
 
     fn tab_stt(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
-        let recording = s.stt_recording; let server = s.server_url.clone();
+        let recording = s.stt_recording;
+        let provider = s.stt_provider;
         drop(s);
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
+
+        const PROVIDERS: &[(&str, &str, SttProvider)] = &[
+            ("Local", "Utilise le serveur GPU local", SttProvider::Local),
+            ("OpenAI Whisper", "API cloud OpenAI", SttProvider::OpenaiWhisper),
+            ("Groq Whisper", "API cloud Groq (rapide)", SttProvider::Groq),
+            ("Deepgram Nova-3", "API cloud Deepgram", SttProvider::Deepgram),
+        ];
+
+        const LANGUAGES: &[&str] = &["Auto", "FR", "EN", "ES", "DE", "IT", "PT", "NL", "JA", "ZH", "KO", "RU", "AR"];
+
+        // Provider selection
+        let mut providers = div().flex().flex_col().gap(px(4.0));
+        for &(label, desc, prov) in PROVIDERS {
+            let is_sel = provider == prov;
+            providers = providers.child(
+                div().px(px(12.0)).py(px(8.0)).rounded(px(6.0))
+                    .border_1().border_color(if is_sel { accent() } else { border_c() })
+                    .bg(if is_sel { accent_bg() } else { bg_tertiary() })
+                    .cursor_pointer().hover(|s| s.bg(bg_secondary()))
+                    .flex().flex_col().gap(px(2.0))
+                    .child(div().flex().items_center().gap(px(6.0))
+                        .child(Icon::new(if prov == SttProvider::Local { IconName::Cpu } else { IconName::Globe }).text_color(if is_sel { accent() } else { text_muted() }))
+                        .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(if is_sel { accent() } else { text_primary() }).child(label.to_string())))
+                    .child(div().text_xs().text_color(text_muted()).child(desc.to_string()))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, _| { s.stt_provider = prov; }); cx.notify();
+                    }))
+            );
+        }
+
+        // Language selector
+        let mut lang_chips = div().flex().flex_wrap().gap(px(4.0));
+        for &lang in LANGUAGES {
+            let is_sel = lang == "Auto"; // default
+            lang_chips = lang_chips.child(
+                div().px(px(8.0)).py(px(3.0)).rounded(px(10.0))
+                    .text_xs().cursor_pointer()
+                    .bg(if is_sel { accent() } else { bg_tertiary() })
+                    .text_color(if is_sel { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_secondary() })
+                    .border_1().border_color(if is_sel { accent() } else { border_c() })
+                    .child(lang.to_string())
+            );
+        }
+
+        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
             .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::Mic).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Speech-to-Text")))
-            .child(div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().flex_col().gap(px(6.0))
-                .child(div().text_xs().text_color(text_primary()).child("Comment utiliser"))
-                .child(div().text_xs().text_color(text_secondary()).child("Cliquez sur l'icone Mic dans l'en-tete d'un bloc pour dicter."))
-                .child(div().text_xs().text_color(text_secondary()).child("Cliquez a nouveau pour arreter. La transcription sera ajoutee au bloc.")))
+                .child(Icon::new(IconName::Mic).text_color(text_muted()))
+                .child(div().text_xs().text_color(text_muted()).child("Speech-to-Text")))
+            // Provider selection
+            .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("FOURNISSEUR"))
+            .child(providers)
+            // Language
+            .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("LANGUE"))
+            .child(lang_chips)
+            // Status
             .child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().items_center().gap(px(6.0))
                 .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(if recording { danger() } else { success() }))
                 .child(div().text_xs().text_color(text_primary()).child(if recording { "Enregistrement..." } else { "Pret" })))
+            // Usage hint
+            .child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().flex_col().gap(px(4.0))
+                .child(div().text_xs().text_color(text_primary()).child("Utilisation"))
+                .child(div().text_xs().text_color(text_secondary()).child("Cliquez sur l'icone Mic dans l'en-tete d'un bloc pour dicter. Cliquez a nouveau pour arreter.")))
     }
 
     fn tab_optimize(&self, cx: &mut Context<Self>) -> Div {
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
+        let s = self.store.read(cx);
+        let response = s.playground_response.clone();
+        let loading = s.playground_loading;
+        drop(s);
+        let has_result = response.starts_with("--- Optimise ---");
+
+        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
             .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::Sparkles).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Optimiseur IA")))
-            .child(div().text_xs().text_color(text_secondary()).child("Ameliorez votre prompt avec l'IA. L'optimiseur reecrit pour plus de clarte et d'efficacite."))
-            .child(div().py(px(8.0)).px(px(12.0)).rounded(px(6.0)).bg(accent())
-                .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).flex().items_center().justify_center().gap(px(6.0))
-                .child(Icon::new(IconName::Sparkles)).child("Optimiser le prompt")
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    let s = this.store.read(cx);
-                    let prompt = s.cached_prompt.clone(); let server = s.server_url.clone(); let tx = s.msg_tx.clone();
-                    drop(s);
-                    std::thread::spawn(move || { crate::app::rt().block_on(async {
-                        let client = reqwest::Client::new();
-                        let body = serde_json::json!({"model":"gpt-4o-mini","messages":[
-                            {"role":"system","content":"You are a prompt engineering expert. Rewrite the prompt to be clearer, more specific, and effective. Keep the same intent."},
-                            {"role":"user","content":format!("Optimize this prompt:\n\n{prompt}")}
-                        ],"temperature":0.3,"max_tokens":4096,"stream":false});
-                        if let Ok(resp) = crate::app::llm_post(&client, "gpt-4o-mini", &server, body).send().await {
-                            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                                let text = crate::llm::parse_llm_response("gpt-4o-mini", &data).unwrap_or_default();
-                                let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Optimise ---\n{text}")));
+                .child(Icon::new(IconName::Sparkles).text_color(text_muted()))
+                .child(div().flex_1().text_xs().text_color(text_muted()).child("Optimiseur IA"))
+                // Improve button (purple gradient style)
+                .child(div().py(px(6.0)).px(px(14.0)).rounded(px(6.0))
+                    .bg(hsla(270.0/360.0, 0.7, 0.5, 1.0))
+                    .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                    .flex().items_center().gap(px(4.0))
+                    .child(Icon::new(IconName::Sparkles))
+                    .child(if loading { "Amelioration..." } else { "Ameliorer" })
+                    .cursor_pointer().hover(|s| s.bg(hsla(270.0/360.0, 0.7, 0.45, 1.0)))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        this.store.update(cx, |s, _| { if s.playground_loading { return; } s.playground_loading = true; s.playground_response.clear(); });
+                        let s = this.store.read(cx);
+                        let prompt = s.cached_prompt.clone(); let server = s.server_url.clone(); let tx = s.msg_tx.clone();
+                        drop(s);
+                        std::thread::spawn(move || { crate::app::rt().block_on(async {
+                            let client = reqwest::Client::new();
+                            let body = serde_json::json!({"model":"gpt-4o-mini","messages":[
+                                {"role":"system","content":"You are a prompt engineering expert. Rewrite the prompt to be clearer, more specific, and effective. Keep the same intent."},
+                                {"role":"user","content":format!("Optimize this prompt:\n\n{prompt}")}
+                            ],"temperature":0.3,"max_tokens":4096,"stream":false});
+                            if let Ok(resp) = crate::app::llm_post(&client, "gpt-4o-mini", &server, body).send().await {
+                                if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                    let text = crate::llm::parse_llm_response("gpt-4o-mini", &data).unwrap_or_default();
+                                    let _ = tx.send(AsyncMsg::LlmResponse(format!("--- Optimise ---\n{text}")));
+                                }
                             }
-                        }
-                    }); });
-                })))
-            .child(div().text_xs().text_color(text_muted()).child("Le prompt optimise apparaitra dans le Playground. Copiez-le manuellement."))
+                            let _ = tx.send(AsyncMsg::LlmDone);
+                        }); });
+                    }))))
+            .child(div().text_xs().text_color(text_secondary()).child("Ameliorez votre prompt avec l'IA. L'optimiseur reecrit pour plus de clarte et d'efficacite."))
+            // Optimized result
+            .child(if has_result {
+                let optimized = response.strip_prefix("--- Optimise ---\n").unwrap_or(&response).to_string();
+                div().flex().flex_col().gap(px(8.0))
+                    .child(div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                        .text_xs().text_color(text_primary()).child(optimized))
+                    .child(div().py(px(6.0)).px(px(12.0)).rounded(px(6.0)).bg(success())
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).flex().items_center().justify_center().gap(px(4.0))
+                        .child(Icon::new(IconName::Check)).child("Appliquer")
+                        .cursor_pointer().hover(|s| s.bg(hsla(120.0/360.0, 0.6, 0.35, 1.0))))
+            } else {
+                div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .text_xs().text_color(text_muted())
+                    .child("Le prompt optimise apparaitra ici...")
+            })
     }
 
     fn tab_lint(&self, cx: &mut Context<Self>) -> Div {
@@ -285,25 +431,33 @@ impl RightPanel {
         if chars > 10000 { checks = checks.child(lint("warning", "Prompt tres long (>10K car.)")); }
         if has_neg { checks = checks.child(lint("info", "Instructions negatives — preferez le positif")); }
         if !has_ex && chars > 800 { checks = checks.child(lint("info", "Prompt complexe sans exemples")); }
-        if enabled > 0 && empty == 0 && has_task && unresolved == 0 && chars >= 50 && chars <= 10000 {
+        let all_good = enabled > 0 && empty == 0 && has_task && unresolved == 0 && chars >= 50 && chars <= 10000;
+        if all_good {
             checks = checks.child(lint("success", "Tous les checks sont passes !"));
         }
         div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
             .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::TriangleAlert).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Linting")))
+                .child(Icon::new(if all_good { IconName::Check } else { IconName::TriangleAlert })
+                    .text_color(if all_good { success() } else { text_muted() }))
+                .child(div().text_xs().text_color(text_muted()).child("Linting")))
             .child(checks)
     }
 
     fn tab_fleet(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let nodes = s.gpu_nodes.clone(); let server = s.server_url.clone();
+        let node_count = nodes.len();
         drop(s);
         let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(8.0));
         c = c.child(div().flex().items_center().gap(px(6.0))
-            .child(Icon::new(IconName::Settings).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("GPU Fleet"))
+            .child(Icon::new(IconName::Globe).text_color(text_muted()))
+            .child(div().text_xs().text_color(text_muted()).child("GPU Fleet"))
+            .child(div().px(px(6.0)).py(px(2.0)).rounded(px(8.0)).bg(bg_tertiary()).text_xs().text_color(text_secondary())
+                .child(format!("{}", if node_count == 0 { 1 } else { node_count })))
             .child(div().flex_1())
-            .child(div().text_xs().text_color(text_muted()).child(Icon::new(IconName::Redo)).child("Rafraichir")
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+            .child(div().p(px(4.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                .child(Icon::new(IconName::Redo).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let token = this.store.read(cx).session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
                     if !token.is_empty() {
                         let server = this.store.read(cx).server_url.clone();
@@ -316,21 +470,33 @@ impl RightPanel {
                     }
                 }))));
         if nodes.is_empty() {
-            c = c.child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().flex_col().gap(px(4.0))
+            c = c.child(div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().flex_col().gap(px(6.0))
                 .child(div().flex().items_center().gap(px(6.0))
-                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(success()))
-                    .child(div().text_xs().text_color(text_primary()).child("Serveur local")))
-                .child(div().text_xs().text_color(text_muted()).child(server)));
+                    .child(Icon::new(IconName::Wifi).text_color(success()))
+                    .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child("Serveur local")))
+                .child(div().text_xs().text_color(text_muted()).child(server))
+                .child(div().flex().gap(px(4.0))
+                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).bg(accent_bg()).text_xs().text_color(accent()).child("STT"))
+                    .child(div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).bg(accent_bg()).text_xs().text_color(accent()).child("LLM"))));
         } else {
             for node in &nodes {
                 let online = node.status == "online";
-                c = c.child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().flex_col().gap(px(4.0))
+                c = c.child(div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().flex_col().gap(px(6.0))
                     .child(div().flex().items_center().gap(px(6.0))
-                        .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(if online { success() } else { text_muted() }))
-                        .child(div().text_xs().text_color(text_primary()).child(node.name.clone()))
+                        .child(Icon::new(if online { IconName::Wifi } else { IconName::WifiOff }).text_color(if online { success() } else { text_muted() }))
+                        .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(node.name.clone()))
                         .child(div().flex_1())
-                        .child(div().text_xs().text_color(if online { success() } else { danger() }).child(node.status.clone())))
-                    .child(div().text_xs().text_color(text_muted()).child(if node.gpu_info.is_empty() { node.address.clone() } else { node.gpu_info.clone() })));
+                        .child(div().p(px(4.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_secondary()))
+                            .child(Icon::new(IconName::Trash2).text_color(text_muted()))))
+                    .child(if !node.gpu_info.is_empty() {
+                        div().text_xs().text_color(text_secondary()).child(node.gpu_info.clone())
+                    } else { div() })
+                    .child(div().flex().items_center().gap(px(6.0))
+                        .child(div().px(px(6.0)).py(px(2.0)).rounded(px(8.0))
+                            .bg(if online { hsla(120.0/360.0, 0.5, 0.2, 0.3) } else { hsla(0.0, 0.5, 0.2, 0.3) })
+                            .text_xs().text_color(if online { success() } else { danger() })
+                            .child(node.status.clone())))
+                    .child(div().text_xs().text_color(text_muted()).overflow_hidden().child(node.address.clone())));
             }
         }
         c
@@ -351,16 +517,32 @@ impl RightPanel {
     }
 
     fn tab_export(&self, cx: &mut Context<Self>) -> Div {
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(8.0))
+        let is_copied = self.copy_feedback > 0;
+        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
+            // Import section
             .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::Download).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Export")))
+                .child(Icon::new(IconName::Upload).text_color(text_muted()))
+                .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("Import")))
+            .child(export_btn("Importer JSON", "Charger un projet depuis un fichier .json"))
+            // Divider
+            .child(div().h(px(1.0)).bg(border_c()))
+            // Export section
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::Download).text_color(text_muted()))
+                .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("Export")))
+            .child(export_btn("TXT (.txt)", "Export en texte brut")
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    let s = this.store.read(cx);
+                    let content = s.cached_prompt.clone(); let name = s.project.name.clone(); drop(s);
+                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.txt", name.replace(' ', "-").to_lowercase()), &content); });
+                })))
             .child(export_btn("Markdown (.md)", "Export en fichier Markdown")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
                     let content = s.cached_prompt.clone(); let name = s.project.name.clone(); drop(s);
                     std::thread::spawn(move || { let _ = std::fs::write(format!("{}.md", name.replace(' ', "-").to_lowercase()), &content); });
                 })))
-            .child(export_btn("JSON", "Export des blocs en JSON")
+            .child(export_btn("JSON", "Export complet du projet")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
                     let blocks: Vec<inkwell_core::types::PromptBlock> = s.project.blocks.iter().map(|b|
@@ -368,10 +550,15 @@ impl RightPanel {
                     let name = s.project.name.clone(); drop(s);
                     std::thread::spawn(move || { let _ = std::fs::write(format!("{}.json", name.replace(' ', "-").to_lowercase()), serde_json::to_string_pretty(&blocks).unwrap_or_default()); });
                 })))
-            .child(export_btn("OpenAI (Chat API)", "Format OpenAI compatible"))
-            .child(export_btn("Anthropic (Messages API)", "Format Anthropic compatible"))
+            .child(export_btn("OpenAI JSON", "Format API OpenAI"))
+            .child(export_btn("Anthropic JSON", "Format API Anthropic"))
+            // Divider
             .child(div().h(px(1.0)).bg(border_c()))
-            .child(export_btn("Copier dans le presse-papier", "Copie le prompt compile")
+            .child(div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).border_1().border_color(border_c()).bg(bg_tertiary())
+                .flex().items_center().gap(px(6.0)).cursor_pointer().hover(|s| s.bg(bg_secondary()))
+                .child(Icon::new(if is_copied { IconName::Check } else { IconName::Copy }).text_color(if is_copied { success() } else { accent() }))
+                .child(div().text_xs().text_color(if is_copied { success() } else { text_secondary() })
+                    .child(if is_copied { "Copie !" } else { "Copier dans le presse-papier" }))
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let compiled = this.store.read(cx).cached_prompt.clone();
                     cx.write_to_clipboard(ClipboardItem::new_string(compiled));
@@ -385,21 +572,29 @@ impl RightPanel {
         drop(s);
         let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(6.0));
         c = c.child(div().flex().items_center().gap(px(6.0))
-            .child(Icon::new(IconName::Redo).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Historique des executions")));
+            .child(Icon::new(IconName::Clock).text_color(text_muted()))
+            .child(div().flex_1().text_xs().text_color(text_muted()).child("Historique des executions"))
+            .child(div().p(px(4.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                .child(Icon::new(IconName::Trash2).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, _| { s.executions.clear(); }); cx.notify();
+                }))));
         if execs.is_empty() {
             c = c.child(div().text_xs().text_color(text_muted()).child("Aucune execution. Lancez un prompt dans le Playground."));
         } else {
             for exec in execs {
-                c = c.child(div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c()).bg(bg_tertiary())
-                    .flex().flex_col().gap(px(2.0))
+                let preview: String = if exec.response_preview.len() > 80 { format!("{}...", &exec.response_preview[..80]) } else { exec.response_preview.clone() };
+                c = c.child(div().py(px(8.0)).border_b_1().border_color(border_c()).flex().flex_col().gap(px(4.0))
                     .child(div().flex().items_center().gap(px(6.0))
-                        .child(div().text_xs().text_color(accent()).child(exec.model))
+                        .child(Icon::new(IconName::ChevronRight).text_color(text_muted()))
+                        .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(accent()).child(exec.model))
                         .child(div().flex_1())
                         .child(div().text_xs().text_color(text_muted()).child(
                             chrono::DateTime::from_timestamp_millis(exec.timestamp).map(|d| d.format("%H:%M:%S").to_string()).unwrap_or_default())))
                     .child(div().flex().gap(px(8.0))
                         .child(div().text_xs().text_color(success()).child(format!("{}ms", exec.latency_ms)))
-                        .child(div().text_xs().text_color(text_secondary()).child(format!("{}/{} tok", exec.tokens_in, exec.tokens_out)))));
+                        .child(div().text_xs().text_color(text_secondary()).child(format!("{}/{} tok", exec.tokens_in, exec.tokens_out))))
+                    .child(div().text_xs().text_color(text_muted()).overflow_hidden().child(preview)));
             }
         }
         c
@@ -407,29 +602,113 @@ impl RightPanel {
 
     fn tab_analytics(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
-        let exec_count = s.executions.len(); let tokens = s.cached_tokens; let blocks = s.project.blocks.len();
+        let exec_count = s.executions.len();
         let total_in: u64 = s.executions.iter().map(|e| e.tokens_in).sum();
         let total_out: u64 = s.executions.iter().map(|e| e.tokens_out).sum();
+        let total_cost: f64 = s.executions.iter().map(|e| e.cost).sum();
         let avg_lat = if exec_count > 0 { s.executions.iter().map(|e| e.latency_ms).sum::<u64>() / exec_count as u64 } else { 0 };
+        // Per-model usage
+        let mut model_counts: Vec<(String, usize)> = Vec::new();
+        for exec in &s.executions {
+            if let Some(entry) = model_counts.iter_mut().find(|(m, _)| m == &exec.model) {
+                entry.1 += 1;
+            } else { model_counts.push((exec.model.clone(), 1)); }
+        }
+        model_counts.sort_by(|a, b| b.1.cmp(&a.1));
+        let max_count = model_counts.first().map(|(_, c)| *c).unwrap_or(1);
         drop(s);
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
+
+        // Time range buttons
+        let time_range = div().flex().gap(px(4.0))
+            .child(time_btn("7 jours", true))
+            .child(time_btn("30 jours", false))
+            .child(time_btn("Tout", false));
+
+        let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
             .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::ChartPie).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Statistiques")))
-            .child(div().flex().gap(px(8.0))
+                .child(Icon::new(IconName::ChartPie).text_color(text_muted()))
+                .child(div().text_xs().text_color(text_muted()).child("Statistiques")))
+            .child(time_range)
+            .child(div().flex().flex_wrap().gap(px(8.0))
                 .child(kpi("Executions", &exec_count.to_string(), accent()))
-                .child(kpi("Tokens", &format!("~{tokens}"), success()))
-                .child(kpi("Blocs", &blocks.to_string(), text_secondary())))
-            .child(div().flex().gap(px(8.0))
-                .child(kpi("Tokens In", &total_in.to_string(), accent()))
-                .child(kpi("Tokens Out", &total_out.to_string(), success()))
-                .child(kpi("Latence moy.", &format!("{}ms", avg_lat), hsla(50.0 / 360.0, 0.8, 0.5, 1.0))))
+                .child(kpi("Tokens", &format!("{}", total_in + total_out), success()))
+                .child(kpi("Cout", &format!("${:.4}", total_cost), hsla(50.0 / 360.0, 0.8, 0.5, 1.0)))
+                .child(kpi("Latence moy.", &format!("{}ms", avg_lat), text_secondary())));
+
+        // Top model
+        if let Some((top_model, top_count)) = model_counts.first() {
+            c = c.child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                .flex().items_center().gap(px(8.0))
+                .child(Icon::new(IconName::Sparkles).text_color(accent()))
+                .child(div().text_xs().text_color(text_primary()).child(format!("{top_model} — {top_count} utilisations"))));
+        }
+
+        // Per-model bar chart
+        if model_counts.len() > 1 {
+            let mut bars = div().flex().flex_col().gap(px(6.0));
+            for (model, count) in &model_counts {
+                let pct = (*count as f32 / max_count as f32) * 100.0;
+                bars = bars.child(div().flex().items_center().gap(px(8.0))
+                    .child(div().w(px(80.0)).text_xs().text_color(text_secondary()).overflow_hidden().child(model.clone()))
+                    .child(div().flex_1().h(px(8.0)).rounded(px(4.0)).bg(bg_tertiary())
+                        .child(div().h(px(8.0)).rounded(px(4.0)).bg(accent())
+                            .w(px(pct * 2.0))))
+                    .child(div().w(px(24.0)).text_xs().text_color(text_muted()).child(count.to_string())));
+            }
+            c = c.child(bars);
+        }
+        c
     }
 
     fn tab_chain(&self, cx: &mut Context<Self>) -> Div {
-        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
-            .child(div().flex().items_center().gap(px(6.0))
-                .child(Icon::new(IconName::Network).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Prompt Chain")))
-            .child(div().text_xs().text_color(text_secondary()).child("Executez plusieurs prompts sequentiellement. La sortie de chaque etape alimente la suivante."))
+        let s = self.store.read(cx);
+        let workspaces = s.workspaces.clone();
+        let blocks: Vec<(usize, String)> = s.project.blocks.iter().enumerate()
+            .filter(|(_, b)| b.enabled && !b.content.is_empty())
+            .map(|(i, b)| (i, if b.content.len() > 40 { format!("{}...", &b.content[..40]) } else { b.content.clone() }))
+            .collect();
+        let model = s.selected_model.clone();
+        drop(s);
+
+        // Workspace selector
+        let ws_selector = div().flex().flex_col().gap(px(4.0))
+            .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("WORKSPACE"))
+            .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c()).bg(bg_tertiary())
+                .flex().items_center().gap(px(6.0))
+                .child(div().text_xs().text_color(text_secondary()).child(
+                    if workspaces.is_empty() { "Aucun workspace".to_string() } else { workspaces.first().map(|w| w.name.clone()).unwrap_or_default() }
+                ))
+                .child(div().flex_1())
+                .child(Icon::new(IconName::ChevronDown).text_color(text_muted())));
+
+        // Model selector
+        let model_sel = div().flex().flex_col().gap(px(4.0))
+            .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("MODELE"))
+            .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c()).bg(bg_tertiary())
+                .flex().items_center().gap(px(6.0))
+                .child(div().text_xs().text_color(text_secondary()).child(model))
+                .child(div().flex_1())
+                .child(Icon::new(IconName::ChevronDown).text_color(text_muted())));
+
+        // Steps list (numbered)
+        let mut steps = div().flex().flex_col().gap(px(4.0));
+        if blocks.is_empty() {
+            steps = steps.child(div().text_xs().text_color(text_muted()).child("Ajoutez des blocs pour creer une chaine."));
+        } else {
+            for (idx, (_, preview)) in blocks.iter().enumerate() {
+                steps = steps.child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().items_center().gap(px(8.0))
+                    .child(div().w(px(20.0)).h(px(20.0)).rounded(px(10.0)).bg(accent()).flex().items_center().justify_center()
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child(format!("{}", idx + 1)))
+                    .child(div().flex_1().text_xs().text_color(text_secondary()).overflow_hidden().child(preview.clone())));
+            }
+        }
+
+        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
+            .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("Prompt Chain"))
+            .child(ws_selector)
+            .child(model_sel)
+            .child(steps)
             .child(div().py(px(8.0)).px(px(12.0)).rounded(px(6.0)).bg(accent())
                 .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).flex().items_center().justify_center().gap(px(6.0))
                 .child(Icon::new(IconName::Play)).child("Executer la chaine")
@@ -459,35 +738,52 @@ impl RightPanel {
     fn tab_collab(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let session = s.session.clone(); let users = s.collab_users.clone();
+        let online_count = users.iter().filter(|u| u.online).count() + if session.is_some() { 1 } else { 0 };
         drop(s);
         let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0));
+        // Header with refresh
         c = c.child(div().flex().items_center().gap(px(6.0))
-            .child(Icon::new(IconName::User).text_color(text_muted())).child(div().text_xs().text_color(text_muted()).child("Collaboration")));
+            .child(Icon::new(IconName::User).text_color(text_muted()))
+            .child(div().flex_1().text_xs().text_color(text_muted()).child("Collaboration"))
+            .child(div().p(px(4.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                .child(Icon::new(IconName::Redo).text_color(text_muted()))));
+        // Active users section
+        c = c.child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("UTILISATEURS ACTIFS"));
         // Current user
         if let Some(ref ses) = session {
             let initial = ses.email.chars().next().unwrap_or('U').to_uppercase().to_string();
             c = c.child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().items_center().gap(px(8.0))
-                .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent()).flex().items_center().justify_center()
+                .hover(|s| s.bg(bg_secondary()))
+                .child(div().w(px(28.0)).h(px(28.0)).rounded(px(14.0)).bg(accent()).flex().items_center().justify_center()
                     .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child(initial))
                 .child(div().flex().flex_col()
-                    .child(div().text_xs().text_color(text_primary()).child(ses.display_name.clone()))
+                    .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(ses.display_name.clone()))
                     .child(div().text_xs().text_color(success()).child("En ligne (vous)"))));
         }
         // Other collaborators
         let colors = [accent(), success(), hsla(280.0/360.0, 0.7, 0.6, 1.0), hsla(50.0/360.0, 0.8, 0.5, 1.0)];
         for (i, user) in users.iter().enumerate() {
             c = c.child(div().p(px(10.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c()).flex().items_center().gap(px(8.0))
-                .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(colors[i % colors.len()]).flex().items_center().justify_center()
+                .hover(|s| s.bg(bg_secondary()))
+                .child(div().w(px(28.0)).h(px(28.0)).rounded(px(14.0)).bg(colors[i % colors.len()]).flex().items_center().justify_center()
                     .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child(user.name.chars().next().unwrap_or('?').to_uppercase().to_string()))
                 .child(div().flex().flex_col()
-                    .child(div().text_xs().text_color(text_primary()).child(user.name.clone()))
+                    .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(user.name.clone()))
                     .child(div().text_xs().text_color(if user.online { success() } else { text_muted() }).child(if user.online { "En ligne" } else { "Hors ligne" }))));
         }
         if users.is_empty() && session.is_none() {
-            c = c.child(div().text_xs().text_color(text_muted()).child("Connectez-vous pour voir les collaborateurs."));
+            c = c.child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::User).text_color(text_muted()))
+                .child(div().text_xs().text_color(text_muted()).child("Connectez-vous pour voir les collaborateurs.")));
         } else if users.is_empty() {
-            c = c.child(div().text_xs().text_color(text_muted()).child("Aucun autre collaborateur pour le moment."));
+            c = c.child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::User).text_color(text_muted()))
+                .child(div().text_xs().text_color(text_muted()).child("Aucun autre collaborateur pour le moment.")));
         }
+        // Active count indicator
+        c = c.child(div().flex().items_center().gap(px(6.0))
+            .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(success()))
+            .child(div().text_xs().text_color(text_muted()).child(format!("{online_count} collaborateur(s) actif(s)"))));
         c
     }
 }
@@ -521,4 +817,14 @@ fn export_btn(label: &str, desc: &str) -> Div {
             .child(div().text_xs().text_color(text_secondary()).child(label.to_string())))
         .child(div().text_xs().text_color(text_muted()).child(desc.to_string()))
         .cursor_pointer().hover(|s| s.bg(hsla(239.0/360.0, 0.84, 0.67, 0.1)))
+}
+
+fn time_btn(label: &str, active: bool) -> Div {
+    div().px(px(10.0)).py(px(4.0)).rounded(px(6.0))
+        .text_xs().cursor_pointer()
+        .bg(if active { accent() } else { bg_tertiary() })
+        .text_color(if active { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_secondary() })
+        .border_1().border_color(if active { accent() } else { border_c() })
+        .hover(|s| if active { s } else { s.bg(bg_secondary()) })
+        .child(label.to_string())
 }

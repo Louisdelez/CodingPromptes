@@ -5,49 +5,60 @@ pub struct InkwellTheme {
     pub bg_primary: Hsla,
     pub bg_secondary: Hsla,
     pub bg_tertiary: Hsla,
+    pub bg_hover: Hsla,
     pub border: Hsla,
     pub text_primary: Hsla,
     pub text_secondary: Hsla,
     pub text_muted: Hsla,
     pub accent: Hsla,
+    pub accent_hover: Hsla,
     pub danger: Hsla,
     pub success: Hsla,
+    pub warning: Hsla,
     pub terminal_bg: Hsla,
     pub terminal_text: Hsla,
 }
 
 impl InkwellTheme {
     pub fn dark() -> Self {
+        use crate::ui::colors::hex_to_hsla;
         Self {
-            bg_primary: hsla(230.0 / 360.0, 0.15, 0.07, 1.0),
-            bg_secondary: hsla(230.0 / 360.0, 0.12, 0.10, 1.0),
-            bg_tertiary: hsla(230.0 / 360.0, 0.10, 0.14, 1.0),
-            border: hsla(230.0 / 360.0, 0.10, 0.20, 1.0),
-            text_primary: hsla(0.0, 0.0, 0.95, 1.0),
-            text_secondary: hsla(0.0, 0.0, 0.70, 1.0),
-            text_muted: hsla(0.0, 0.0, 0.50, 1.0),
-            accent: hsla(239.0 / 360.0, 0.84, 0.67, 1.0),
-            danger: hsla(0.0, 0.75, 0.55, 1.0),
-            success: hsla(150.0 / 360.0, 0.65, 0.45, 1.0),
+            bg_primary: hex_to_hsla("0f1117"),
+            bg_secondary: hex_to_hsla("1a1b23"),
+            bg_tertiary: hex_to_hsla("22232d"),
+            bg_hover: hex_to_hsla("2a2b37"),
+            border: hex_to_hsla("2e303a"),
+            text_primary: hex_to_hsla("f3f4f6"),
+            text_secondary: hex_to_hsla("9ca3af"),
+            text_muted: hex_to_hsla("6b7280"),
+            accent: hex_to_hsla("6366f1"),
+            accent_hover: hex_to_hsla("818cf8"),
+            danger: hex_to_hsla("f87171"),
+            success: hex_to_hsla("34d399"),
+            warning: hex_to_hsla("fbbf24"),
             terminal_bg: hsla(0.0, 0.0, 0.04, 1.0),
             terminal_text: hsla(120.0 / 360.0, 0.8, 0.6, 1.0),
         }
     }
 
     pub fn light() -> Self {
+        use crate::ui::colors::hex_to_hsla;
         Self {
             bg_primary: hsla(0.0, 0.0, 1.0, 1.0),
-            bg_secondary: hsla(220.0 / 360.0, 0.10, 0.97, 1.0),
-            bg_tertiary: hsla(220.0 / 360.0, 0.08, 0.93, 1.0),
-            border: hsla(220.0 / 360.0, 0.10, 0.85, 1.0),
-            text_primary: hsla(220.0 / 360.0, 0.15, 0.10, 1.0),
-            text_secondary: hsla(220.0 / 360.0, 0.10, 0.35, 1.0),
-            text_muted: hsla(220.0 / 360.0, 0.05, 0.55, 1.0),
-            accent: hsla(239.0 / 360.0, 0.84, 0.55, 1.0),
-            danger: hsla(0.0, 0.80, 0.45, 1.0),
-            success: hsla(150.0 / 360.0, 0.70, 0.35, 1.0),
-            terminal_bg: hsla(220.0 / 360.0, 0.05, 0.95, 1.0),
-            terminal_text: hsla(220.0 / 360.0, 0.15, 0.20, 1.0),
+            bg_secondary: hex_to_hsla("f8f9fa"),
+            bg_tertiary: hex_to_hsla("f0f1f3"),
+            bg_hover: hex_to_hsla("e8e9ed"),
+            border: hex_to_hsla("d1d5db"),
+            text_primary: hex_to_hsla("111827"),
+            text_secondary: hex_to_hsla("4b5563"),
+            text_muted: hex_to_hsla("9ca3af"),
+            accent: hex_to_hsla("4f46e5"),
+            accent_hover: hex_to_hsla("6366f1"),
+            danger: hex_to_hsla("dc2626"),
+            success: hex_to_hsla("059669"),
+            warning: hex_to_hsla("d97706"),
+            terminal_bg: hex_to_hsla("f5f5f5"),
+            terminal_text: hex_to_hsla("1f2937"),
         }
     }
 

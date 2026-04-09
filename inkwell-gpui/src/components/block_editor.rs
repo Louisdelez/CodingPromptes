@@ -83,11 +83,18 @@ impl Render for BlockEditor {
         let is_recording = store.stt_recording && store.stt_target_block == Some(idx);
         drop(store);
 
-        // Block header
-        let mut header = div().px(px(12.0)).py(px(8.0)).flex().items_center().gap(px(8.0))
+        // Block header (matches web: grip handle, color dot + type dropdown, spacer, actions)
+        let mut header = div().px(px(8.0)).py(px(8.0)).flex().items_center().gap(px(6.0))
             .border_b_1().border_color(border_c())
-            .child(div().w(px(3.0)).h(px(14.0)).rounded(px(2.0)).bg(color))
-            .child(div().text_sm().text_color(color).child(label))
+            // Drag handle
+            .child(div().text_color(text_muted()).cursor_pointer()
+                .child(Icon::new(IconName::GripVertical)))
+            // Block type selector (color dot + label + chevron)
+            .child(div().px(px(8.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(6.0))
+                .bg(bg_tertiary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
+                .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(color).child(label))
+                .child(Icon::new(IconName::ChevronDown).text_color(text_muted())))
             .child(div().flex_1());
 
         // SDD action buttons (generate/improve/clarify) — simplified in block, full version in EditorPane
@@ -167,7 +174,7 @@ impl Render for BlockEditor {
         // Delete
         header = header.child(
             div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                .text_xs().text_color(danger()).child("x")
+                .text_xs().text_color(danger()).child(Icon::new(IconName::Trash2))
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                     this.store.update(cx, |s, cx| {
                         if idx < s.project.blocks.len() {
@@ -190,6 +197,7 @@ impl Render for BlockEditor {
 
         div().rounded(px(8.0))
             .border_1().border_color(border_c())
+            .border_l_3().border_color(color)
             .bg(bg_secondary()).overflow_hidden()
             .child(header)
             .child(block_content)

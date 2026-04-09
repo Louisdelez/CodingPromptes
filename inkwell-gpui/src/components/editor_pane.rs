@@ -113,14 +113,16 @@ impl Render for EditorPane {
             block_list = block_list.child(editor.clone());
         }
 
-        // Add block button
+        // Add block button (dashed border style like web)
         block_list = block_list.child(
-            div().py(px(14.0)).flex().items_center().justify_center()
-                .rounded(px(8.0)).border_2().border_color(hsla(0.0, 0.0, 0.5, 0.2))
-                .bg(hsla(0.0, 0.0, 0.5, 0.03))
+            div().py(px(12.0)).flex().items_center().justify_center().gap(px(6.0))
+                .rounded(px(8.0)).border_2().border_color(border_c())
                 .text_sm().text_color(text_muted())
-                .child(Icon::new(IconName::Plus)).child(" Ajouter un bloc")
-                .cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.0, 0.5, 0.06)))
+                .child(Icon::new(IconName::Plus))
+                .child("Ajouter un bloc")
+                .child(Icon::new(IconName::ChevronDown))
+                .cursor_pointer()
+                .hover(|s| s.border_color(accent()).text_color(accent()))
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     this.show_add_menu = !this.show_add_menu;
                     cx.notify();
@@ -136,7 +138,7 @@ impl Render for EditorPane {
                 BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation,
             ];
             let mut menu = div().p(px(8.0)).rounded(px(8.0)).bg(bg_secondary())
-                .border_1().border_color(border_c()).flex().flex_col().gap(px(2.0));
+                .border_1().border_color(border_c()).flex().flex_wrap().gap(px(2.0));
             for bt in all_types {
                 let label = bt.label(&lang).to_string();
                 let color = hex_to_hsla(bt.color());

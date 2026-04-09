@@ -48,17 +48,15 @@ impl Render for HeaderBar {
         let name_input_clone = self.name_input.clone();
         let editing = self.editing_name;
 
-        div().h(px(40.0)).px(px(12.0)).flex().items_center().gap(px(8.0))
-            .border_b_1().border_color(border_c()).bg(bg_secondary())
-            .child(div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
-                .text_color(if left_open { text_secondary() } else { text_muted() })
-                .child(if left_open { "[<]" } else { "[>]" })
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.store.update(cx, |s, cx| { s.left_open = !s.left_open; cx.emit(StoreEvent::SettingsChanged); });
-                })))
-            .child(div().text_sm().text_color(accent()).child("Inkwell"))
+        // Left section: logo + project name + save status
+        let left = div().flex().items_center().gap(px(8.0))
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(div().w(px(28.0)).h(px(28.0)).rounded(px(8.0)).bg(bg_tertiary())
+                    .flex().items_center().justify_center()
+                    .child(div().text_sm().text_color(accent()).child("I")))
+                .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child("Inkwell")))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
-            // Project name
+            // Project name (editable)
             .child(if editing {
                 match name_input_clone {
                     Some(ref entity) => div().flex().items_center().gap(px(4.0))
@@ -85,49 +83,72 @@ impl Render for HeaderBar {
                 }
             } else {
                 div().text_sm().text_color(text_primary()).child(project_name)
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    .cursor_pointer().hover(|s| s.bg(bg_tertiary()).rounded(px(4.0)))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                         this.editing_name = true; this.name_input = None; cx.notify();
                     }))
             })
             .child(match save_status {
-                "saving" => div().text_xs().text_color(hsla(50.0 / 360.0, 0.8, 0.5, 1.0)).child("Saving..."),
-                "saved" => div().text_xs().text_color(success()).child("Saved"),
+                "saving" => div().text_xs().text_color(warning()).child("Saving..."),
+                "saved" => div().flex().items_center().gap(px(2.0)).text_xs().text_color(success())
+                    .child(Icon::new(IconName::Check)).child("Saved"),
                 _ => div(),
-            })
-            .child(div().flex_1())
-            .children(framework.map(|f| div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
-                .bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)).text_xs().text_color(accent()).child(f)))
+            });
+
+        // Right section: theme, lang, user, panel toggles
+        let right = div().flex().items_center().gap(px(4.0))
+            // Theme toggle (icon + dropdown style like web)
+            .child(div().px(px(8.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(4.0))
+                .bg(bg_tertiary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .child(Icon::new(if dark_mode { IconName::Moon } else { IconName::Sun }).text_color(text_muted()))
+                .child(Icon::new(IconName::ChevronDown).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| { s.dark_mode = !s.dark_mode; cx.emit(StoreEvent::SettingsChanged); });
+                })))
+            // Language toggle (globe + FR/EN like web)
+            .child(div().px(px(8.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(4.0))
+                .bg(bg_tertiary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .child(Icon::new(IconName::Globe).text_color(text_muted()))
+                .child(div().text_xs().text_color(text_secondary()).child(lang))
+                .child(Icon::new(IconName::ChevronDown).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| { s.lang = if s.lang == "fr" { "en".into() } else { "fr".into() }; cx.emit(StoreEvent::SettingsChanged); });
+                })))
+            // Divider
+            .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
+            // User avatar + name (like web: 24px circle + display name)
             .children(session_email.map(|email| {
-                let initial = email.chars().next().unwrap_or('U').to_uppercase().to_string();
-                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).flex().items_center().gap(px(4.0))
-                    .child(div().w(px(18.0)).h(px(18.0)).rounded(px(9.0)).bg(accent())
-                        .flex().items_center().justify_center().text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child(initial))
-                    .child(div().text_xs().text_color(text_muted()).child(email))
-                    .cursor_pointer().hover(|s| s.bg(bg_tertiary()))
+                let s = self.store.read(cx);
+                let display_name = s.session.as_ref().map(|s| s.display_name.clone()).unwrap_or(email.clone());
+                let initial = display_name.chars().next().unwrap_or('U').to_uppercase().to_string();
+                drop(s);
+                div().px(px(6.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(6.0))
+                    .cursor_pointer().hover(|s| s.bg(bg_hover()))
+                    .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent())
+                        .flex().items_center().justify_center().text_xs().text_color(ink_white()).child(initial))
+                    .child(div().text_xs().text_color(text_secondary()).child(display_name))
+                    .child(Icon::new(IconName::ChevronDown).text_color(text_muted()))
                     .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                         this.store.update(cx, |s, cx| { s.show_profile = !s.show_profile; cx.emit(StoreEvent::SettingsChanged); });
                     }))
             }))
-            .child(div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs().text_color(text_muted()).child(lang)
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.store.update(cx, |s, cx| { s.lang = if s.lang == "fr" { "en".into() } else { "fr".into() }; cx.emit(StoreEvent::SettingsChanged); });
+            // Divider
+            .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
+            // Left panel toggle (PanelLeftOpen/Close icons like web)
+            .child(div().p(px(6.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .child(Icon::new(if left_open { IconName::PanelLeftClose } else { IconName::PanelLeftOpen }).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| { s.left_open = !s.left_open; cx.emit(StoreEvent::SettingsChanged); });
                 })))
-            .child(div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
-                .text_color(if show_settings { accent() } else { text_muted() }).child(Icon::new(IconName::Settings))
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.store.update(cx, |s, cx| { s.show_settings = !s.show_settings; cx.emit(StoreEvent::SettingsChanged); });
-                })))
-            .child(div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs().text_color(text_muted())
-                .child(Icon::new(if dark_mode { IconName::Moon } else { IconName::Sun }))
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.store.update(cx, |s, cx| { s.dark_mode = !s.dark_mode; cx.emit(StoreEvent::SettingsChanged); });
-                })))
-            .child(div().text_xs().text_color(success()).child("GPUI"))
-            .child(div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
-                .text_color(if right_open { text_secondary() } else { text_muted() })
-                .child(if right_open { "[>]" } else { "[<]" })
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+            // Right panel toggle
+            .child(div().p(px(6.0)).rounded(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .child(Icon::new(if right_open { IconName::PanelRightClose } else { IconName::PanelRightOpen }).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     this.store.update(cx, |s, cx| { s.right_open = !s.right_open; cx.emit(StoreEvent::SettingsChanged); });
-                })))
+                })));
+
+        div().h(px(44.0)).px(px(12.0)).flex().items_center()
+            .border_b_1().border_color(border_c()).bg(bg_secondary())
+            .child(left).child(div().flex_1()).child(right)
     }
 }

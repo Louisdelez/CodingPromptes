@@ -64,14 +64,20 @@ impl Render for LeftPanel {
             SidebarView::Versions => "Versions",
         };
 
-        let mut panel = div().w(px(260.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
+        let mut panel = div().w(px(288.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col();
 
-        // ── Header: view name + dropdown chevron (matches Tauri: 44px, px-16) ──
+        let view_icon = match self.view {
+            SidebarView::Library => IconName::FolderOpen,
+            SidebarView::Frameworks => IconName::Layers,
+            SidebarView::Versions => IconName::History,
+        };
+
+        // ── Header: view name + dropdown chevron (matching web: 44px, px-16) ──
         panel = panel.child(
             div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
                 .border_b_1().border_color(border_c())
-                .child(Icon::new(IconName::FolderOpen).text_color(text_muted()))
+                .child(Icon::new(view_icon).text_color(text_muted()))
                 .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(view_label))
                 .child(
                     div().text_color(text_muted())
@@ -86,8 +92,8 @@ impl Render for LeftPanel {
         if self.show_dropdown {
             let items = [
                 ("Bibliotheque", SidebarView::Library, IconName::FolderOpen),
-                ("Frameworks", SidebarView::Frameworks, IconName::Frame),
-                ("Versions", SidebarView::Versions, IconName::GitBranch),
+                ("Frameworks", SidebarView::Frameworks, IconName::Layers),
+                ("Versions", SidebarView::Versions, IconName::History),
             ];
             let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
                 .bg(bg_tertiary()).border_1().border_color(border_c()).p(px(4.0))

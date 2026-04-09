@@ -94,7 +94,7 @@ impl InkwellApp {
 impl Render for InkwellApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         set_dark_mode(self.state.dark_mode);
-        self.poll_messages();
+        self.poll_messages(cx);
 
         match self.state.screen {
             Screen::Auth => self.render_auth(window, cx),
@@ -141,7 +141,7 @@ impl Render for InkwellApp {
 }
 
 impl InkwellApp {
-    fn poll_messages(&mut self) {
+    fn poll_messages(&mut self, cx: &mut Context<Self>) {
         // Limit messages per frame to avoid blocking render
         let mut count = 0;
         while count < 50 {
@@ -335,6 +335,36 @@ impl InkwellApp {
                     }
                 }
             }
+        }
+        // Sync key state → store after processing messages
+        if count > 0 {
+            self.store.update(cx, |s, cx| {
+                if s.playground_response != self.state.playground_response {
+                    s.playground_response = self.state.playground_response.clone();
+                    s.playground_loading = self.state.playground_loading;
+                    cx.emit(crate::store::StoreEvent::PlaygroundUpdated);
+                }
+                if s.save_status != self.state.save_status {
+                    s.save_status = self.state.save_status;
+                    cx.emit(crate::store::StoreEvent::SaveStatusChanged);
+                }
+                if s.session.is_some() != self.state.session.is_some() {
+                    s.session = self.state.session.clone();
+                    s.screen = self.state.screen;
+                    cx.emit(crate::store::StoreEvent::SessionChanged);
+                }
+                // Sync project blocks for SDD/import results
+                if s.project.blocks.len() != self.state.project.blocks.len() || self.state.prompt_dirty {
+                    s.project.blocks = self.state.project.blocks.iter().map(|b| {
+                        Block { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled, editing: false }
+                    }).collect();
+                    s.prompt_dirty = true;
+                    s.refresh_cache();
+                    self.state.prompt_dirty = false;
+                    cx.emit(crate::store::StoreEvent::PromptCacheUpdated);
+                    cx.emit(crate::store::StoreEvent::ProjectChanged);
+                }
+            });
         }
     }
 }

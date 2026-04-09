@@ -60,7 +60,7 @@ impl Render for RightPanel {
         let header = div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
             .border_b_1().border_color(border_c())
             .child(Icon::new(tab_icon).text_color(text_muted()))
-            .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(tab_label))
+            .child(div().flex_1().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(tab_label))
             .child(div().text_color(text_muted()).child(Icon::new(IconName::ChevronDown))
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     this.show_dropdown = !this.show_dropdown; cx.notify();

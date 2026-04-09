@@ -78,7 +78,7 @@ impl Render for LeftPanel {
             div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
                 .border_b_1().border_color(border_c())
                 .child(Icon::new(view_icon).text_color(text_muted()))
-                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(view_label))
+                .child(div().flex_1().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(view_label))
                 .child(
                     div().text_color(text_muted())
                         .child(Icon::new(IconName::ChevronDown))
@@ -124,7 +124,7 @@ impl Render for LeftPanel {
                     } else { div().flex_1() })
                     .child(
                         div().px(px(4.0)).py(px(2.0)).rounded(px(4.0))
-                            .child(Icon::new(IconName::FolderOpen).text_color(text_muted()))
+                            .child(Icon::new(IconName::FolderPlus).text_color(text_muted()))
                             .cursor_pointer().hover(|s| s.bg(accent_bg()))
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                                 this.show_new_workspace = true;
@@ -226,7 +226,7 @@ impl LeftPanel {
             let ws_id = ws.id.clone();
             let ws_del_id = ws.id.clone();
             let is_expanded = self.expanded_workspaces.contains(&ws.id);
-            let project_count = 0; // TODO: count projects in workspace
+            let project_count = projects.len(); // All projects shown under workspace for now
 
             c = c.child(
                 div().px(px(6.0)).py(px(5.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
@@ -270,40 +270,46 @@ impl LeftPanel {
             let id = p.id.clone();
             let del_id = p.id.clone();
             let is_active = current_id == p.id;
-            c = c.child(
-                div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
-                    .bg(if is_active { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                    .hover(|s| s.bg(bg_tertiary()))
-                    // File icon (matches Tauri FileText 13px)
-                    .child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }))
-                    // Name
-                    .child(div().flex_1().text_xs()
+            let mut row = div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
+                .hover(|s| s.bg(bg_tertiary()))
+                .cursor_pointer();
+            // Active state: accent left border + tinted background (matching web)
+            if is_active {
+                row = row.border_l_3().border_color(accent()).bg(accent_bg());
+            }
+            row = row
+                // File icon
+                .child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }))
+                // Clock icon + relative time (matching web "il y a 43min")
+                .child(Icon::new(IconName::Clock).text_color(text_muted()))
+                // Name + time
+                .child(div().flex_1().flex().flex_col().gap(px(1.0)).overflow_hidden()
+                    .child(div().text_xs()
                         .text_color(if is_active { text_primary() } else { text_secondary() })
-                        .overflow_hidden()
-                        .child(p.name.clone())
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                            let local = crate::persistence::load_all_projects();
-                            if let Some(lp) = local.iter().find(|p| p.id == id) {
-                                this.store.update(cx, |s, cx| {
-                                    s.project.id = lp.id.clone(); s.project.name = lp.name.clone();
-                                    s.project.framework = lp.framework.clone(); s.project.tags = lp.tags.clone();
-                                    s.project.variables = lp.variables.clone();
-                                    s.project.blocks = lp.blocks.iter().map(|b| Block {
-                                        id: b.id.clone(), block_type: b.block_type, content: b.content.clone(),
-                                        enabled: b.enabled, editing: false,
-                                    }).collect();
-                                    s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged);
-                                });
-                            }
-                        })))
-                    // Delete (Trash icon, like Tauri)
-                    .child(div().text_color(danger()).opacity(0.5)
-                        .hover(|s| s.opacity(1.0))
-                        .child(Icon::new(IconName::Trash2))
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                            this.store.update(cx, |s, _| { s.confirm_delete = Some(del_id.clone()); }); cx.notify();
-                        })))
-            );
+                        .child(p.name.clone()))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        let local = crate::persistence::load_all_projects();
+                        if let Some(lp) = local.iter().find(|p| p.id == id) {
+                            this.store.update(cx, |s, cx| {
+                                s.project.id = lp.id.clone(); s.project.name = lp.name.clone();
+                                s.project.framework = lp.framework.clone(); s.project.tags = lp.tags.clone();
+                                s.project.variables = lp.variables.clone();
+                                s.project.blocks = lp.blocks.iter().map(|b| Block {
+                                    id: b.id.clone(), block_type: b.block_type, content: b.content.clone(),
+                                    enabled: b.enabled, editing: false,
+                                }).collect();
+                                s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged);
+                            });
+                        }
+                    })))
+                // Delete (Trash icon, visible on hover)
+                .child(div().text_color(danger()).opacity(0.5)
+                    .hover(|s| s.opacity(1.0))
+                    .child(Icon::new(IconName::Trash2))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, _| { s.confirm_delete = Some(del_id.clone()); }); cx.notify();
+                    })));
+            c = c.child(row);
         }
 
         // ── Delete confirm ──

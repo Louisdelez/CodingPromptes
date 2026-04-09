@@ -245,11 +245,40 @@ impl AppState {
         let server_url = if saved.server_url.is_empty() { "http://localhost:8910".to_string() } else { saved.server_url };
         let (msg_tx, msg_rx) = mpsc::channel();
 
-        // If we have a saved token, try to auto-login
-        let has_token = !saved.token.is_empty();
+        // Load local data
+        let local_projects = crate::persistence::load_all_projects();
+        let local_settings = crate::persistence::load_settings();
+        let local_frameworks = crate::persistence::load_frameworks();
 
+        // Load first project from local storage, or create default
+        let (project, project_summaries) = if let Some(first) = local_projects.first() {
+            let proj = Project {
+                id: first.id.clone(),
+                name: first.name.clone(),
+                workspace_id: first.workspace_id.clone(),
+                blocks: first.blocks.iter().map(|b| Block {
+                    id: b.id.clone(), block_type: b.block_type,
+                    content: b.content.clone(), enabled: b.enabled, editing: false,
+                }).collect(),
+                variables: first.variables.clone(),
+                tags: first.tags.clone(),
+                framework: first.framework.clone(),
+            };
+            let summaries: Vec<ProjectSummary> = local_projects.iter()
+                .map(|p| ProjectSummary { id: p.id.clone(), name: p.name.clone() })
+                .collect();
+            (proj, summaries)
+        } else {
+            (Project::default_prompt(), vec![])
+        };
+
+        let custom_frameworks: Vec<CustomFramework> = local_frameworks.iter()
+            .map(|f| CustomFramework { name: f.name.clone(), blocks: f.blocks.clone() })
+            .collect();
+
+        // Always start in IDE mode (local-first). Auth is optional for server sync.
         Self {
-            screen: if has_token { Screen::Ide } else { Screen::Auth },
+            screen: Screen::Ide,
             lang: if saved.lang.is_empty() { "fr".into() } else { saved.lang },
             server_url,
             server_url_input: None,
@@ -272,9 +301,9 @@ impl AppState {
             stt_target_block: None,
             stt_stop_tx: None,
             show_settings: false,
-            api_key_openai: String::new(),
-            api_key_anthropic: String::new(),
-            api_key_google: String::new(),
+            api_key_openai: local_settings.api_key_openai,
+            api_key_anthropic: local_settings.api_key_anthropic,
+            api_key_google: local_settings.api_key_google,
             api_key_openai_input: None,
             api_key_anthropic_input: None,
             api_key_google_input: None,
@@ -283,17 +312,17 @@ impl AppState {
             auth_loading: false,
             auth_mode: AuthMode::Login,
             session: None,
-            project: Project::default_prompt(),
-            projects: vec![],
+            project,
+            projects: project_summaries,
             workspaces: vec![],
             left_tab: LeftTab::Library,
             right_tab: RightTab::Preview,
-            left_open: saved.left_open || !has_token,
-            right_open: saved.right_open || !has_token,
+            left_open: saved.left_open,
+            right_open: saved.right_open,
             dark_mode: saved.dark_mode,
             show_add_menu: false,
-            custom_frameworks: vec![],
-            selected_model: "gpt-4o-mini".into(),
+            custom_frameworks,
+            selected_model: if local_settings.selected_model.is_empty() { "gpt-4o-mini".into() } else { local_settings.selected_model },
             sdd_running: false,
             playground_response: String::new(),
             playground_loading: false,
@@ -327,7 +356,7 @@ impl AppState {
             multi_model_loading: false,
             stt_provider: SttProvider::Local,
             analytics_range: AnalyticsRange::All,
-            github_repo: String::new(),
+            github_repo: local_settings.github_repo,
             github_repo_input: None,
             collab_users: vec![],
             editing_workspace_id: None,

@@ -11,7 +11,7 @@ actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, 
 use crate::ui::colors::*;
 
 // Global tokio runtime — reused by all async operations (avoids creating 25+ runtimes)
-fn rt() -> &'static tokio::runtime::Runtime {
+pub fn rt() -> &'static tokio::runtime::Runtime {
     use once_cell::sync::Lazy;
     static RT: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
         tokio::runtime::Builder::new_multi_thread()
@@ -485,28 +485,44 @@ impl InkwellApp {
 
     fn save_to_backend(&mut self) {
         self.state.save_status = "saving";
-        if self.state.session.is_none() { return; }
-        let project_id = self.state.project.id.clone();
-        let blocks: Vec<inkwell_core::types::PromptBlock> = self.state.project.blocks.iter().map(|b| {
-            inkwell_core::types::PromptBlock {
-                id: b.id.clone(), block_type: b.block_type,
-                content: b.content.clone(), enabled: b.enabled,
-            }
-        }).collect();
-        let name = self.state.project.name.clone();
-        let framework = self.state.project.framework.clone();
+
+        // 1. Save locally FIRST (instant, no network)
+        let local_project = crate::persistence::LocalProject {
+            id: self.state.project.id.clone(),
+            name: self.state.project.name.clone(),
+            workspace_id: self.state.project.workspace_id.clone(),
+            blocks: self.state.project.blocks.iter().map(|b| {
+                inkwell_core::types::PromptBlock {
+                    id: b.id.clone(), block_type: b.block_type,
+                    content: b.content.clone(), enabled: b.enabled,
+                }
+            }).collect(),
+            variables: self.state.project.variables.clone(),
+            tags: self.state.project.tags.clone(),
+            framework: self.state.project.framework.clone(),
+            updated_at: chrono::Utc::now().timestamp_millis(),
+        };
+        crate::persistence::save_project(&local_project);
+
+        // Also save custom frameworks locally
+        let local_fws: Vec<crate::persistence::LocalFramework> = self.state.custom_frameworks.iter()
+            .map(|f| crate::persistence::LocalFramework { name: f.name.clone(), blocks: f.blocks.clone() })
+            .collect();
+        crate::persistence::save_frameworks(&local_fws);
+
+        // Also save settings locally
+        crate::persistence::save_settings(&crate::persistence::LocalSettings {
+            api_key_openai: self.state.api_key_openai.clone(),
+            api_key_anthropic: self.state.api_key_anthropic.clone(),
+            api_key_google: self.state.api_key_google.clone(),
+            github_repo: self.state.github_repo.clone(),
+            selected_model: self.state.selected_model.clone(),
+        });
+
+        // 2. Background sync to server (non-blocking, best-effort)
         let server_url = self.state.server_url.clone();
         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-
-        rt().spawn(async move {
-                let mut client = inkwell_core::api_client::ApiClient::new(&server_url);
-                client.set_token(token);
-                let _ = client.update_project(&project_id, &serde_json::json!({
-                    "name": name,
-                    "blocks_json": serde_json::to_string(&blocks).unwrap_or_default(),
-                    "framework": framework,
-                })).await;
-            });
+        crate::persistence::sync_project_to_server(&server_url, &token, &local_project);
     }
 
     fn ensure_terminal_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -934,26 +950,12 @@ impl InkwellApp {
                     let id = new_proj.id.clone();
                     this.state.project = new_proj;
                     this.state.block_inputs.clear();
-
-                    // Create on backend
-                    let server = this.state.server_url.clone();
-                    let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                    let blocks: Vec<inkwell_core::types::PromptBlock> = this.state.project.blocks.iter().map(|b| {
-                        inkwell_core::types::PromptBlock {
-                            id: b.id.clone(), block_type: b.block_type,
-                            content: b.content.clone(), enabled: b.enabled,
-                        }
-                    }).collect();
+                    this.state.variable_inputs.clear();
+                    this.state.prompt_dirty = true;
                     this.state.projects.push(ProjectSummary { id: id.clone(), name: name.clone() });
-
-                    rt().spawn(async move {
-                            let mut client = inkwell_core::api_client::ApiClient::new(&server);
-                            client.set_token(token);
-                            let _ = client.create_project(&serde_json::json!({
-                                "id": id, "name": name,
-                                "blocks_json": serde_json::to_string(&blocks).unwrap_or_default(),
-                            })).await;
-                        });
+                    // Save locally immediately
+                    this.state.save_pending = true;
+                    this.state.save_timer = 1;
                 }))
         );
 
@@ -978,28 +980,20 @@ impl InkwellApp {
                             .text_color(if is_active { text_primary() } else { text_secondary() })
                             .child(p.name.clone())
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, _| {
-                                if let Some(p) = this.state.projects.iter().find(|p| p.id == id) {
-                                    this.state.project.id = p.id.clone();
-                                    this.state.project.name = p.name.clone();
+                                // Load from local storage (instant, no network)
+                                let local_projects = crate::persistence::load_all_projects();
+                                if let Some(lp) = local_projects.iter().find(|p| p.id == id) {
+                                    this.state.project.id = lp.id.clone();
+                                    this.state.project.name = lp.name.clone();
+                                    this.state.project.framework = lp.framework.clone();
+                                    this.state.project.tags = lp.tags.clone();
+                                    this.state.project.variables = lp.variables.clone();
+                                    this.state.project.blocks = lp.blocks.iter().map(|b| {
+                                        Block { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled, editing: false }
+                                    }).collect();
                                     this.state.block_inputs.clear();
                                     this.state.variable_inputs.clear();
-                                    // Fetch full project from backend
-                                    let server = this.state.server_url.clone();
-                                    let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                                    let project_id = p.id.clone();
-                                    let tx = this.state.msg_tx.clone();
-                                    if !token.is_empty() {
-                                        rt().spawn(async move {
-                                                let mut client = inkwell_core::api_client::ApiClient::new(&server);
-                                                client.set_token(token);
-                                                if let Ok(projects) = client.list_projects().await {
-                                                    if let Some(proj) = projects.iter().find(|p| p.id == project_id) {
-                                                        let _ = tx.send(AsyncMsg::LlmResponse(format!("__LOADPROJECT__{}",
-                                                            serde_json::to_string(proj).unwrap_or_default())));
-                                                    }
-                                                }
-                                            });
-                                    }
+                                    this.state.prompt_dirty = true;
                                 }
                             }))
                     )
@@ -1032,14 +1026,18 @@ impl InkwellApp {
                                         let id = del.clone();
                                         this.state.projects.retain(|p| p.id != id);
                                         this.state.confirm_delete = None;
-                                        // Delete on backend
+                                        // Delete locally
+                                        crate::persistence::delete_project(&id);
+                                        // Also delete on backend (best-effort)
                                         let server = this.state.server_url.clone();
                                         let token = this.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                                        rt().spawn(async move {
+                                        if !token.is_empty() {
+                                            rt().spawn(async move {
                                                 let mut client = inkwell_core::api_client::ApiClient::new(&server);
                                                 client.set_token(token);
                                                 let _ = client.delete_project(&id).await;
                                             });
+                                        }
                                     }))
                             )
                             .child(
@@ -3173,13 +3171,18 @@ impl InkwellApp {
                     .child(div().text_xs().text_color(text_muted()).child("Ctrl+Enter run"))
                     .child(div().flex_1())
                     .child(
-                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(danger())
-                            .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child("Logout")
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                            .bg(if self.state.session.is_some() { danger() } else { accent() })
+                            .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                            .child(if self.state.session.is_some() { "Deconnecter sync" } else { "Connecter sync" })
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
-                                this.state.session = None;
-                                this.state.screen = Screen::Auth;
-                                this.state.projects.clear();
-                                this.state.workspaces.clear();
+                                if this.state.session.is_some() {
+                                    // Disconnect sync (keep local data)
+                                    this.state.session = None;
+                                } else {
+                                    // Go to auth to connect
+                                    this.state.screen = Screen::Auth;
+                                }
                                 crate::persistence::save_session(&crate::persistence::SavedSession {
                                     server_url: this.state.server_url.clone(),
                                     token: String::new(),

@@ -33,8 +33,11 @@ impl BlockEditor {
             InputState::new(window, cx)
                 .default_value(content)
                 .placeholder(placeholder)
-                .multi_line(true)
-                .auto_grow(3, 20)
+                .code_editor("")
+                .rows(3)
+                .line_number(true)
+                .folding(false)
+                .indent_guides(false)
         }));
 
         // Subscribe to store — only re-render when OUR block changes
@@ -79,8 +82,11 @@ impl BlockEditor {
         self.input = Some(cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(content)
-                .multi_line(true)
-                .auto_grow(3, 20)
+                .code_editor("")
+                .rows(3)
+                .line_number(true)
+                .folding(false)
+                .indent_guides(false)
         }));
     }
 }
@@ -234,30 +240,12 @@ impl Render for BlockEditor {
                 }))
         );
 
-        // Block content — line number gutter + Input widget (matching web CodeMirror)
-        let line_count = {
-            let s = self.store.read(cx);
-            let content = s.project.blocks.get(idx).map(|b| b.content.as_str()).unwrap_or("");
-            drop(s);
-            content.lines().count().max(1)
+        // Block content — Input widget with built-in line numbers
+        let block_content = if let Some(ref input_entity) = self.input {
+            div().p(px(4.0)).min_h(px(60.0)).child(Input::new(input_entity))
+        } else {
+            div().p(px(4.0)).min_h(px(60.0)).text_sm().text_color(text_secondary()).child("Click to edit...")
         };
-        let mut gutter = div().w(px(28.0)).flex_shrink_0().flex().flex_col()
-            .pt(px(6.0)).pr(px(6.0))
-            .border_r_1().border_color(border_c());
-        for line_num in 1..=line_count {
-            gutter = gutter.child(
-                div().h(px(20.0)).flex().items_center().justify_end()
-                    .text_xs().text_color(text_muted())
-                    .child(format!("{line_num}"))
-            );
-        }
-        let block_content = div().flex().min_h(px(60.0))
-            .child(gutter)
-            .child(if let Some(ref input_entity) = self.input {
-                div().flex_1().p(px(4.0)).child(Input::new(input_entity))
-            } else {
-                div().flex_1().p(px(4.0)).text_sm().text_color(text_secondary()).child("Click to edit...")
-            });
 
         div().rounded(px(8.0))
             .border_1().border_color(border_c())

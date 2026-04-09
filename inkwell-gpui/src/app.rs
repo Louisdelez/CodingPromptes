@@ -44,6 +44,7 @@ pub struct InkwellApp {
     pub store: Entity<crate::store::AppStore>,
     pub header: Entity<crate::components::header_bar::HeaderBar>,
     pub bottom_bar: Entity<crate::components::bottom_bar::BottomBar>,
+    pub editor: Entity<crate::components::editor_pane::EditorPane>,
 }
 
 impl InkwellApp {
@@ -52,6 +53,7 @@ impl InkwellApp {
         let store = cx.new(|_cx| crate::store::AppStore::new(msg_tx.clone()));
         let header = cx.new(|cx| crate::components::header_bar::HeaderBar::new(store.clone(), cx));
         let bottom_bar = cx.new(|cx| crate::components::bottom_bar::BottomBar::new(store.clone(), cx));
+        let editor = cx.new(|cx| crate::components::editor_pane::EditorPane::new(store.clone(), window, cx));
 
         let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
         state.dark_mode = store.read(cx).dark_mode;
@@ -81,7 +83,7 @@ impl InkwellApp {
             }
         }).detach();
 
-        Self { state, store, header, bottom_bar }
+        Self { state, store, header, bottom_bar, editor }
     }
 
     fn t(&self) -> crate::theme::InkwellTheme {
@@ -113,6 +115,13 @@ impl Render for InkwellApp {
 
                 // Sync content every 6 frames (~10fps sync, 60fps render)
                 if self.state.frame_count % 6 == 0 {
+                    // Sync editor pane block inputs → store
+                    let changed = self.editor.update(cx, |e, cx| e.sync_content(cx));
+                    if changed {
+                        self.store.update(cx, |s, cx| {
+                            if s.prompt_dirty { s.refresh_cache(); cx.emit(crate::store::StoreEvent::PromptCacheUpdated); }
+                        });
+                    }
                     self.sync_block_content(cx);
                 }
 
@@ -736,7 +745,7 @@ impl InkwellApp {
         let t = self.t();
         let mut main_row = div().flex_1().flex().overflow_hidden();
         if self.state.left_open { main_row = main_row.child(self.render_sidebar(cx)); }
-        main_row = main_row.child(self.render_editor(cx));
+        main_row = main_row.child(self.editor.clone()); // Entity<EditorPane> — blocks render independently
         if self.state.right_open { main_row = main_row.child(self.render_right_panel(cx)); }
 
         div().size_full().bg(t.bg_primary).flex().flex_col()

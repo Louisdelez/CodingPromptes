@@ -172,7 +172,7 @@ pub enum AuthMode { Login, Register }
 #[allow(dead_code)]
 pub enum LeftTab { Library, Frameworks, Versions }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum RightTab { Preview, Playground, Stt, History, Export, Fleet, Terminal, Optimize, Lint, Chat, Analytics, Collab, Chain }
 
 #[allow(dead_code)]
@@ -244,9 +244,13 @@ pub struct CollabUser {
 
 impl AppState {
     pub fn new() -> Self {
+        let (msg_tx, msg_rx) = mpsc::channel();
+        Self::new_with_channel(msg_tx, msg_rx)
+    }
+
+    pub fn new_with_channel(msg_tx: mpsc::Sender<AsyncMsg>, msg_rx: mpsc::Receiver<AsyncMsg>) -> Self {
         let saved = crate::persistence::load_session();
         let server_url = if saved.server_url.is_empty() { "http://localhost:8910".to_string() } else { saved.server_url };
-        let (msg_tx, msg_rx) = mpsc::channel();
 
         // Load local data
         let local_projects = crate::persistence::load_all_projects();

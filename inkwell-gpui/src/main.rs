@@ -4,9 +4,11 @@ use gpui_component::Root;
 use gpui_component_assets::Assets;
 
 mod app;
+mod components;
 mod llm;
 mod persistence;
 mod state;
+mod store;
 mod theme;
 mod ui;
 
@@ -42,7 +44,7 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
-                let app_view: Entity<app::InkwellApp> = cx.new(|_| app::InkwellApp::new());
+                let app_view: Entity<app::InkwellApp> = cx.new(|cx| app::InkwellApp::new(window, cx));
                 let any_view: AnyView = app_view.into();
                 cx.new(|cx| Root::new(any_view, window, cx))
             },

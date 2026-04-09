@@ -41,17 +41,52 @@ fn llm_post(client: &reqwest::Client, model: &str, server_url: &str, body: serde
 
 pub struct InkwellApp {
     pub state: AppState,
+    pub store: Entity<crate::store::AppStore>,
+    pub header: Entity<crate::components::header_bar::HeaderBar>,
+    pub bottom_bar: Entity<crate::components::bottom_bar::BottomBar>,
 }
 
 impl InkwellApp {
-    pub fn new() -> Self {
-        Self { state: AppState::new() }
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (msg_tx, msg_rx) = std::sync::mpsc::channel();
+        let store = cx.new(|_cx| crate::store::AppStore::new(msg_tx.clone()));
+        let header = cx.new(|cx| crate::components::header_bar::HeaderBar::new(store.clone(), cx));
+        let bottom_bar = cx.new(|cx| crate::components::bottom_bar::BottomBar::new(store.clone(), cx));
+
+        let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
+        state.dark_mode = store.read(cx).dark_mode;
+
+        // Sync store changes back to state (temporary bridge during migration)
+        cx.subscribe(&store, |this: &mut Self, _, event: &crate::store::StoreEvent, cx| {
+            match event {
+                crate::store::StoreEvent::SettingsChanged => {
+                    let s = this.store.read(cx);
+                    this.state.dark_mode = s.dark_mode;
+                    this.state.lang = s.lang.clone();
+                    this.state.show_settings = s.show_settings;
+                    this.state.show_profile = s.show_profile;
+                    this.state.left_open = s.left_open;
+                    this.state.right_open = s.right_open;
+                }
+                crate::store::StoreEvent::ProjectChanged => {
+                    let s = this.store.read(cx);
+                    this.state.project.name = s.project.name.clone();
+                    this.state.save_pending = s.save_pending;
+                }
+                crate::store::StoreEvent::SwitchRightTab(tab) => {
+                    this.state.right_tab = *tab;
+                    this.state.right_open = true;
+                }
+                _ => {}
+            }
+        }).detach();
+
+        Self { state, store, header, bottom_bar }
     }
 
     fn t(&self) -> crate::theme::InkwellTheme {
         crate::theme::InkwellTheme::from_mode(self.state.dark_mode)
     }
-
 }
 
 impl Render for InkwellApp {
@@ -730,11 +765,11 @@ impl InkwellApp {
                 this.state.save_pending = true;
                 this.state.save_timer = 1; // Save next frame
             }))
-            .child(self.render_header(cx))
+            .child(self.header.clone()) // Entity<HeaderBar> — only re-renders when store emits relevant event
             .child(main_row)
             .children(if self.state.show_settings { Some(self.render_settings(cx)) } else { None })
             .children(if self.state.show_profile { Some(self.render_profile(cx)) } else { None })
-            .child(self.render_bottom_bar(cx))
+            .child(self.bottom_bar.clone()) // Entity<BottomBar> — only re-renders on PromptCacheUpdated
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> Div {

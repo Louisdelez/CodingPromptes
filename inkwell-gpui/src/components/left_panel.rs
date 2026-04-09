@@ -5,10 +5,14 @@ use crate::store::{AppStore, StoreEvent};
 use crate::state::*;
 use crate::ui::colors::*;
 
+#[derive(Clone, Copy, PartialEq)]
+enum SidebarView { Library, Frameworks, Versions }
+
 pub struct LeftPanel {
     store: Entity<AppStore>,
     search_input: Option<Entity<InputState>>,
-    show_frameworks: bool,
+    view: SidebarView,
+    show_dropdown: bool,
 }
 
 impl LeftPanel {
@@ -20,7 +24,7 @@ impl LeftPanel {
                 _ => {}
             }
         }).detach();
-        Self { store, search_input, show_frameworks: false }
+        Self { store, search_input, view: SidebarView::Library, show_dropdown: false }
     }
 }
 
@@ -32,28 +36,60 @@ impl Render for LeftPanel {
         let current_id = s.project.id.clone();
         let confirm_delete = s.confirm_delete.clone();
         let custom_fw: Vec<CustomFramework> = s.custom_frameworks.clone();
+        let versions: Vec<inkwell_core::types::Version> = s.versions.clone();
         drop(s);
 
-        let show_fw = self.show_frameworks;
+        let view_label = match self.view {
+            SidebarView::Library => "Bibliotheque",
+            SidebarView::Frameworks => "Frameworks",
+            SidebarView::Versions => "Versions",
+        };
+        let show_dropdown = self.show_dropdown;
 
         div().w(px(250.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col()
-            // Header: "Bibliotheque" with chevron (like Tauri)
+            // Header with dropdown (like Tauri)
             .child(
                 div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
                     .border_b_1().border_color(border_c())
                     .child(Icon::new(IconName::FolderOpen).text_color(text_muted()))
-                    .child(div().flex_1().text_sm().text_color(text_primary())
-                        .child(if show_fw { "Frameworks" } else { "Bibliotheque" }))
+                    .child(div().flex_1().text_sm().text_color(text_primary()).child(view_label))
                     .child(
                         div().text_xs().text_color(text_muted())
                             .child(Icon::new(IconName::ChevronDown))
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                this.show_frameworks = !this.show_frameworks;
+                                this.show_dropdown = !this.show_dropdown;
                                 cx.notify();
                             }))
                     )
             )
+            // Dropdown menu
+            .children(if show_dropdown {
+                let items = vec![
+                    ("Bibliotheque", SidebarView::Library),
+                    ("Frameworks", SidebarView::Frameworks),
+                    ("Versions", SidebarView::Versions),
+                ];
+                let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
+                    .bg(bg_tertiary()).border_1().border_color(border_c())
+                    .flex().flex_col().gap(px(1.0)).p(px(4.0));
+                for (label, view) in items {
+                    let is_active = self.view == view;
+                    menu = menu.child(
+                        div().px(px(12.0)).py(px(6.0)).rounded(px(4.0))
+                            .text_xs().text_color(if is_active { accent() } else { text_secondary() })
+                            .bg(if is_active { accent_bg() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                            .hover(|s| s.bg(bg_secondary()))
+                            .child(label.to_string())
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.view = view;
+                                this.show_dropdown = false;
+                                cx.notify();
+                            }))
+                    );
+                }
+                Some(menu)
+            } else { None })
             // Search bar with icons (like Tauri: loupe + folder + plus)
             .child(
                 div().px(px(12.0)).py(px(8.0)).flex().items_center().gap(px(6.0))
@@ -101,10 +137,10 @@ impl Render for LeftPanel {
                     )
             )
             // Content
-            .child(if show_fw {
-                self.render_frameworks(&custom_fw, cx)
-            } else {
-                self.render_library(&projects, &workspaces, &current_id, &confirm_delete, cx)
+            .child(match self.view {
+                SidebarView::Library => self.render_library(&projects, &workspaces, &current_id, &confirm_delete, cx),
+                SidebarView::Frameworks => self.render_frameworks(&custom_fw, cx),
+                SidebarView::Versions => self.render_versions(&versions, cx),
             })
     }
 }
@@ -249,6 +285,55 @@ impl LeftPanel {
                                     cx.emit(StoreEvent::ProjectChanged);
                                 });
                             })))
+                );
+            }
+        }
+
+        c
+    }
+
+    fn render_versions(&self, versions: &[inkwell_core::types::Version], cx: &mut Context<Self>) -> Div {
+        let mut c = div().flex_1().px(px(12.0)).py(px(4.0)).flex().flex_col().gap(px(4.0));
+
+        if versions.is_empty() {
+            c = c.child(
+                div().py(px(16.0)).flex().flex_col().items_center().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child("Aucune version"))
+                    .child(div().text_xs().text_color(text_muted()).text_center()
+                        .child("Sauvegardez des versions depuis l'onglet History."))
+            );
+        } else {
+            for v in versions {
+                let blocks_json = v.blocks_json.clone();
+                c = c.child(
+                    div().px(px(10.0)).py(px(8.0)).rounded(px(6.0))
+                        .border_1().border_color(border_c()).bg(bg_tertiary())
+                        .flex().items_center().gap(px(8.0))
+                        .hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)))
+                        .child(Icon::new(IconName::GitBranch).text_color(text_muted()))
+                        .child(div().flex_1().flex().flex_col()
+                            .child(div().text_xs().text_color(text_primary()).child(v.label.clone()))
+                            .child(div().text_xs().text_color(text_muted()).child(
+                                chrono::DateTime::from_timestamp_millis(v.created_at)
+                                    .map(|d| d.format("%Y-%m-%d %H:%M").to_string())
+                                    .unwrap_or_default()
+                            ))
+                        )
+                        .child(
+                            div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+                                .text_xs().text_color(accent()).child(Icon::new(IconName::Undo))
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                    if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&blocks_json) {
+                                        this.store.update(cx, |s, cx| {
+                                            s.project.blocks = blocks.into_iter().map(|b| {
+                                                Block { id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false }
+                                            }).collect();
+                                            s.prompt_dirty = true;
+                                            cx.emit(StoreEvent::ProjectChanged);
+                                        });
+                                    }
+                                }))
+                        )
                 );
             }
         }

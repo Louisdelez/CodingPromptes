@@ -27,7 +27,7 @@ impl EditorPane {
             block_editors.push(editor);
         }
 
-        let tag_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("tag name")));
+        let tag_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Ajouter un tag...")));
 
         cx.subscribe(&store, |this: &mut Self, _, event: &StoreEvent, cx| {
             match event {
@@ -137,14 +137,15 @@ impl Render for EditorPane {
                 BlockType::SddConstitution, BlockType::SddSpecification,
                 BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation,
             ];
-            let mut menu = div().p(px(8.0)).rounded(px(8.0)).bg(bg_secondary())
-                .border_1().border_color(border_c()).flex().flex_wrap().gap(px(2.0));
+            let mut menu = div().p(px(12.0)).rounded(px(12.0)).bg(bg_secondary())
+                .border_1().border_color(border_c()).flex().flex_wrap().gap(px(4.0));
             for bt in all_types {
                 let label = bt.label(&lang).to_string();
                 let color = hex_to_hsla(bt.color());
                 menu = menu.child(
-                    div().px(px(10.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(8.0))
-                        .text_xs().text_color(text_secondary())
+                    div().w(px(240.0)).px(px(12.0)).py(px(10.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
+                        .text_sm().text_color(text_primary())
+                        .hover(|s| s.bg(bg_hover()))
                         .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
                         .child(label)
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {

@@ -62,9 +62,17 @@ impl Render for InkwellApp {
         match self.state.screen {
             Screen::Auth => self.render_auth(window, cx),
             Screen::Ide => {
+                self.state.frame_count = self.state.frame_count.wrapping_add(1);
                 self.ensure_block_inputs(window, cx);
-                self.ensure_terminal_input(window, cx);
-                self.sync_block_content(cx);
+                // Only init terminal inputs once (not every frame)
+                if !self.state.inputs_initialized {
+                    self.ensure_terminal_input(window, cx);
+                    self.state.inputs_initialized = true;
+                }
+                // Sync content every 3 frames instead of every frame
+                if self.state.frame_count % 3 == 0 {
+                    self.sync_block_content(cx);
+                }
                 self.render_ide(cx)
             }
         }
@@ -405,24 +413,27 @@ impl InkwellApp {
     }
 
     fn sync_block_content(&mut self, cx: &mut Context<Self>) {
-        // Read content from Input widgets back into block state
+        // Read content from Input widgets — only allocate if value changed
         let mut changed = false;
         for (idx, block) in self.state.project.blocks.iter_mut().enumerate() {
             if let Some(Some(input)) = self.state.block_inputs.get(idx) {
-                let new_content = input.read(cx).value().to_string();
-                if new_content != block.content {
-                    block.content = new_content;
+                let val = input.read(cx).value();
+                if val != block.content.as_str() {
+                    block.content = val.to_string();
                     changed = true;
                 }
             }
         }
-        // Read variable values from inputs
-        for (var_name, entity) in &self.state.variable_inputs {
-            let new_val = entity.read(cx).value().to_string();
-            let old_val = self.state.project.variables.get(var_name).cloned().unwrap_or_default();
-            if new_val != old_val && !new_val.is_empty() {
-                self.state.project.variables.insert(var_name.clone(), new_val);
-                changed = true;
+        // Read variable values — only allocate if changed
+        let var_keys: Vec<String> = self.state.variable_inputs.keys().cloned().collect();
+        for var_name in var_keys {
+            if let Some(entity) = self.state.variable_inputs.get(&var_name) {
+                let val = entity.read(cx).value();
+                let old = self.state.project.variables.get(&var_name).map(|s| s.as_str()).unwrap_or("");
+                if val != old && !val.is_empty() {
+                    self.state.project.variables.insert(var_name, val.to_string());
+                    changed = true;
+                }
             }
         }
         // Refresh prompt cache if dirty

@@ -125,6 +125,9 @@ pub struct AppState {
     // Auto-poll timers
     pub fleet_poll_timer: u32,
     pub collab_poll_timer: u32,
+    // Frame counter for throttling
+    pub frame_count: u32,
+    pub inputs_initialized: bool,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -367,6 +370,8 @@ impl AppState {
             copy_feedback: 0,
             fleet_poll_timer: 0,
             collab_poll_timer: 0,
+            frame_count: 0,
+            inputs_initialized: false,
             msg_rx,
             msg_tx,
         }

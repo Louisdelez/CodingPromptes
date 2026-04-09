@@ -8,6 +8,7 @@ use crate::ui::colors::*;
 pub struct RightPanel {
     store: Entity<AppStore>,
     active_tab: RightTab,
+    show_dropdown: bool,
     // Input entities for tabs
     chat_input: Option<Entity<InputState>>,
     terminal_input: Option<Entity<InputState>>,
@@ -34,6 +35,7 @@ impl RightPanel {
 
         Self {
             store, active_tab: RightTab::Preview,
+            show_dropdown: false,
             chat_input, terminal_input, copy_feedback: 0,
         }
     }
@@ -43,32 +45,69 @@ impl Render for RightPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.copy_feedback > 0 { self.copy_feedback -= 1; }
 
-        const TABS: &[(&str, RightTab)] = &[
-            ("Preview", RightTab::Preview), ("Playground", RightTab::Playground),
-            ("Chat", RightTab::Chat), ("STT", RightTab::Stt),
-            ("Optimize", RightTab::Optimize), ("Lint", RightTab::Lint),
-            ("GPU", RightTab::Fleet), ("Terminal", RightTab::Terminal),
-            ("Export", RightTab::Export), ("History", RightTab::History),
-            ("Analytics", RightTab::Analytics), ("Chain", RightTab::Chain),
-            ("Collab", RightTab::Collab),
+        const TABS: &[(&str, RightTab, IconName)] = &[
+            ("Preview", RightTab::Preview, IconName::File),
+            ("Playground", RightTab::Playground, IconName::Play),
+            ("Chat", RightTab::Chat, IconName::Bot),
+            ("STT", RightTab::Stt, IconName::Mic),
+            ("Optimize", RightTab::Optimize, IconName::Sparkles),
+            ("Lint", RightTab::Lint, IconName::TriangleAlert),
+            ("GPU", RightTab::Fleet, IconName::Settings),
+            ("Terminal", RightTab::Terminal, IconName::SquareTerminal),
+            ("Export", RightTab::Export, IconName::Download),
+            ("Historique", RightTab::History, IconName::Redo),
+            ("Stats", RightTab::Analytics, IconName::ChartPie),
+            ("Chain", RightTab::Chain, IconName::Network),
+            ("Collab", RightTab::Collab, IconName::User),
         ];
 
-        let mut tab_bar = div().h(px(36.0)).px(px(6.0)).flex().items_center().gap(px(2.0))
-            .border_b_1().border_color(border_c());
-        for &(label, tab) in TABS {
-            let is_active = self.active_tab == tab;
-            tab_bar = tab_bar.child(
-                div().px(px(6.0)).py(px(4.0)).rounded(px(4.0)).text_xs()
-                    .text_color(if is_active { accent() } else { text_muted() })
-                    .bg(if is_active { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                    .child(label.to_string())
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.active_tab = tab;
-                        this.store.update(cx, |s, _| { s.right_tab = tab; });
-                        cx.notify();
+        // Find current tab label and icon
+        let active = self.active_tab;
+        let (tab_label, tab_icon) = TABS.iter()
+            .find(|(_, t, _)| *t == active)
+            .map(|(l, _, i)| (*l, i.clone()))
+            .unwrap_or(("Preview", IconName::File));
+
+        let show_dropdown = self.show_dropdown;
+
+        // ── Dropdown header (like Tauri) ──
+        let header = div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
+            .border_b_1().border_color(border_c())
+            .child(Icon::new(tab_icon).text_color(accent()))
+            .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(tab_label))
+            .child(
+                div().text_color(text_muted())
+                    .child(Icon::new(IconName::ChevronDown))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        this.show_dropdown = !this.show_dropdown; cx.notify();
                     }))
             );
-        }
+
+        // ── Dropdown menu ──
+        let dropdown = if show_dropdown {
+            let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
+                .bg(bg_tertiary()).border_1().border_color(border_c()).p(px(4.0))
+                .flex().flex_col();
+            for (label, tab, icon) in TABS {
+                let tab = *tab;
+                let icon = icon.clone();
+                let is_active = self.active_tab == tab;
+                menu = menu.child(
+                    div().px(px(10.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                        .text_xs().text_color(if is_active { accent() } else { text_secondary() })
+                        .bg(if is_active { accent_bg() } else { hsla(0.0, 0.0, 0.0, 0.0) })
+                        .hover(|s| s.bg(bg_secondary()))
+                        .child(Icon::new(icon)).child(label.to_string())
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                            this.active_tab = tab;
+                            this.show_dropdown = false;
+                            this.store.update(cx, |s, _| { s.right_tab = tab; });
+                            cx.notify();
+                        }))
+                );
+            }
+            Some(menu)
+        } else { None };
 
         let content = match self.active_tab {
             RightTab::Preview => self.render_preview(cx),
@@ -82,7 +121,8 @@ impl Render for RightPanel {
 
         div().w(px(380.0)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col()
-            .child(tab_bar)
+            .child(header)
+            .children(dropdown)
             .child(content)
     }
 }

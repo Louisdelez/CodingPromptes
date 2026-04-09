@@ -45,6 +45,7 @@ pub struct InkwellApp {
     pub header: Entity<crate::components::header_bar::HeaderBar>,
     pub bottom_bar: Entity<crate::components::bottom_bar::BottomBar>,
     pub editor: Entity<crate::components::editor_pane::EditorPane>,
+    pub left_panel: Entity<crate::components::left_panel::LeftPanel>,
 }
 
 impl InkwellApp {
@@ -54,6 +55,7 @@ impl InkwellApp {
         let header = cx.new(|cx| crate::components::header_bar::HeaderBar::new(store.clone(), cx));
         let bottom_bar = cx.new(|cx| crate::components::bottom_bar::BottomBar::new(store.clone(), cx));
         let editor = cx.new(|cx| crate::components::editor_pane::EditorPane::new(store.clone(), window, cx));
+        let left_panel = cx.new(|cx| crate::components::left_panel::LeftPanel::new(store.clone(), window, cx));
 
         let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
         state.dark_mode = store.read(cx).dark_mode;
@@ -83,7 +85,7 @@ impl InkwellApp {
             }
         }).detach();
 
-        Self { state, store, header, bottom_bar, editor }
+        Self { state, store, header, bottom_bar, editor, left_panel }
     }
 
     fn t(&self) -> crate::theme::InkwellTheme {
@@ -761,7 +763,7 @@ impl InkwellApp {
         set_dark_mode(dark_mode);
         let t = crate::theme::InkwellTheme::from_mode(dark_mode);
         let mut main_row = div().flex_1().flex().overflow_hidden();
-        if left_open { main_row = main_row.child(self.render_sidebar(cx)); }
+        if left_open { main_row = main_row.child(self.left_panel.clone()); }
         main_row = main_row.child(self.editor.clone());
         if right_open { main_row = main_row.child(self.render_right_panel(cx)); }
 

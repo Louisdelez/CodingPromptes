@@ -56,15 +56,15 @@ impl Render for LeftPanel {
             SidebarView::Versions => "Versions",
         };
 
-        let mut panel = div().w(px(250.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
+        let mut panel = div().w(px(260.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col();
 
-        // ── Header: view name + dropdown chevron ──
+        // ── Header: view name + dropdown chevron (matches Tauri: 44px, px-16) ──
         panel = panel.child(
-            div().h(px(40.0)).px(px(14.0)).flex().items_center().gap(px(8.0))
+            div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
                 .border_b_1().border_color(border_c())
                 .child(Icon::new(IconName::FolderOpen).text_color(text_muted()))
-                .child(div().flex_1().text_sm().text_color(text_primary()).child(view_label))
+                .child(div().flex_1().text_sm().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(view_label))
                 .child(
                     div().text_color(text_muted())
                         .child(Icon::new(IconName::ChevronDown))
@@ -103,7 +103,7 @@ impl Render for LeftPanel {
         // ── Search bar + action buttons (like web: loupe + input + FolderPlus + Plus) ──
         if self.view == SidebarView::Library {
             panel = panel.child(
-                div().px(px(10.0)).py(px(8.0)).flex().items_center().gap(px(6.0))
+                div().px(px(14.0)).py(px(8.0)).flex().items_center().gap(px(8.0))
                     .child(Icon::new(IconName::Search).text_color(text_muted()))
                     .child(if let Some(ref entity) = self.search_input {
                         div().flex_1().child(Input::new(entity))
@@ -203,7 +203,7 @@ impl Render for LeftPanel {
 impl LeftPanel {
     fn render_library(&self, projects: &[ProjectSummary], workspaces: &[inkwell_core::types::Workspace],
                       current_id: &str, confirm_delete: &Option<String>, cx: &mut Context<Self>) -> Div {
-        let mut c = div().flex_1().px(px(10.0)).py(px(4.0)).flex().flex_col().gap(px(1.0));
+        let mut c = div().flex_1().px(px(12.0)).py(px(6.0)).flex().flex_col().gap(px(1.0));
         let search = self.search_input.as_ref().map(|i| i.read(cx).value().to_string().to_lowercase()).unwrap_or_default();
 
         // ── Workspaces ──
@@ -257,14 +257,15 @@ impl LeftPanel {
             let del_id = p.id.clone();
             let is_active = current_id == p.id;
             c = c.child(
-                div().px(px(6.0)).py(px(5.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
                     .bg(if is_active { bg_tertiary() } else { hsla(0.0, 0.0, 0.0, 0.0) })
                     .hover(|s| s.bg(bg_tertiary()))
-                    // File icon
+                    // File icon (matches Tauri FileText 13px)
                     .child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }))
                     // Name
                     .child(div().flex_1().text_xs()
                         .text_color(if is_active { text_primary() } else { text_secondary() })
+                        .overflow_hidden()
                         .child(p.name.clone())
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                             let local = crate::persistence::load_all_projects();
@@ -281,8 +282,10 @@ impl LeftPanel {
                                 });
                             }
                         })))
-                    // Delete
-                    .child(div().text_color(text_muted()).child(Icon::new(IconName::Close))
+                    // Delete (Trash icon, like Tauri)
+                    .child(div().text_color(danger()).opacity(0.5)
+                        .hover(|s| s.opacity(1.0))
+                        .child(Icon::new(IconName::Trash2))
                         .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                             this.store.update(cx, |s, _| { s.confirm_delete = Some(del_id.clone()); }); cx.notify();
                         })))
@@ -312,9 +315,9 @@ impl LeftPanel {
         // ── Empty state ──
         if filtered.is_empty() && projects.is_empty() {
             c = c.child(
-                div().py(px(20.0)).flex().flex_col().items_center().gap(px(8.0))
-                    .child(div().text_xs().text_color(text_muted()).child("Rien ici encore"))
-                    .child(div().text_xs().text_color(text_muted()).max_w(px(200.0))
+                div().py(px(24.0)).px(px(12.0)).flex().flex_col().items_center().gap(px(10.0))
+                    .child(div().text_sm().text_color(text_muted()).child("Rien ici encore"))
+                    .child(div().text_xs().text_color(text_muted()).text_center()
                         .child("Creez un projet (dossier) pour organiser vos prompts, ou un prompt libre."))
             );
         } else if filtered.is_empty() {

@@ -1,6 +1,8 @@
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
+use gpui_component::animation::cubic_bezier;
+use std::time::Duration;
 use crate::store::{AppStore, StoreEvent};
 use crate::state::*;
 use crate::ui::colors::*;
@@ -99,8 +101,18 @@ impl Render for RightPanel {
             RightTab::Collab => self.tab_collab(cx),
         };
 
+        let anim = Animation::new(Duration::from_millis(150))
+            .with_easing(cubic_bezier(0.25, 0.1, 0.25, 1.0));
+        let content_animated = div().flex_1().overflow_hidden()
+            .child(content)
+            .with_animation(
+                SharedString::from(format!("tab-fade-{:?}", active)),
+                anim,
+                |this, delta| this.opacity(delta),
+            );
+
         div().w(px(384.0)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
-            .flex().flex_col().child(header).children(dropdown).child(content)
+            .flex().flex_col().child(header).children(dropdown).child(content_animated)
     }
 }
 

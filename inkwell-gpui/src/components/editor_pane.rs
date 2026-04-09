@@ -7,6 +7,24 @@ use crate::ui::colors::*;
 use inkwell_core::types::BlockType;
 use super::block_editor::BlockEditor;
 
+/// Drag payload for block reordering
+#[derive(Clone)]
+pub struct DragBlock {
+    pub block_index: usize,
+    pub label: String,
+    pub color: Hsla,
+}
+
+impl Render for DragBlock {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().w(px(200.0)).h(px(36.0)).rounded(px(8.0))
+            .bg(bg_tertiary()).border_l_3().border_color(self.color).opacity(0.85)
+            .px(px(12.0)).flex().items_center().gap(px(6.0))
+            .child(Icon::new(IconName::GripVertical).text_color(text_muted()))
+            .child(div().text_xs().text_color(text_primary()).child(self.label.clone()))
+    }
+}
+
 /// The main editor pane — owns a Vec<Entity<BlockEditor>> for independent block rendering.
 pub struct EditorPane {
     store: Entity<AppStore>,
@@ -51,10 +69,16 @@ impl EditorPane {
         }
     }
 
-    /// Sync block editors with current block count
+    /// Sync block editors with current block count/order
     fn sync_editors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let count = self.store.read(cx).project.blocks.len();
-        if count == self.last_block_count { return; }
+        let store = self.store.read(cx);
+        let count = store.project.blocks.len();
+        // Check if block IDs match current editors (detects reordering)
+        let ids_match = count == self.block_editors.len() && self.block_editors.iter().enumerate().all(|(i, e)| {
+            e.read(cx).block_index == i
+        });
+        drop(store);
+        if count == self.last_block_count && ids_match { return; }
 
         // Rebuild all editors (blocks were added/removed/reordered)
         self.block_editors.clear();
@@ -108,9 +132,35 @@ impl Render for EditorPane {
 
         let mut block_list = div().flex().flex_col().gap(px(12.0));
 
-        // Block editors — each is an independent Entity
-        for editor in &self.block_editors {
-            block_list = block_list.child(editor.clone());
+        // Block editors — each is an independent Entity, wrapped in drag-drop targets
+        for (i, editor) in self.block_editors.iter().enumerate() {
+            // Read block info for drag preview
+            let store = self.store.read(cx);
+            let (label, color) = store.project.blocks.get(i)
+                .map(|b| (b.block_type.label(&store.lang).to_string(), hex_to_hsla(b.block_type.color())))
+                .unwrap_or(("Block".into(), text_muted()));
+            drop(store);
+
+            block_list = block_list.child(
+                div().id(("block-drop", i))
+                    .drag_over::<DragBlock>(|this, _, _, _cx| {
+                        this.border_t_2().border_color(accent())
+                    })
+                    .on_drop(cx.listener(move |this, drag: &DragBlock, _window, cx| {
+                        let from = drag.block_index;
+                        let to = i;
+                        if from != to {
+                            this.store.update(cx, |s, cx| {
+                                let block = s.project.blocks.remove(from);
+                                let insert_at = if from < to { to.saturating_sub(1) } else { to };
+                                s.project.blocks.insert(insert_at, block);
+                                s.prompt_dirty = true;
+                                cx.emit(StoreEvent::ProjectChanged);
+                            });
+                        }
+                    }))
+                    .child(editor.clone())
+            );
         }
 
         // Add block button (dashed border style like web)

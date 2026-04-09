@@ -9,6 +9,7 @@ pub struct HeaderBar {
     store: Entity<AppStore>,
     editing_name: bool,
     name_input: Option<Entity<InputState>>,
+    show_user_menu: bool,
 }
 
 impl HeaderBar {
@@ -20,7 +21,7 @@ impl HeaderBar {
                 _ => {}
             }
         }).detach();
-        Self { store, editing_name: false, name_input: None }
+        Self { store, editing_name: false, name_input: None, show_user_menu: false }
     }
 }
 
@@ -53,7 +54,7 @@ impl Render for HeaderBar {
             .child(div().flex().items_center().gap(px(6.0))
                 .child(div().w(px(28.0)).h(px(28.0)).rounded(px(8.0)).bg(bg_tertiary())
                     .flex().items_center().justify_center()
-                    .child(div().text_sm().text_color(accent()).child("I")))
+                    .child(Icon::new(IconName::PenTool).text_color(accent())))
                 .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child("Inkwell")))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
             // Project name (editable)
@@ -116,21 +117,60 @@ impl Render for HeaderBar {
                 })))
             // Divider
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
-            // User avatar + name (like web: 24px circle + display name)
+            // User avatar + name + floating dropdown (matching web)
             .children(session_email.map(|email| {
                 let s = self.store.read(cx);
                 let display_name = s.session.as_ref().map(|s| s.display_name.clone()).unwrap_or(email.clone());
                 let initial = display_name.chars().next().unwrap_or('U').to_uppercase().to_string();
                 drop(s);
-                div().px(px(6.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(6.0))
-                    .cursor_pointer().hover(|s| s.bg(bg_hover()))
-                    .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent())
-                        .flex().items_center().justify_center().text_xs().text_color(ink_white()).child(initial))
-                    .child(div().text_xs().text_color(text_secondary()).child(display_name))
-                    .child(Icon::new(IconName::ChevronDown).text_color(text_muted()))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        this.store.update(cx, |s, cx| { s.show_profile = !s.show_profile; cx.emit(StoreEvent::SettingsChanged); });
-                    }))
+                let show_menu = self.show_user_menu;
+                let dn = display_name.clone(); let em = email.clone(); let ini = initial.clone();
+                let mut user_section = div()
+                    // Trigger button
+                    .child(div().px(px(6.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(6.0))
+                        .cursor_pointer().hover(|s| s.bg(bg_hover()))
+                        .child(div().w(px(24.0)).h(px(24.0)).rounded(px(12.0)).bg(accent())
+                            .flex().items_center().justify_center().text_xs().text_color(ink_white()).child(initial))
+                        .child(div().text_xs().text_color(text_secondary()).child(display_name))
+                        .child(Icon::new(IconName::ChevronDown).text_color(text_muted()))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            this.show_user_menu = !this.show_user_menu; cx.notify();
+                        })));
+                // Floating dropdown menu
+                if show_menu {
+                    user_section = user_section.child(
+                        div().mt(px(4.0))
+                            .w(px(200.0)).rounded(px(8.0)).bg(bg_secondary())
+                            .border_1().border_color(border_c())
+                            .p(px(8.0)).flex().flex_col().gap(px(4.0))
+                            // Avatar + name + email
+                            .child(div().p(px(8.0)).flex().items_center().gap(px(8.0))
+                                .child(div().w(px(32.0)).h(px(32.0)).rounded(px(16.0)).bg(accent())
+                                    .flex().items_center().justify_center().text_xs().text_color(ink_white()).child(ini))
+                                .child(div().flex().flex_col()
+                                    .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary()).child(dn))
+                                    .child(div().text_xs().text_color(text_muted()).child(em))))
+                            // Separator
+                            .child(div().h(px(1.0)).bg(border_c()))
+                            // Profil
+                            .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                                .text_xs().text_color(text_secondary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                                .child(Icon::new(IconName::User)).child("Profil")
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    this.show_user_menu = false;
+                                    this.store.update(cx, |s, cx| { s.show_profile = !s.show_profile; cx.emit(StoreEvent::SettingsChanged); });
+                                })))
+                            // Deconnexion
+                            .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                                .text_xs().text_color(danger()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                                .child(Icon::new(IconName::LogOut)).child("Deconnexion")
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    this.show_user_menu = false;
+                                    this.store.update(cx, |s, cx| { s.session = None; s.screen = crate::state::Screen::Auth; cx.emit(StoreEvent::SessionChanged); });
+                                })))
+                    );
+                }
+                user_section
             }))
             // Divider
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))

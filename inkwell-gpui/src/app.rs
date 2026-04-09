@@ -861,9 +861,19 @@ impl InkwellApp {
 
     fn render_settings(&self, cx: &mut Context<Self>) -> Div {
         let lang = self.state.lang.clone();
-        div().h(px(280.0)).flex_shrink_0()
-            .border_t_1().border_color(border_c()).bg(bg_secondary())
-            .p(px(16.0)).flex().flex_col().gap(px(12.0))
+        // Modal overlay (matching web: centered card over backdrop)
+        div().size_full().absolute().top_0().left_0()
+            .bg(hsla(0.0, 0.0, 0.0, 0.4))
+            .flex().items_center().justify_center()
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                this.state.show_settings = false;
+                this.store.update(cx, |s, cx| { s.show_settings = false; cx.emit(crate::store::StoreEvent::SettingsChanged); });
+            }))
+            .child(div().w(px(480.0)).max_h(px(600.0))
+                .rounded(px(12.0)).bg(bg_secondary())
+                .border_1().border_color(border_c())
+                .p(px(24.0)).flex().flex_col().gap(px(16.0))
+                .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, _| { /* stop propagation */ }))
             .child(
                 div().flex().items_center().gap(px(8.0))
                     .child(div().text_sm().text_color(text_primary()).child(Icon::new(IconName::Settings)))
@@ -1003,7 +1013,7 @@ impl InkwellApp {
                                 });
                             }))
                     )
-            )
+            ))
     }
 
     fn render_profile(&self, cx: &mut Context<Self>) -> Div {

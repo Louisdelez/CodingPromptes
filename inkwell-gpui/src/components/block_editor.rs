@@ -11,6 +11,7 @@ pub struct BlockEditor {
     store: Entity<AppStore>,
     pub block_index: usize,
     input: Option<Entity<InputState>>,
+    show_type_menu: bool,
 }
 
 impl BlockEditor {
@@ -41,7 +42,7 @@ impl BlockEditor {
             }
         }).detach();
 
-        Self { store, block_index, input }
+        Self { store, block_index, input, show_type_menu: false }
     }
 
     /// Read current input value and sync to store if changed
@@ -91,6 +92,7 @@ impl Render for BlockEditor {
         let is_enabled = block.enabled;
         let is_sdd = block.block_type.is_sdd();
         let is_recording = store.stt_recording && store.stt_target_block == Some(idx);
+        let lang = store.lang.clone();
         drop(store);
 
         // Block type icon mapping (matching web)
@@ -108,18 +110,63 @@ impl Render for BlockEditor {
             BlockType::SddImplementation => IconName::PencilRuler,
         };
 
+        let show_type = self.show_type_menu;
+
         // Block header (matches web: grip handle, color dot + type icon + label, spacer, actions)
         let mut header = div().px(px(8.0)).py(px(8.0)).flex().items_center().gap(px(6.0))
             .border_b_1().border_color(border_c())
-            // Drag handle (6-dot grip)
-            .child(div().text_color(text_muted()).cursor_pointer()
-                .child(Icon::new(IconName::GripVertical)))
-            // Color dot
-            .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
-            // Type icon
-            .child(Icon::new(type_icon).text_color(color))
-            // Type label
-            .child(div().text_sm().text_color(color).child(label))
+            // Drag handle (6-dot grip) — starts drag for block reordering
+            .child(div().id(("grip", idx)).text_color(text_muted()).cursor_pointer()
+                .child(Icon::new(IconName::GripVertical))
+                .on_drag(super::editor_pane::DragBlock {
+                    block_index: idx,
+                    label: label.clone(),
+                    color,
+                }, |drag, _, _, cx| cx.new(|_| drag.clone())))
+            // Color dot + Type icon + label (clickable to change type)
+            .child({
+                let mut type_btn = div().flex().items_center().gap(px(6.0)).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()).rounded(px(4.0)))
+                    .px(px(4.0)).py(px(2.0)).rounded(px(4.0))
+                    .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
+                    .child(Icon::new(type_icon).text_color(color))
+                    .child(div().text_sm().text_color(color).child(label))
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        this.show_type_menu = !this.show_type_menu; cx.notify();
+                    }));
+                // Type selector dropdown
+                if show_type {
+                    let all_types = [
+                        BlockType::Role, BlockType::Context, BlockType::Task,
+                        BlockType::Examples, BlockType::Constraints, BlockType::Format,
+                        BlockType::SddConstitution, BlockType::SddSpecification,
+                        BlockType::SddPlan, BlockType::SddTasks, BlockType::SddImplementation,
+                    ];
+                    let mut menu = div().mt(px(4.0)).w(px(220.0)).rounded(px(8.0))
+                        .bg(bg_secondary()).border_1().border_color(border_c()).p(px(4.0))
+                        .flex().flex_col().gap(px(2.0));
+                    for bt in all_types {
+                        let bt_label = bt.label(&lang).to_string();
+                        let bt_color = hex_to_hsla(bt.color());
+                        menu = menu.child(
+                            div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                                .text_xs().text_color(text_primary()).hover(|s| s.bg(bg_hover()))
+                                .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(bt_color))
+                                .child(bt_label)
+                                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                    this.store.update(cx, |s, cx| {
+                                        if let Some(b) = s.project.blocks.get_mut(this.block_index) { b.block_type = bt; }
+                                        s.prompt_dirty = true;
+                                        cx.emit(StoreEvent::ProjectChanged);
+                                    });
+                                    this.show_type_menu = false; cx.notify();
+                                }))
+                        );
+                    }
+                    type_btn = type_btn.child(menu);
+                }
+                type_btn
+            })
             .child(div().flex_1());
 
         // SDD action buttons (generate/improve/clarify) — simplified in block, full version in EditorPane

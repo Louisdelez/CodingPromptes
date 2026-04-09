@@ -25,7 +25,7 @@ pub fn rt() -> &'static tokio::runtime::Runtime {
 
 /// Build an LLM request with proper API routing and auth headers.
 /// Routes to OpenAI/Anthropic/Google directly if API keys are set, else falls back to server proxy.
-fn llm_post(client: &reqwest::Client, model: &str, server_url: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
+pub fn llm_post(client: &reqwest::Client, model: &str, server_url: &str, body: serde_json::Value) -> reqwest::RequestBuilder {
     let (ko, ka, kg, _) = crate::llm::load_local_keys();
     let (url, hdrs) = crate::llm::llm_endpoint(model, &ko, &ka, &kg, server_url);
     let msgs = body["messages"].as_array().cloned().unwrap_or_default();
@@ -46,6 +46,7 @@ pub struct InkwellApp {
     pub bottom_bar: Entity<crate::components::bottom_bar::BottomBar>,
     pub editor: Entity<crate::components::editor_pane::EditorPane>,
     pub left_panel: Entity<crate::components::left_panel::LeftPanel>,
+    pub right_panel: Entity<crate::components::right_panel::RightPanel>,
 }
 
 impl InkwellApp {
@@ -56,6 +57,7 @@ impl InkwellApp {
         let bottom_bar = cx.new(|cx| crate::components::bottom_bar::BottomBar::new(store.clone(), cx));
         let editor = cx.new(|cx| crate::components::editor_pane::EditorPane::new(store.clone(), window, cx));
         let left_panel = cx.new(|cx| crate::components::left_panel::LeftPanel::new(store.clone(), window, cx));
+        let right_panel = cx.new(|cx| crate::components::right_panel::RightPanel::new(store.clone(), window, cx));
 
         let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
         state.dark_mode = store.read(cx).dark_mode;
@@ -85,7 +87,7 @@ impl InkwellApp {
             }
         }).detach();
 
-        Self { state, store, header, bottom_bar, editor, left_panel }
+        Self { state, store, header, bottom_bar, editor, left_panel, right_panel }
     }
 
     fn t(&self) -> crate::theme::InkwellTheme {
@@ -765,7 +767,7 @@ impl InkwellApp {
         let mut main_row = div().flex_1().flex().overflow_hidden();
         if left_open { main_row = main_row.child(self.left_panel.clone()); }
         main_row = main_row.child(self.editor.clone());
-        if right_open { main_row = main_row.child(self.render_right_panel(cx)); }
+        if right_open { main_row = main_row.child(self.right_panel.clone()); }
 
         div().size_full().bg(t.bg_primary).flex().flex_col()
             .on_action(cx.listener(|this, _: &NewProject, _, _| {

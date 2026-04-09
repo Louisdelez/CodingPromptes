@@ -63,16 +63,33 @@ impl Render for InkwellApp {
             Screen::Auth => self.render_auth(window, cx),
             Screen::Ide => {
                 self.state.frame_count = self.state.frame_count.wrapping_add(1);
-                self.ensure_block_inputs(window, cx);
-                // Only init terminal inputs once (not every frame)
+
+                // Init inputs once
                 if !self.state.inputs_initialized {
+                    self.ensure_block_inputs(window, cx);
                     self.ensure_terminal_input(window, cx);
                     self.state.inputs_initialized = true;
                 }
-                // Sync content every 3 frames instead of every frame
-                if self.state.frame_count % 3 == 0 {
+
+                // Ensure block inputs only when block count changes
+                if self.state.block_inputs.len() != self.state.project.blocks.len() {
+                    self.ensure_block_inputs(window, cx);
+                }
+
+                // Sync content every 6 frames (~10fps sync, 60fps render)
+                if self.state.frame_count % 6 == 0 {
                     self.sync_block_content(cx);
                 }
+
+                // Decrement timers every frame (cheap)
+                if self.state.copy_feedback > 0 { self.state.copy_feedback -= 1; }
+                if self.state.save_status_timer > 0 {
+                    self.state.save_status_timer -= 1;
+                    if self.state.save_status_timer == 0 && self.state.save_status == "saved" {
+                        self.state.save_status = "idle";
+                    }
+                }
+
                 self.render_ide(cx)
             }
         }
@@ -450,15 +467,6 @@ impl InkwellApp {
             self.state.cached_vars = inkwell_core::prompt::extract_variables(&core_blocks);
             self.state.prompt_dirty = false;
         }
-        // Copy feedback timer
-        if self.state.copy_feedback > 0 { self.state.copy_feedback -= 1; }
-        // Save status reset timer
-        if self.state.save_status_timer > 0 {
-            self.state.save_status_timer -= 1;
-            if self.state.save_status_timer == 0 && self.state.save_status == "saved" {
-                self.state.save_status = "idle";
-            }
-        }
         // Auto-poll fleet nodes (~every 20s at 60fps = 1200 frames)
         if self.state.session.is_some() && self.state.right_tab == RightTab::Fleet {
             self.state.fleet_poll_timer += 1;
@@ -670,20 +678,23 @@ impl InkwellApp {
         // Remove excess
         self.state.block_inputs.truncate(self.state.project.blocks.len());
 
-        // Ensure variable input entities (uses cached_vars — no per-frame parsing)
-        for var in &self.state.cached_vars.clone() {
-            if !self.state.variable_inputs.contains_key(var) {
-                let val = self.state.project.variables.get(var).cloned().unwrap_or_default();
-                let entity = cx.new(|cx| {
-                    InputState::new(window, cx)
-                        .placeholder(format!("value for {var}"))
-                        .default_value(val)
-                });
-                self.state.variable_inputs.insert(var.clone(), entity);
+        // Ensure variable input entities — only when vars changed
+        let var_count = self.state.cached_vars.len();
+        if var_count != self.state.variable_inputs.len() || self.state.variable_inputs.keys().any(|k| !self.state.cached_vars.contains(k)) {
+            for var in &self.state.cached_vars.clone() {
+                if !self.state.variable_inputs.contains_key(var) {
+                    let val = self.state.project.variables.get(var).cloned().unwrap_or_default();
+                    let entity = cx.new(|cx| {
+                        InputState::new(window, cx)
+                            .placeholder(format!("value for {var}"))
+                            .default_value(val)
+                    });
+                    self.state.variable_inputs.insert(var.clone(), entity);
+                }
             }
+            let cached = self.state.cached_vars.clone();
+            self.state.variable_inputs.retain(|k, _| cached.contains(k));
         }
-        let cached = self.state.cached_vars.clone();
-        self.state.variable_inputs.retain(|k, _| cached.contains(k));
     }
 
     fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {

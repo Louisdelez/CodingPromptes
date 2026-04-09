@@ -19,6 +19,12 @@ pub struct LeftPanel {
     new_ws_color: String,
     // Expanded workspaces
     expanded_workspaces: Vec<String>,
+    // Frameworks
+    show_custom_frameworks: bool,
+    show_builtin_frameworks: bool,
+    // Versions
+    version_label_input: Option<Entity<InputState>>,
+    expanded_versions: Vec<String>,
 }
 
 impl LeftPanel {
@@ -35,6 +41,8 @@ impl LeftPanel {
             show_dropdown: false, show_new_workspace: false,
             new_ws_input: None, new_ws_color: "#6366f1".into(),
             expanded_workspaces: vec![],
+            show_custom_frameworks: true, show_builtin_frameworks: true,
+            version_label_input: None, expanded_versions: vec![],
         }
     }
 }
@@ -193,7 +201,7 @@ impl Render for LeftPanel {
         panel = panel.child(match self.view {
             SidebarView::Library => self.render_library(&projects, &workspaces, &current_id, &confirm_delete, cx),
             SidebarView::Frameworks => self.render_frameworks(&custom_fw, cx),
-            SidebarView::Versions => self.render_versions(&versions, cx),
+            SidebarView::Versions => self.render_versions(&versions, window, cx),
         });
 
         panel
@@ -328,70 +336,227 @@ impl LeftPanel {
     }
 
     fn render_frameworks(&self, frameworks: &[CustomFramework], cx: &mut Context<Self>) -> Div {
-        const BUILT_IN: &[(&str, &str)] = &[
-            ("CO-STAR", "co-star"), ("RISEN", "risen"), ("RACE", "race"),
-            ("SDD (Spec-Driven)", "sdd"), ("APE", "ape"), ("STOKE", "stoke"),
+        const BUILT_IN: &[(&str, &str, &str)] = &[
+            ("CO-STAR", "co-star", "Context, Objective, Style, Tone, Audience, Response"),
+            ("RISEN", "risen", "Role, Instructions, Steps, End goal, Narrowing"),
+            ("RACE", "race", "Role, Action, Context, Example"),
+            ("SDD (Spec-Driven)", "sdd", "Constitution, Specification, Plan, Tasks, Implementation"),
+            ("APE", "ape", "Action, Purpose, Expectation"),
+            ("STOKE", "stoke", "Situation, Task, Objective, Knowledge, Example"),
         ];
-        let mut c = div().flex_1().px(px(10.0)).py(px(4.0)).flex().flex_col().gap(px(2.0));
-        for &(name, id) in BUILT_IN {
-            let id_str = id.to_string();
+        let current_fw = self.store.read(cx).project.framework.clone();
+
+        let mut c = div().flex_1().px(px(12.0)).py(px(8.0)).flex().flex_col().gap(px(6.0));
+
+        // ── Header: Frameworks title + buttons ──
+        c = c.child(div().flex().items_center().gap(px(6.0))
+            .child(Icon::new(IconName::Frame).text_color(text_muted()))
+            .child(div().flex_1().text_xs().text_color(text_muted()).child("Frameworks")));
+
+        // Save current as framework button
+        c = c.child(
+            div().w_full().py(px(6.0)).rounded(px(6.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                .flex().items_center().justify_center().gap(px(6.0))
+                .text_xs().text_color(text_secondary())
+                .child(Icon::new(IconName::Save)).child("Sauvegarder comme framework")
+                .cursor_pointer().hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| {
+                        let name = format!("Custom {}", s.custom_frameworks.len() + 1);
+                        let blocks: Vec<(inkwell_core::types::BlockType, String)> = s.project.blocks.iter()
+                            .map(|b| (b.block_type, b.content.clone())).collect();
+                        s.custom_frameworks.push(CustomFramework { name, blocks });
+                        cx.emit(StoreEvent::ProjectChanged);
+                    });
+                }))
+        );
+
+        // ── Section: Mes Frameworks (custom) ──
+        if !frameworks.is_empty() {
             c = c.child(
-                div().px(px(10.0)).py(px(8.0)).rounded(px(6.0))
-                    .border_1().border_color(border_c()).bg(bg_tertiary())
-                    .text_xs().text_color(text_secondary()).child(name.to_string())
-                    .cursor_pointer().hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)))
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.store.update(cx, |s, cx| { s.project.framework = Some(id_str.clone()); s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged); });
+                div().flex().items_center().gap(px(6.0)).py(px(4.0))
+                    .child(Icon::new(if self.show_custom_frameworks { IconName::ChevronDown } else { IconName::ChevronRight }).text_color(text_muted()))
+                    .child(Icon::new(IconName::User).text_color(text_muted()))
+                    .child(div().flex_1().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary())
+                        .child(format!("Mes Frameworks ({})", frameworks.len())))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        this.show_custom_frameworks = !this.show_custom_frameworks; cx.notify();
                     }))
             );
-        }
-        if !frameworks.is_empty() {
-            c = c.child(div().h(px(1.0)).bg(border_c()).my(px(4.0)));
-            for (i, fw) in frameworks.iter().enumerate() {
-                c = c.child(
-                    div().px(px(10.0)).py(px(8.0)).rounded(px(6.0))
-                        .border_1().border_color(border_c()).bg(bg_tertiary())
-                        .flex().items_center().gap(px(6.0))
-                        .child(div().flex_1().text_xs().text_color(text_secondary())
-                            .child(format!("{} ({} blocks)", fw.name, fw.blocks.len())))
-                        .child(div().text_color(danger()).child(Icon::new(IconName::Close))
+            if self.show_custom_frameworks {
+                for (i, fw) in frameworks.iter().enumerate() {
+                    let is_active = current_fw.as_deref() == Some(&format!("custom:{}", fw.name));
+                    // Block type badges
+                    let badges: Vec<(&str, Hsla)> = fw.blocks.iter().map(|&(bt, _)| {
+                        let abbr = match bt { inkwell_core::types::BlockType::Role => "Ro", inkwell_core::types::BlockType::Context => "Cx",
+                            inkwell_core::types::BlockType::Task => "Ta", inkwell_core::types::BlockType::Examples => "Ex",
+                            inkwell_core::types::BlockType::Constraints => "Co", inkwell_core::types::BlockType::Format => "Fo",
+                            _ => "Sd" };
+                        (abbr, hex_to_hsla(bt.color()))
+                    }).collect();
+
+                    let mut card = div().p(px(8.0)).rounded(px(6.0))
+                        .border_1().border_color(if is_active { accent() } else { border_c() })
+                        .bg(bg_tertiary()).flex().flex_col().gap(px(4.0))
+                        .hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.08)));
+
+                    card = card.child(div().flex().items_center().gap(px(4.0))
+                        .child(Icon::new(IconName::Star).text_color(accent()))
+                        .child(div().flex_1().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(fw.name.clone()))
+                        // Delete
+                        .child(div().text_color(danger()).opacity(0.5).hover(|s| s.opacity(1.0))
+                            .child(Icon::new(IconName::Trash2))
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                 this.store.update(cx, |s, cx| { if i < s.custom_frameworks.len() { s.custom_frameworks.remove(i); } cx.emit(StoreEvent::ProjectChanged); });
                             })))
+                    );
+
+                    // Block badges row
+                    let mut badge_row = div().flex().flex_wrap().gap(px(2.0));
+                    for (abbr, color) in &badges {
+                        badge_row = badge_row.child(
+                            div().px(px(4.0)).py(px(1.0)).rounded(px(3.0))
+                                .bg(hsla(color.h, color.s, color.l, 0.15))
+                                .text_xs().text_color(*color).child(abbr.to_string())
+                        );
+                    }
+                    card = card.child(badge_row);
+
+                    c = c.child(card.cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        if let Some(fw) = this.store.read(cx).custom_frameworks.get(i).cloned() {
+                            this.store.update(cx, |s, cx| {
+                                s.undo_stack.push_back(s.project.blocks.clone());
+                                s.project.blocks = fw.blocks.iter().map(|(bt, content)| {
+                                    let mut b = Block::new(*bt); b.content = content.clone(); b
+                                }).collect();
+                                s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged);
+                            });
+                        }
+                    })));
+                }
+            }
+        }
+
+        // ── Section: Built-in ──
+        c = c.child(
+            div().flex().items_center().gap(px(6.0)).py(px(4.0))
+                .child(Icon::new(if self.show_builtin_frameworks { IconName::ChevronDown } else { IconName::ChevronRight }).text_color(text_muted()))
+                .child(Icon::new(IconName::Frame).text_color(text_muted()))
+                .child(div().flex_1().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_primary())
+                    .child(format!("Built-in ({})", BUILT_IN.len())))
+                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.show_builtin_frameworks = !this.show_builtin_frameworks; cx.notify();
+                }))
+        );
+        if self.show_builtin_frameworks {
+            for &(name, id, desc) in BUILT_IN {
+                let id_str = id.to_string();
+                let is_active = current_fw.as_deref() == Some(id);
+                c = c.child(
+                    div().p(px(8.0)).rounded(px(6.0))
+                        .border_1().border_color(if is_active { accent() } else { border_c() })
+                        .bg(bg_tertiary()).flex().flex_col().gap(px(2.0))
+                        .hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.08)))
+                        .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(name.to_string()))
+                        .child(div().text_xs().text_color(text_muted()).child(desc.to_string()))
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                            this.store.update(cx, |s, cx| { s.project.framework = Some(id_str.clone()); s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged); });
+                        }))
                 );
             }
         }
+
         c
     }
 
-    fn render_versions(&self, versions: &[inkwell_core::types::Version], cx: &mut Context<Self>) -> Div {
-        let mut c = div().flex_1().px(px(10.0)).py(px(4.0)).flex().flex_col().gap(px(4.0));
+    fn render_versions(&mut self, versions: &[inkwell_core::types::Version], window: &mut Window, cx: &mut Context<Self>) -> Div {
+        let mut c = div().flex_1().px(px(12.0)).py(px(8.0)).flex().flex_col().gap(px(6.0));
+
+        // ── Header: Versions title ──
+        c = c.child(div().flex().items_center().gap(px(6.0))
+            .child(Icon::new(IconName::Redo).text_color(text_muted()))
+            .child(div().flex_1().text_xs().text_color(text_muted()).child("Versions")));
+
+        // ── Save new version: input + button ──
+        if self.version_label_input.is_none() {
+            self.version_label_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Label de la version...")));
+        }
+        c = c.child(
+            div().flex().items_center().gap(px(6.0))
+                .child(if let Some(ref entity) = self.version_label_input {
+                    div().flex_1().child(Input::new(entity))
+                } else { div().flex_1() })
+                .child(
+                    div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
+                        .flex().items_center().gap(px(4.0))
+                        .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                        .child(Icon::new(IconName::Save)).child("Sauvegarder")
+                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            let label = this.version_label_input.as_ref()
+                                .map(|i| i.read(cx).value().to_string()).unwrap_or_default();
+                            let label = if label.trim().is_empty() { format!("v{}", chrono::Utc::now().format("%H:%M")) }
+                                else { label.trim().to_string() };
+                            this.store.update(cx, |s, cx| {
+                                let blocks_json = serde_json::to_string(&s.project.blocks.iter().map(|b| {
+                                    inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }
+                                }).collect::<Vec<_>>()).unwrap_or_default();
+                                s.versions.push(inkwell_core::types::Version {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    project_id: s.project.id.clone(),
+                                    blocks_json, variables_json: "{}".into(),
+                                    label, created_at: chrono::Utc::now().timestamp_millis(),
+                                });
+                                cx.emit(StoreEvent::ProjectChanged);
+                            });
+                            this.version_label_input = None; cx.notify();
+                        }))
+                )
+        );
+
+        c = c.child(div().h(px(1.0)).bg(border_c()));
+
+        // ── Version list ──
         if versions.is_empty() {
             c = c.child(
-                div().py(px(20.0)).flex().flex_col().items_center().gap(px(8.0))
-                    .child(div().text_xs().text_color(text_muted()).child("Aucune version"))
-                    .child(div().text_xs().text_color(text_muted()).max_w(px(200.0))
-                        .child("Sauvegardez des versions depuis l'onglet History."))
+                div().py(px(16.0)).flex().flex_col().items_center().gap(px(8.0))
+                    .child(div().text_xs().text_color(text_muted()).child("Aucune version sauvegardee"))
             );
         } else {
-            for v in versions {
+            for v in versions.iter().rev() {
                 let blocks_json = v.blocks_json.clone();
-                c = c.child(
-                    div().px(px(8.0)).py(px(6.0)).rounded(px(6.0))
-                        .border_1().border_color(border_c()).bg(bg_tertiary())
-                        .flex().items_center().gap(px(8.0))
-                        .hover(|s| s.bg(hsla(239.0 / 360.0, 0.84, 0.67, 0.1)))
-                        .child(Icon::new(IconName::GitBranch).text_color(text_muted()))
-                        .child(div().flex_1().flex().flex_col()
-                            .child(div().text_xs().text_color(text_primary()).child(v.label.clone()))
-                            .child(div().text_xs().text_color(text_muted()).child(
-                                chrono::DateTime::from_timestamp_millis(v.created_at)
-                                    .map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default()
-                            )))
-                        .child(div().text_color(accent()).child(Icon::new(IconName::Undo))
+                let blocks_json2 = v.blocks_json.clone();
+                let v_id = v.id.clone();
+                let is_expanded = self.expanded_versions.contains(&v.id);
+
+                let date_str = chrono::DateTime::from_timestamp_millis(v.created_at)
+                    .map(|d| d.format("%d %b %H:%M").to_string()).unwrap_or_default();
+
+                // Header row (expandable)
+                let mut row = div().px(px(8.0)).py(px(6.0)).rounded(px(6.0))
+                    .border_1().border_color(border_c()).bg(bg_tertiary())
+                    .flex().flex_col().gap(px(4.0));
+
+                row = row.child(
+                    div().flex().items_center().gap(px(6.0))
+                        // Chevron expand
+                        .child(div().child(Icon::new(if is_expanded { IconName::ChevronDown } else { IconName::ChevronRight }).text_color(text_muted()))
+                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                if this.expanded_versions.contains(&v_id) {
+                                    this.expanded_versions.retain(|id| id != &v_id);
+                                } else { this.expanded_versions.push(v_id.clone()); }
+                                cx.notify();
+                            })))
+                        // Label (bold)
+                        .child(div().flex_1().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(v.label.clone()))
+                        // Date
+                        .child(div().text_xs().text_color(text_muted()).child(date_str))
+                        // Restore button
+                        .child(div().text_color(accent())
+                            .child(Icon::new(IconName::Undo))
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                                 if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&blocks_json) {
                                     this.store.update(cx, |s, cx| {
+                                        s.undo_stack.push_back(s.project.blocks.clone());
                                         s.project.blocks = blocks.into_iter().map(|b| Block {
                                             id: b.id, block_type: b.block_type, content: b.content, enabled: b.enabled, editing: false
                                         }).collect();
@@ -400,8 +565,25 @@ impl LeftPanel {
                                 }
                             })))
                 );
+
+                // Expanded content: preview of blocks
+                if is_expanded {
+                    if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&blocks_json2) {
+                        let preview: String = blocks.iter().filter(|b| b.enabled)
+                            .map(|b| b.content.as_str()).collect::<Vec<_>>().join("\n\n");
+                        row = row.child(
+                            div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).bg(bg_secondary())
+                                .max_h(px(120.0)).overflow_hidden()
+                                .text_xs().text_color(text_secondary())
+                                .child(if preview.is_empty() { "(vide)".to_string() } else { preview.chars().take(500).collect() })
+                        );
+                    }
+                }
+
+                c = c.child(row);
             }
         }
+
         c
     }
 }

@@ -80,22 +80,38 @@ impl InkwellApp {
                     });
                     self.state.session = Some(session);
                     self.state.screen = Screen::Ide;
-                    self.state.projects = projects.iter().map(|p| {
-                        ProjectSummary { id: p.id.clone(), name: p.name.clone() }
-                    }).collect();
-                    self.state.workspaces = workspaces;
-                    // Load first project
-                    if let Some(first) = projects.first() {
-                        self.state.project.name = first.name.clone();
-                        self.state.project.id = first.id.clone();
-                        self.state.project.blocks = first.blocks.iter().map(|b| {
-                            Block {
-                                id: b.id.clone(), block_type: b.block_type,
-                                content: b.content.clone(), enabled: b.enabled, editing: false,
-                            }
-                        }).collect();
-                        self.state.project.framework = first.framework.clone();
+                    // MERGE server projects with local — never overwrite local work
+                    for sp in &projects {
+                        if !self.state.projects.iter().any(|p| p.id == sp.id) {
+                            // New project from server — save locally + add to list
+                            let local = crate::persistence::LocalProject {
+                                id: sp.id.clone(), name: sp.name.clone(),
+                                workspace_id: None,
+                                blocks: sp.blocks.clone(),
+                                variables: std::collections::HashMap::new(),
+                                tags: vec![], framework: sp.framework.clone(),
+                                updated_at: chrono::Utc::now().timestamp_millis(),
+                            };
+                            crate::persistence::save_project(&local);
+                            self.state.projects.push(ProjectSummary { id: sp.id.clone(), name: sp.name.clone() });
+                        }
                     }
+                    // Merge workspaces
+                    for sw in &workspaces {
+                        if !self.state.workspaces.iter().any(|w| w.id == sw.id) {
+                            self.state.workspaces.push(sw.clone());
+                        }
+                    }
+                    // Push local projects to server that server doesn't have
+                    let local_projects = crate::persistence::load_all_projects();
+                    let server_url = self.state.server_url.clone();
+                    let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
+                    for lp in &local_projects {
+                        if !projects.iter().any(|sp| sp.id == lp.id) {
+                            crate::persistence::sync_project_to_server(&server_url, &token, lp);
+                        }
+                    }
+                    // Don't touch current project — user keeps working on what they had open
                 }
                 AsyncMsg::AuthError(e) => {
                     self.state.auth_loading = false;

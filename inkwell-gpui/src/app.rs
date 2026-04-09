@@ -1,6 +1,6 @@
 use gpui::*;
 use gpui_component::input::{Input, InputState};
-use gpui_component::{Icon, IconName};
+use gpui_component::{Icon, IconName, Theme, ThemeMode};
 use crate::state::*;
 use inkwell_core::types::BlockType;
 
@@ -446,8 +446,10 @@ impl InkwellApp {
                     .flex().items_center().gap(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_hover()))
                     .child(Icon::new(if self.state.dark_mode { IconName::Moon } else { IconName::Sun }).text_color(text_muted()))
                     .child(Icon::new(IconName::ChevronDown).text_color(text_muted()))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _cx| {
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                         this.state.dark_mode = !this.state.dark_mode;
+                        set_dark_mode(this.state.dark_mode);
+                        Theme::change(if this.state.dark_mode { ThemeMode::Dark } else { ThemeMode::Light }, Some(window), cx);
                     })))
                 .child(div().px(px(8.0)).py(px(4.0)).rounded(px(6.0)).bg(bg_tertiary())
                     .flex().items_center().gap(px(4.0)).cursor_pointer().hover(|s| s.bg(bg_hover()))
@@ -816,6 +818,8 @@ impl InkwellApp {
         drop(s);
 
         set_dark_mode(dark_mode);
+        // Sync gpui-component theme so Input, Button, etc. follow dark/light mode
+        Theme::change(if dark_mode { ThemeMode::Dark } else { ThemeMode::Light }, None, cx);
         let t = crate::theme::InkwellTheme::from_mode(dark_mode);
         let mut main_row = div().flex_1().flex().overflow_hidden();
         if left_open { main_row = main_row.child(self.left_panel.clone()); }

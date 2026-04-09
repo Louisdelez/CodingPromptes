@@ -17,6 +17,8 @@ fn main() {
 
     application().with_assets(Assets).run(|cx: &mut App| {
         gpui_component::init(cx);
+        // Start in dark mode (matches our default)
+        gpui_component::Theme::change(gpui_component::ThemeMode::Dark, None, cx);
 
         // Register keyboard shortcuts
         cx.bind_keys([

@@ -91,51 +91,86 @@ impl InkwellApp {
     }
 }
 
+impl InkwellApp {
+    /// Start a periodic timer for background work (sync, timers, polling).
+    /// This runs OUTSIDE of render — doesn't force re-renders.
+    fn start_periodic_sync(cx: &mut Context<Self>) {
+        // Run every 100ms (~10fps) instead of every frame (60fps)
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+                let should_continue = this.update(cx, |this, cx| {
+                    // Poll async messages
+                    this.poll_messages(cx);
+
+                    // Sync editor content to store
+                    let changed = this.editor.update(cx, |e, cx| e.sync_content(cx));
+                    if changed {
+                        this.store.update(cx, |s, cx| {
+                            if s.prompt_dirty {
+                                s.refresh_cache();
+                                cx.emit(crate::store::StoreEvent::PromptCacheUpdated);
+                            }
+                        });
+                        this.state.save_pending = true;
+                    }
+
+                    // Sync old state inputs (bridge)
+                    this.sync_block_content(cx);
+
+                    // Timers
+                    if this.state.copy_feedback > 0 { this.state.copy_feedback = this.state.copy_feedback.saturating_sub(6); }
+                    if this.state.save_status_timer > 0 {
+                        this.state.save_status_timer = this.state.save_status_timer.saturating_sub(6);
+                        if this.state.save_status_timer == 0 && this.state.save_status == "saved" {
+                            this.state.save_status = "idle";
+                            this.store.update(cx, |s, cx| {
+                                s.save_status = "idle";
+                                cx.emit(crate::store::StoreEvent::SaveStatusChanged);
+                            });
+                        }
+                    }
+
+                    // Auto-save
+                    if this.state.save_pending && this.state.save_timer == 0 {
+                        this.state.save_timer = 5; // ~500ms
+                    }
+                    if this.state.save_timer > 0 {
+                        this.state.save_timer -= 1;
+                        if this.state.save_timer == 0 && this.state.save_pending {
+                            this.state.save_status = "saved";
+                            this.state.save_status_timer = 30;
+                            this.state.save_pending = false;
+                            this.save_to_backend();
+                            this.store.update(cx, |s, cx| {
+                                s.save_status = "saved";
+                                cx.emit(crate::store::StoreEvent::SaveStatusChanged);
+                            });
+                        }
+                    }
+                }).ok();
+                if should_continue.is_none() { break; }
+            }
+        }).detach();
+    }
+}
+
 impl Render for InkwellApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // PURE render — zero state mutation, zero timers, zero sync
         set_dark_mode(self.state.dark_mode);
-        self.poll_messages(cx);
+
+        // One-time init
+        if !self.state.inputs_initialized {
+            self.ensure_block_inputs(window, cx);
+            self.ensure_terminal_input(window, cx);
+            self.state.inputs_initialized = true;
+            Self::start_periodic_sync(cx);
+        }
 
         match self.state.screen {
             Screen::Auth => self.render_auth(window, cx),
-            Screen::Ide => {
-                self.state.frame_count = self.state.frame_count.wrapping_add(1);
-
-                // Init inputs once
-                if !self.state.inputs_initialized {
-                    self.ensure_block_inputs(window, cx);
-                    self.ensure_terminal_input(window, cx);
-                    self.state.inputs_initialized = true;
-                }
-
-                // Ensure block inputs only when block count changes
-                if self.state.block_inputs.len() != self.state.project.blocks.len() {
-                    self.ensure_block_inputs(window, cx);
-                }
-
-                // Sync content every 6 frames (~10fps sync, 60fps render)
-                if self.state.frame_count % 6 == 0 {
-                    // Sync editor pane block inputs → store
-                    let changed = self.editor.update(cx, |e, cx| e.sync_content(cx));
-                    if changed {
-                        self.store.update(cx, |s, cx| {
-                            if s.prompt_dirty { s.refresh_cache(); cx.emit(crate::store::StoreEvent::PromptCacheUpdated); }
-                        });
-                    }
-                    self.sync_block_content(cx);
-                }
-
-                // Decrement timers every frame (cheap)
-                if self.state.copy_feedback > 0 { self.state.copy_feedback -= 1; }
-                if self.state.save_status_timer > 0 {
-                    self.state.save_status_timer -= 1;
-                    if self.state.save_status_timer == 0 && self.state.save_status == "saved" {
-                        self.state.save_status = "idle";
-                    }
-                }
-
-                self.render_ide(cx)
-            }
+            Screen::Ide => self.render_ide(cx),
         }
     }
 }
@@ -541,51 +576,6 @@ impl InkwellApp {
             self.state.cached_vars = inkwell_core::prompt::extract_variables(&core_blocks);
             self.state.prompt_dirty = false;
         }
-        // Auto-poll fleet nodes (~every 20s at 60fps = 1200 frames)
-        if self.state.session.is_some() && self.state.right_tab == RightTab::Fleet {
-            self.state.fleet_poll_timer += 1;
-            if self.state.fleet_poll_timer >= 1200 {
-                self.state.fleet_poll_timer = 0;
-                let server = self.state.server_url.clone();
-                let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                let tx = self.state.msg_tx.clone();
-                rt().spawn(async move {
-                        let mut client = inkwell_core::api_client::ApiClient::new(&server);
-                        client.set_token(token);
-                        if let Ok(nodes) = client.list_nodes().await {
-                            let _ = tx.send(AsyncMsg::NodesLoaded(nodes));
-                        }
-                    });
-            }
-        }
-        // Auto-poll collab presence (~every 10s = 600 frames)
-        if self.state.session.is_some() && self.state.right_tab == RightTab::Collab {
-            self.state.collab_poll_timer += 1;
-            if self.state.collab_poll_timer >= 600 {
-                self.state.collab_poll_timer = 0;
-                let server = self.state.server_url.clone();
-                let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();
-                let project_id = self.state.project.id.clone();
-                let tx = self.state.msg_tx.clone();
-                rt().spawn(async move {
-                        let client = reqwest::Client::new();
-                        if let Ok(resp) = client.get(format!("{server}/api/projects/{project_id}/presence"))
-                            .header("Authorization", format!("Bearer {token}"))
-                            .send().await {
-                            if let Ok(users) = resp.json::<Vec<serde_json::Value>>().await {
-                                let collab_users: Vec<crate::state::CollabUser> = users.iter().map(|u| {
-                                    crate::state::CollabUser {
-                                        name: u["display_name"].as_str().unwrap_or("").to_string(),
-                                        email: u["email"].as_str().unwrap_or("").to_string(),
-                                        online: u["online"].as_bool().unwrap_or(false),
-                                    }
-                                }).collect();
-                                let _ = tx.send(AsyncMsg::CollabUsersLoaded(collab_users));
-                            }
-                        }
-                    });
-            }
-        }
         // Read search query from input (only allocate if changed)
         if let Some(ref input) = self.state.search_input {
             let val = input.read(cx).value();
@@ -593,21 +583,9 @@ impl InkwellApp {
                 self.state.search_query = val.to_string();
             }
         }
-        // Auto-save to backend (debounced via save_timer)
+        // Mark save pending if content changed (actual save in periodic timer)
         if changed {
             self.state.save_pending = true;
-        }
-        if self.state.save_pending && self.state.save_timer == 0 {
-            self.state.save_timer = 30; // ~30 frames = ~0.5s at 60fps
-        }
-        if self.state.save_timer > 0 {
-            self.state.save_timer -= 1;
-            if self.state.save_timer == 0 && self.state.save_pending {
-                self.state.save_status = "saved";
-                self.state.save_status_timer = 180; // ~3s at 60fps
-                self.state.save_pending = false;
-                self.save_to_backend();
-            }
         }
     }
 

@@ -144,7 +144,19 @@ impl AppStore {
             let summaries = local_projects.iter().map(|p| ProjectSummary { id: p.id.clone(), name: p.name.clone() }).collect();
             (proj, summaries)
         } else {
-            (Project::default_prompt(), vec![])
+            let default = Project::default_prompt();
+            let summary = ProjectSummary { id: default.id.clone(), name: default.name.clone() };
+            // Save default project to disk so it persists
+            crate::persistence::save_project(&crate::persistence::LocalProject {
+                id: default.id.clone(), name: default.name.clone(),
+                workspace_id: None,
+                blocks: default.blocks.iter().map(|b| inkwell_core::types::PromptBlock {
+                    id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled,
+                }).collect(),
+                variables: std::collections::HashMap::new(), tags: vec![],
+                framework: None, updated_at: chrono::Utc::now().timestamp_millis(),
+            });
+            (default, vec![summary])
         };
 
         let custom_frameworks = local_frameworks.iter()

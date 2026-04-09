@@ -251,7 +251,7 @@ impl Render for EditorPane {
             div().p(px(8.0)).rounded(px(8.0)).bg(bg_secondary()).border_1().border_color(border_c())
                 .flex().flex_col().gap(px(4.0))
                 .child(div().flex().items_center().gap(px(4.0))
-                    .child(Icon::new(IconName::Star))
+                    .child(Icon::new(IconName::Tag).text_color(text_muted()))
                     .child(div().text_xs().text_color(text_muted()).child("Tags")))
                 .child(tags_row)
         );

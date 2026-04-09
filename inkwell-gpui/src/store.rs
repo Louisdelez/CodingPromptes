@@ -176,7 +176,7 @@ impl AppStore {
             github_repo: local_settings.github_repo,
             versions: vec![], executions: vec![], gpu_nodes: vec![],
             left_tab: LeftTab::Library, right_tab: RightTab::Preview,
-            left_open: saved.left_open, right_open: saved.right_open,
+            left_open: true, right_open: true,
             show_add_menu: false, show_ssh_modal: false,
             editing_workspace_id: None, selected_workspace_color: "#6366f1".into(),
             confirm_delete: None, search_query: String::new(),

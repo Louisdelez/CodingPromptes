@@ -33,11 +33,8 @@ impl BlockEditor {
             InputState::new(window, cx)
                 .default_value(content)
                 .placeholder(placeholder)
-                .code_editor("")
-                .rows(3)
-                .line_number(true)
-                .folding(false)
-                .indent_guides(false)
+                .multi_line(true)
+                .auto_grow(3, 30)
         }));
 
         // Subscribe to store — only re-render when OUR block changes
@@ -82,11 +79,8 @@ impl BlockEditor {
         self.input = Some(cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(content)
-                .code_editor("")
-                .rows(3)
-                .line_number(true)
-                .folding(false)
-                .indent_guides(false)
+                .multi_line(true)
+                .auto_grow(3, 30)
         }));
     }
 }
@@ -240,17 +234,36 @@ impl Render for BlockEditor {
                 }))
         );
 
-        // Block content — Input widget with built-in line numbers
-        let block_content = if let Some(ref input_entity) = self.input {
-            div().p(px(4.0)).min_h(px(60.0)).child(Input::new(input_entity))
-        } else {
-            div().p(px(4.0)).min_h(px(60.0)).text_sm().text_color(text_secondary()).child("Click to edit...")
-        };
+        // Block content — line number gutter + Input widget (matching web CodeMirror)
+        let line_count = if let Some(ref input_entity) = self.input {
+            let val = input_entity.read(cx).value();
+            if val.is_empty() { 1 } else { val.matches('\n').count() + 1 }
+        } else { 1 };
+
+        let mut gutter = div().w(px(32.0)).flex_shrink_0().pt(px(6.0))
+            .border_r_1().border_color(border_c());
+        for n in 1..=line_count {
+            // 20px per line matches the default line-height of text_sm
+            gutter = gutter.child(
+                div().h(px(20.0)).pr(px(8.0))
+                    .flex().items_center().justify_end()
+                    .text_xs().text_color(text_muted())
+                    .child(format!("{n}"))
+            );
+        }
+
+        let block_content = div().flex().min_h(px(60.0))
+            .child(gutter)
+            .child(if let Some(ref input_entity) = self.input {
+                div().flex_1().child(Input::new(input_entity))
+            } else {
+                div().flex_1().p(px(8.0)).text_sm().text_color(text_secondary()).child("Click to edit...")
+            });
 
         div().rounded(px(8.0))
             .border_1().border_color(border_c())
             .border_l_3().border_color(color)
-            .bg(bg_secondary()).overflow_hidden()
+            .bg(bg_secondary())
             .child(header)
             .child(block_content)
     }

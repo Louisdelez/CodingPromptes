@@ -30,7 +30,12 @@ impl BlockEditor {
             _ => "Ecris ici...",
         };
         let input = Some(cx.new(|cx| {
-            InputState::new(window, cx).default_value(content).placeholder(placeholder).multi_line(true).auto_grow(3, 20)
+            InputState::new(window, cx)
+                .default_value(content)
+                .placeholder(placeholder)
+                .code_editor("markdown")
+                .line_number(true)
+                .folding(false)
         }));
 
         // Subscribe to store — only re-render when OUR block changes
@@ -73,7 +78,11 @@ impl BlockEditor {
         let content = self.store.read(cx).project.blocks.get(self.block_index)
             .map(|b| b.content.clone()).unwrap_or_default();
         self.input = Some(cx.new(|cx| {
-            InputState::new(window, cx).default_value(content).multi_line(true).auto_grow(3, 20)
+            InputState::new(window, cx)
+                .default_value(content)
+                .code_editor("markdown")
+                .line_number(true)
+                .folding(false)
         }));
     }
 }

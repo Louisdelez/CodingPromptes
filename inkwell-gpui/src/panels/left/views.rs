@@ -414,20 +414,29 @@ impl LeftPanel {
             }
         }
 
-        // ── Steering Rules Section (Kiro) ──
+        // ── Steering Rules Section (Kiro) — dynamic from store ──
         c = c.child(div().h(px(1.0)).bg(border_c()).my(px(4.0)));
         c = c.child(div().flex().items_center().gap(px(6.0))
             .child(Icon::new(IconName::Scroll).text_color(text_muted()))
             .child(div().flex_1().text_xs().text_color(text_muted()).child("Steering (Kiro)")));
 
-        // Default steering rules
-        let steering_rules = ["product — Contexte produit", "tech — Stack technique", "structure — Organisation du projet"];
-        for rule in steering_rules {
+        let steering = &self.store.read(cx).steering;
+        for (i, rule) in steering.rules.iter().enumerate() {
             c = c.child(
                 div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
                     .hover(|s| s.bg(bg_tertiary()))
-                    .child(Icon::new(IconName::File).text_color(text_muted()))
-                    .child(div().text_xs().text_color(text_secondary()).child(rule.to_string()))
+                    .cursor_pointer()
+                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
+                        .bg(if rule.enabled { success() } else { text_muted() }))
+                    .child(Icon::new(IconName::File).text_color(if rule.enabled { accent() } else { text_muted() }))
+                    .child(div().flex_1().flex().flex_col()
+                        .child(div().text_xs().text_color(text_primary()).child(rule.name.clone()))
+                        .child(div().text_xs().text_color(text_muted()).child(rule.description.clone())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{:?}", rule.inclusion)))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, _| { s.steering.toggle(i); });
+                        cx.notify();
+                    }))
             );
         }
 

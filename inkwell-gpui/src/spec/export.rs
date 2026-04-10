@@ -90,3 +90,30 @@ pub fn import_speckit(input_dir: &Path) -> Vec<(BlockType, String)> {
 
     blocks
 }
+
+/// Import from Kiro .kiro/ format into blocks
+pub fn import_kiro(input_dir: &Path) -> Vec<(BlockType, String)> {
+    let mut blocks = Vec::new();
+    let steering_dir = input_dir.join(".kiro").join("steering");
+    let specs_dir = input_dir.join(".kiro").join("specs");
+
+    // Load constitution from steering/product.md
+    if let Ok(content) = std::fs::read_to_string(steering_dir.join("product.md")) {
+        blocks.push((BlockType::SddConstitution, content));
+    }
+
+    // Find first spec directory
+    if let Ok(entries) = std::fs::read_dir(&specs_dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let dir = entry.path();
+                if let Ok(c) = std::fs::read_to_string(dir.join("requirements.md")) { blocks.push((BlockType::SddSpecification, c)); }
+                if let Ok(c) = std::fs::read_to_string(dir.join("design.md")) { blocks.push((BlockType::SddPlan, c)); }
+                if let Ok(c) = std::fs::read_to_string(dir.join("tasks.md")) { blocks.push((BlockType::SddTasks, c)); }
+                break; // Only import first spec
+            }
+        }
+    }
+
+    blocks
+}

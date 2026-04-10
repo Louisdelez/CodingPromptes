@@ -68,6 +68,9 @@ pub struct AppStore {
 
     // SDD
     pub sdd_running: bool,
+    // Kiro
+    pub hooks: crate::kiro::hooks::HookEngine,
+    pub steering: crate::kiro::steering::SteeringEngine,
 
     // STT
     pub stt_recording: bool,
@@ -186,6 +189,8 @@ impl AppStore {
             chat_messages: vec![], chat_system_prompt: String::new(),
             terminal_sessions: vec![], active_terminal: 0,
             sdd_running: false,
+            hooks: crate::kiro::hooks::HookEngine::new(),
+            steering: crate::kiro::steering::SteeringEngine::new(),
             stt_recording: false, stt_target_block: None, stt_stop_tx: None, stt_provider: SttProvider::Local,
             show_settings: false, show_profile: false,
             api_key_openai: local_settings.api_key_openai,

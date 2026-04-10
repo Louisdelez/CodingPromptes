@@ -59,6 +59,14 @@ pub fn validate_specification(content: &str) -> Vec<ValidationIssue> {
     if !content.contains("Success Criteria") && !content.contains("SC-") {
         issues.push(ValidationIssue { severity: Severity::Info, message: "No Success Criteria section found".into() });
     }
+    // NEEDS CLARIFICATION markers (SpecKit)
+    let clarification_count = content.matches("NEEDS CLARIFICATION").count();
+    if clarification_count > 0 {
+        issues.push(ValidationIssue {
+            severity: Severity::Warning,
+            message: format!("{} [NEEDS CLARIFICATION] marker(s) found — use Clarify to resolve", clarification_count),
+        });
+    }
     // Check for technical details (should NOT be in spec)
     let tech_words = ["function", "class ", "import ", "pub fn", "async fn", "SELECT ", "CREATE TABLE"];
     for word in tech_words {
@@ -86,6 +94,45 @@ pub fn validate_plan(content: &str) -> Vec<ValidationIssue> {
     }
     if !content.contains("Project Structure") && !content.contains("project structure") {
         issues.push(ValidationIssue { severity: Severity::Warning, message: "No Project Structure section found".into() });
+    }
+    // NEEDS CLARIFICATION markers (SpecKit)
+    let clarification_count = content.matches("NEEDS CLARIFICATION").count();
+    if clarification_count > 0 {
+        issues.push(ValidationIssue {
+            severity: Severity::Warning,
+            message: format!("{} [NEEDS CLARIFICATION] marker(s) — resolve before implementation", clarification_count),
+        });
+    }
+    issues
+}
+
+/// Cross-validate plan against constitution (SpecKit gate)
+pub fn validate_plan_vs_constitution(plan: &str, constitution: &str) -> Vec<ValidationIssue> {
+    let mut issues = Vec::new();
+    if constitution.is_empty() {
+        issues.push(ValidationIssue { severity: Severity::Warning, message: "No constitution to validate against".into() });
+        return issues;
+    }
+    if plan.is_empty() { return issues; }
+    // Check that plan references constitution
+    if !plan.contains("Constitution") && !plan.contains("constitution") {
+        issues.push(ValidationIssue {
+            severity: Severity::Warning,
+            message: "Plan does not reference the constitution — add a Constitution Check section".into(),
+        });
+    }
+    // Extract principles from constitution and check plan mentions them
+    let principles: Vec<&str> = constitution.lines()
+        .filter(|l| l.starts_with("### "))
+        .map(|l| l.trim_start_matches("### ").trim())
+        .collect();
+    for principle in &principles {
+        if principle.len() > 3 && !plan.contains(principle) {
+            issues.push(ValidationIssue {
+                severity: Severity::Info,
+                message: format!("Plan does not mention constitution principle '{}'", principle),
+            });
+        }
     }
     issues
 }

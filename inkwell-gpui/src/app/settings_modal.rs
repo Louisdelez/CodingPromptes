@@ -144,23 +144,30 @@ impl InkwellApp {
                         })
                     )
             )
-            // Hooks section (Kiro)
-            .child(div().flex().flex_col().gap(px(6.0))
-                .child(div().flex().items_center().gap(px(6.0))
-                    .child(Icon::new(IconName::Sparkles).text_color(text_muted()))
-                    .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted()).child("Hooks (Kiro)")))
-                .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).bg(bg_tertiary())
-                    .flex().items_center().gap(px(6.0))
-                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(success()))
-                    .child(div().text_xs().text_color(text_secondary()).child("Validate on generate"))
-                    .child(div().flex_1())
-                    .child(div().text_xs().text_color(text_muted()).child("SpecGenerated")))
-                .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).bg(bg_tertiary())
-                    .flex().items_center().gap(px(6.0))
-                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0)).bg(success()))
-                    .child(div().text_xs().text_color(text_secondary()).child("Auto-save on change"))
-                    .child(div().flex_1())
-                    .child(div().text_xs().text_color(text_muted()).child("BlockChange"))))
+            // Hooks section (Kiro) — dynamic from store
+            .child({
+                let hooks = &self.store.read(cx).hooks;
+                let mut hooks_section = div().flex().flex_col().gap(px(6.0))
+                    .child(div().flex().items_center().gap(px(6.0))
+                        .child(Icon::new(IconName::Sparkles).text_color(text_muted()))
+                        .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted()).child("Hooks (Kiro)")));
+                for (i, hook) in hooks.hooks.iter().enumerate() {
+                    let event_label = format!("{:?}", hook.event);
+                    hooks_section = hooks_section.child(
+                        div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).bg(bg_tertiary())
+                            .flex().items_center().gap(px(6.0))
+                            .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
+                                .bg(if hook.enabled { success() } else { text_muted() }))
+                            .child(div().flex_1().text_xs().text_color(text_secondary()).child(hook.name.clone()))
+                            .child(div().text_xs().text_color(text_muted()).child(event_label))
+                            .cursor_pointer()
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.store.update(cx, |s, _| { s.hooks.toggle(i); });
+                            }))
+                    );
+                }
+                hooks_section
+            })
             .child(
                 div().flex().gap(px(8.0))
                     .child(div().text_xs().text_color(text_muted()).child("Ctrl+, settings"))

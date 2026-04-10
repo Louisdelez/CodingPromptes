@@ -308,6 +308,43 @@ impl Render for BlockEditor {
                         }
                     }))
             );
+            // Clarify button — generates clarifying questions
+            header = header.child(
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(accent_bg()))
+                    .child(Icon::new(IconName::CircleHelp))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        let store = this.store.read(cx);
+                        let blocks: Vec<(inkwell_core::types::BlockType, String)> = store.project.blocks.iter()
+                            .filter(|b| b.enabled && b.block_type.is_sdd())
+                            .map(|b| (b.block_type, b.content.clone())).collect();
+                        let project_name = store.project.name.clone();
+                        let model = store.selected_model.clone();
+                        let server = store.server_url.clone();
+                        let block_type = store.project.blocks.get(idx).map(|b| b.block_type);
+                        let tx = store.msg_tx.clone();
+                        if let Some(bt) = block_type {
+                            if let Some(phase) = crate::spec::generator::block_type_to_phase(bt) {
+                                let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                                let (system, user) = crate::spec::workflow::build_llm_messages(
+                                    phase, crate::spec::generator::SpecAction::Clarify, &ctx);
+                                std::thread::spawn(move || { crate::app::rt().block_on(async {
+                                    let client = reqwest::Client::new();
+                                    let body = serde_json::json!({"model":model,"messages":[
+                                        {"role":"system","content":system},{"role":"user","content":user}
+                                    ],"temperature":0.5,"max_tokens":2048,"stream":false});
+                                    if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                            let _ = tx.send(crate::types::AsyncMsg::LlmResponse(format!("--- Questions de clarification ---\n{text}")));
+                                        }
+                                    }
+                                }); });
+                            }
+                        }
+                    }))
+            );
         }
 
         // Mic (STT)

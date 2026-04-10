@@ -11,7 +11,7 @@ use crate::state::*;
 // Re-export for use in sub-modules
 
 // Actions for keyboard shortcuts
-actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
+actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow, FocusNextPanel]);
 
 // Global tokio runtime — reused by all async operations (avoids creating 25+ runtimes)
 pub fn rt() -> &'static tokio::runtime::Runtime {
@@ -48,9 +48,11 @@ pub struct InkwellApp {
     pub header: Entity<crate::components::header_bar::HeaderBar>,
     pub bottom_bar: Entity<crate::components::bottom_bar::BottomBar>,
     pub editor: Entity<crate::components::editor_pane::EditorPane>,
-    pub left_panel: Entity<crate::components::left_panel::LeftPanel>,
-    pub right_panel: Entity<crate::components::right_panel::RightPanel>,
+    pub left_panel: Entity<crate::panels::left::LeftPanel>,
+    pub right_panel: Entity<crate::panels::right::RightPanel>,
     pub dock: Entity<crate::dock::DockArea>,
+    pub auth_inputs: auth_screen::AuthScreenInputs,
+    pub settings_inputs: settings_modal::SettingsInputs,
 }
 
 impl InkwellApp {
@@ -60,8 +62,8 @@ impl InkwellApp {
         let header = cx.new(|cx| crate::components::header_bar::HeaderBar::new(store.clone(), cx));
         let bottom_bar = cx.new(|cx| crate::components::bottom_bar::BottomBar::new(store.clone(), cx));
         let editor = cx.new(|cx| crate::components::editor_pane::EditorPane::new(store.clone(), window, cx));
-        let left_panel = cx.new(|cx| crate::components::left_panel::LeftPanel::new(store.clone(), window, cx));
-        let right_panel = cx.new(|cx| crate::components::right_panel::RightPanel::new(store.clone(), window, cx));
+        let left_panel = cx.new(|cx| crate::panels::left::LeftPanel::new(store.clone(), window, cx));
+        let right_panel = cx.new(|cx| crate::panels::right::RightPanel::new(store.clone(), window, cx));
 
         // DockArea manages the three-panel layout + resize handles
         let lp: AnyView = left_panel.clone().into();
@@ -102,7 +104,7 @@ impl InkwellApp {
             }
         }).detach();
 
-        Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock }
+        Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock, auth_inputs: auth_screen::AuthScreenInputs::default(), settings_inputs: settings_modal::SettingsInputs::default() }
     }
 
     fn t(&self) -> crate::theme::InkwellTheme {

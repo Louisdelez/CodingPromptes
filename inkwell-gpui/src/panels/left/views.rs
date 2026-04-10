@@ -8,7 +8,7 @@ use crate::store::StoreEvent;
 use crate::state::*;
 use crate::ui::colors::*;
 
-use super::left_panel::{LeftPanel, ContextTarget, DragFile};
+use super::{LeftPanel, ContextTarget, DragFile};
 
 impl LeftPanel {
     pub(crate) fn confirm_rename(this: &mut Self, cx: &mut Context<Self>) {

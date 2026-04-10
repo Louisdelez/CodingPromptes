@@ -386,23 +386,23 @@ impl InkwellApp {
                 InputState::new(window, cx).placeholder("version label")
             }));
         }
-        if self.state.api_key_openai_input.is_none() {
-            self.state.api_key_openai_input = Some(cx.new(|cx| {
+        if self.settings_inputs.openai.is_none() {
+            self.settings_inputs.openai = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("sk-...").masked(true)
             }));
         }
-        if self.state.api_key_anthropic_input.is_none() {
-            self.state.api_key_anthropic_input = Some(cx.new(|cx| {
+        if self.settings_inputs.anthropic.is_none() {
+            self.settings_inputs.anthropic = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("sk-ant-...").masked(true)
             }));
         }
-        if self.state.api_key_google_input.is_none() {
-            self.state.api_key_google_input = Some(cx.new(|cx| {
+        if self.settings_inputs.google.is_none() {
+            self.settings_inputs.google = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("AIza...").masked(true)
             }));
         }
-        if self.state.ssh_port_input.is_none() {
-            self.state.ssh_port_input = Some(cx.new(|cx| {
+        if self.settings_inputs.ssh_port.is_none() {
+            self.settings_inputs.ssh_port = Some(cx.new(|cx| {
                 InputState::new(window, cx).default_value("22")
             }));
         }
@@ -430,8 +430,8 @@ impl InkwellApp {
                 InputState::new(window, cx).placeholder("Framework name")
             }));
         }
-        if self.state.github_repo_input.is_none() {
-            self.state.github_repo_input = Some(cx.new(|cx| {
+        if self.settings_inputs.github_repo.is_none() {
+            self.settings_inputs.github_repo = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("owner/repo")
             }));
         }

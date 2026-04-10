@@ -7,7 +7,7 @@ use gpui_component::{Icon, IconName};
 use crate::state::*;
 use crate::ui::colors::*;
 
-use super::right_panel::{RightPanel, lint, kpi, export_btn, time_btn};
+use super::{RightPanel, lint, kpi, export_btn, time_btn};
 // ── Tab implementations ──
 impl RightPanel {
     pub(crate) fn tab_preview(&self, cx: &mut Context<Self>) -> Div {

@@ -6,29 +6,42 @@ use crate::state::*;
 
 use super::{InkwellApp, rt};
 
+/// Auth screen local state — owns the input entities instead of AppState
+pub(crate) struct AuthScreenInputs {
+    pub server_url: Option<Entity<InputState>>,
+    pub email: Option<Entity<InputState>>,
+    pub password: Option<Entity<InputState>>,
+}
+
+impl Default for AuthScreenInputs {
+    fn default() -> Self {
+        Self { server_url: None, email: None, password: None }
+    }
+}
+
 impl InkwellApp {
     pub(crate) fn render_auth(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        // Initialize input entities
-        if self.state.server_url_input.is_none() {
-            self.state.server_url_input = Some(cx.new(|cx| {
+        // Initialize input entities (owned by auth_inputs, not AppState)
+        if self.auth_inputs.server_url.is_none() {
+            self.auth_inputs.server_url = Some(cx.new(|cx| {
                 InputState::new(window, cx).default_value("http://localhost:8910")
             }));
         }
-        if self.state.email_input.is_none() {
-            self.state.email_input = Some(cx.new(|cx| {
+        if self.auth_inputs.email.is_none() {
+            self.auth_inputs.email = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("email@example.com")
             }));
         }
-        if self.state.password_input.is_none() {
-            self.state.password_input = Some(cx.new(|cx| {
+        if self.auth_inputs.password.is_none() {
+            self.auth_inputs.password = Some(cx.new(|cx| {
                 InputState::new(window, cx).placeholder("Password").masked(true)
             }));
         }
 
         let (Some(server_input), Some(email_input), Some(password_input)) = (
-            self.state.server_url_input.clone(),
-            self.state.email_input.clone(),
-            self.state.password_input.clone(),
+            self.auth_inputs.server_url.clone(),
+            self.auth_inputs.email.clone(),
+            self.auth_inputs.password.clone(),
         ) else {
             return div().size_full().bg(bg_primary());
         };
@@ -118,13 +131,13 @@ impl InkwellApp {
                                 if this.state.auth_loading { return; }
                                 this.state.auth_error = None;
 
-                                let server_url = this.state.server_url_input.as_ref()
+                                let server_url = this.auth_inputs.server_url.as_ref()
                                     .map(|i| i.read(cx).value().to_string())
                                     .unwrap_or_else(|| this.state.server_url.clone());
-                                let email = this.state.email_input.as_ref()
+                                let email = this.auth_inputs.email.as_ref()
                                     .map(|i| i.read(cx).value().to_string())
                                     .unwrap_or_default();
-                                let password = this.state.password_input.as_ref()
+                                let password = this.auth_inputs.password.as_ref()
                                     .map(|i| i.read(cx).value().to_string())
                                     .unwrap_or_default();
                                 // Validate inputs

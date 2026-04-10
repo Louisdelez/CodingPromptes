@@ -1,10 +1,25 @@
 use gpui::*;
-use gpui_component::input::Input;
+use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
 use crate::ui::colors::*;
 use crate::state::*;
 
 use super::InkwellApp;
+
+/// Settings modal local state — owns API key input entities
+pub(crate) struct SettingsInputs {
+    pub openai: Option<Entity<InputState>>,
+    pub anthropic: Option<Entity<InputState>>,
+    pub google: Option<Entity<InputState>>,
+    pub github_repo: Option<Entity<InputState>>,
+    pub ssh_port: Option<Entity<InputState>>,
+}
+
+impl Default for SettingsInputs {
+    fn default() -> Self {
+        Self { openai: None, anthropic: None, google: None, github_repo: None, ssh_port: None }
+    }
+}
 
 impl InkwellApp {
     pub(crate) fn render_settings(&self, cx: &mut Context<Self>) -> Div {
@@ -70,7 +85,7 @@ impl InkwellApp {
                         .child(div().flex().items_center().gap(px(6.0))
                             .child(div().w(px(60.0)).text_xs().text_color(text_muted()).child("OpenAI"))
                             .child({
-                                if let Some(ref entity) = self.state.api_key_openai_input {
+                                if let Some(ref entity) = self.settings_inputs.openai {
                                     div().flex_1().child(Input::new(entity))
                                 } else {
                                     div().flex_1().text_xs().text_color(text_muted()).child("not set")
@@ -80,7 +95,7 @@ impl InkwellApp {
                         .child(div().flex().items_center().gap(px(6.0))
                             .child(div().w(px(60.0)).text_xs().text_color(text_muted()).child("Anthropic"))
                             .child({
-                                if let Some(ref entity) = self.state.api_key_anthropic_input {
+                                if let Some(ref entity) = self.settings_inputs.anthropic {
                                     div().flex_1().child(Input::new(entity))
                                 } else {
                                     div().flex_1().text_xs().text_color(text_muted()).child("not set")
@@ -90,7 +105,7 @@ impl InkwellApp {
                         .child(div().flex().items_center().gap(px(6.0))
                             .child(div().w(px(60.0)).text_xs().text_color(text_muted()).child("Google"))
                             .child({
-                                if let Some(ref entity) = self.state.api_key_google_input {
+                                if let Some(ref entity) = self.settings_inputs.google {
                                     div().flex_1().child(Input::new(entity))
                                 } else {
                                     div().flex_1().text_xs().text_color(text_muted()).child("not set")
@@ -102,15 +117,15 @@ impl InkwellApp {
                                 .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
                                 .flex().items_center().justify_center().child("Save keys")
                                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                    if let Some(ref e) = this.state.api_key_openai_input {
+                                    if let Some(ref e) = this.settings_inputs.openai {
                                         let v = e.read(cx).value().to_string();
                                         if !v.is_empty() { this.state.api_key_openai = v; }
                                     }
-                                    if let Some(ref e) = this.state.api_key_anthropic_input {
+                                    if let Some(ref e) = this.settings_inputs.anthropic {
                                         let v = e.read(cx).value().to_string();
                                         if !v.is_empty() { this.state.api_key_anthropic = v; }
                                     }
-                                    if let Some(ref e) = this.state.api_key_google_input {
+                                    if let Some(ref e) = this.settings_inputs.google {
                                         let v = e.read(cx).value().to_string();
                                         if !v.is_empty() { this.state.api_key_google = v; }
                                     }
@@ -121,7 +136,7 @@ impl InkwellApp {
                     .child(div().flex().flex_col().gap(px(4.0))
                         .child(div().text_xs().text_color(text_muted()).child("GitHub Repo"))
                         .child({
-                            if let Some(ref entity) = self.state.github_repo_input {
+                            if let Some(ref entity) = self.settings_inputs.github_repo {
                                 div().child(Input::new(entity))
                             } else {
                                 div().text_xs().text_color(text_muted()).child("owner/repo")

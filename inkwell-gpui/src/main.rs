@@ -8,6 +8,7 @@ mod components;
 mod dock;
 mod layout;
 mod llm;
+mod panels;
 mod persistence;
 mod settings;
 mod state;
@@ -38,6 +39,7 @@ fn main() {
             KeyBinding::new("ctrl-z", app::Undo, None),
             KeyBinding::new("cmd-s", app::SaveNow, None),
             KeyBinding::new("ctrl-s", app::SaveNow, None),
+            KeyBinding::new("ctrl-tab", app::FocusNextPanel, None),
         ]);
         let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
         cx.open_window(

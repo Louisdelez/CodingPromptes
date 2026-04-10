@@ -1,3 +1,4 @@
+mod views;
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};

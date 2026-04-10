@@ -15,9 +15,7 @@ pub struct AppState {
     pub auth_loading: bool,
     pub auth_mode: AuthMode,
     pub session: Option<AuthSession>,
-    pub server_url_input: Option<gpui::Entity<gpui_component::input::InputState>>,
-    pub email_input: Option<gpui::Entity<gpui_component::input::InputState>>,
-    pub password_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // Auth inputs moved to AuthScreenInputs
     // Block input states (one per block)
     pub block_inputs: Vec<Option<gpui::Entity<gpui_component::input::InputState>>>,
     // Chat
@@ -48,10 +46,7 @@ pub struct AppState {
     pub api_key_openai: String,
     pub api_key_anthropic: String,
     pub api_key_google: String,
-    pub api_key_openai_input: Option<gpui::Entity<gpui_component::input::InputState>>,
-    pub api_key_anthropic_input: Option<gpui::Entity<gpui_component::input::InputState>>,
-    pub api_key_google_input: Option<gpui::Entity<gpui_component::input::InputState>>,
-    pub ssh_port_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // API key inputs moved to SettingsInputs
     // Project
     pub project: Project,
     pub projects: Vec<ProjectSummary>,
@@ -111,7 +106,7 @@ pub struct AppState {
     pub analytics_range: AnalyticsRange,
     // GitHub
     pub github_repo: String,
-    pub github_repo_input: Option<gpui::Entity<gpui_component::input::InputState>>,
+    // github_repo_input moved to SettingsInputs
     // Collab
     pub collab_users: Vec<CollabUser>,
     // Workspace rename
@@ -174,7 +169,7 @@ impl AppState {
 
         Self {
             screen: Screen::Ide, lang: if saved.lang.is_empty() { "fr".into() } else { saved.lang },
-            server_url, server_url_input: None, email_input: None, password_input: None,
+            server_url,
             block_inputs: vec![], chat_system_prompt: String::new(),
             save_status: "idle", save_status_timer: 0, editing_name: false, name_input_entity: None,
             playground_temperature: 0.7, playground_max_tokens: 2048,
@@ -185,8 +180,7 @@ impl AppState {
             api_key_openai: local_settings.api_key_openai,
             api_key_anthropic: local_settings.api_key_anthropic,
             api_key_google: local_settings.api_key_google,
-            api_key_openai_input: None, api_key_anthropic_input: None, api_key_google_input: None,
-            ssh_port_input: None, auth_error: None, auth_loading: false, auth_mode: AuthMode::Login,
+            auth_error: None, auth_loading: false, auth_mode: AuthMode::Login,
             session: None, project, projects: project_summaries, workspaces: vec![],
             left_tab: LeftTab::Library, right_tab: RightTab::Preview,
             left_open: saved.left_open, right_open: saved.right_open,
@@ -203,7 +197,7 @@ impl AppState {
             variable_inputs: HashMap::new(), executions: vec![],
             multi_model_responses: vec![], multi_model_loading: false,
             stt_provider: SttProvider::Local, analytics_range: AnalyticsRange::All,
-            github_repo: local_settings.github_repo, github_repo_input: None,
+            github_repo: local_settings.github_repo,
             collab_users: vec![], editing_workspace_id: None, workspace_name_input: None,
             show_profile: false, framework_name_input: None, selected_workspace_color: "#6366f1".into(),
             copy_feedback: 0, fleet_poll_timer: 0, collab_poll_timer: 0,

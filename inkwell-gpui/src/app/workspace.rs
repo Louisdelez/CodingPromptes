@@ -3,7 +3,7 @@ use gpui_component::{Theme, ThemeMode};
 use crate::ui::colors::*;
 use crate::state::*;
 
-use super::{InkwellApp, NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow};
+use super::{InkwellApp, NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow, FocusNextPanel};
 
 // Re-export drag types from dock for backward compat
 pub(crate) use crate::dock::{LeftResizeDrag, RightResizeDrag};
@@ -54,6 +54,22 @@ impl InkwellApp {
             .on_action(cx.listener(|this, _: &SaveNow, _, _| {
                 this.state.save_pending = true;
                 this.state.save_timer = 1;
+            }))
+            // Focus navigation: Ctrl+Tab cycles left → editor → right
+            .on_action(cx.listener(|this, _: &FocusNextPanel, window, cx| {
+                use gpui::Focusable;
+                let left_focused = this.left_panel.read(cx).focus_handle(cx).is_focused(window);
+                let right_focused = this.right_panel.read(cx).focus_handle(cx).is_focused(window);
+                if left_focused {
+                    // Left → Editor (just blur, editor gets focus naturally)
+                    window.blur();
+                } else if right_focused {
+                    // Right → Left
+                    this.left_panel.read(cx).focus_handle(cx).focus(window, cx);
+                } else {
+                    // Editor/other → Right
+                    this.right_panel.read(cx).focus_handle(cx).focus(window, cx);
+                }
             }))
             .child(self.header.clone())
             .child(dock)

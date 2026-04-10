@@ -8,6 +8,13 @@ use crate::ui::colors::*;
 #[derive(Clone, Copy, PartialEq)]
 enum SidebarView { Library, Frameworks, Versions }
 
+/// Context menu action for right-click
+#[derive(Clone)]
+enum ContextTarget {
+    File(String),       // project id
+    Folder(String),     // workspace id
+}
+
 pub struct LeftPanel {
     store: Entity<AppStore>,
     search_input: Option<Entity<InputState>>,
@@ -25,6 +32,13 @@ pub struct LeftPanel {
     // Versions
     version_label_input: Option<Entity<InputState>>,
     expanded_versions: Vec<String>,
+    // Rename
+    renaming_id: Option<String>,
+    rename_input: Option<Entity<InputState>>,
+    // Context menu (right-click)
+    context_menu: Option<ContextTarget>,
+    // Delete confirmation modal
+    confirm_delete_target: Option<ContextTarget>,
 }
 
 impl LeftPanel {
@@ -43,6 +57,8 @@ impl LeftPanel {
             expanded_workspaces: vec![],
             show_custom_frameworks: true, show_builtin_frameworks: true,
             version_label_input: None, expanded_versions: vec![],
+            renaming_id: None, rename_input: None,
+            context_menu: None, confirm_delete_target: None,
         }
     }
 }
@@ -211,17 +227,122 @@ impl Render for LeftPanel {
             SidebarView::Frameworks => self.render_frameworks(&custom_fw, cx),
             SidebarView::Versions => self.render_versions(&versions, window, cx),
         };
+        // Create rename input if needed and not yet created
+        if self.renaming_id.is_some() && self.rename_input.is_none() {
+            let current_name = if let Some(ref rid) = self.renaming_id {
+                // Try workspace name first, then project name
+                workspaces.iter().find(|w| w.id == *rid).map(|w| w.name.clone())
+                    .or_else(|| projects.iter().find(|p| p.id == *rid).map(|p| p.name.clone()))
+                    .unwrap_or_default()
+            } else { String::new() };
+            let input = cx.new(|cx| InputState::new(window, cx).default_value(current_name));
+            // Enter to confirm rename
+            cx.subscribe(&input, |this, _, event: &gpui_component::input::InputEvent, cx| {
+                if matches!(event, gpui_component::input::InputEvent::PressEnter { .. }) {
+                    Self::confirm_rename(this, cx);
+                }
+            }).detach();
+            self.rename_input = Some(input);
+        }
+
         panel = panel.child(div().id("left-content").flex_1().overflow_y_scroll()
             .child(content)
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                if this.show_dropdown { this.show_dropdown = false; cx.notify(); }
+                if this.show_dropdown { this.show_dropdown = false; }
+                if this.context_menu.is_some() { this.context_menu = None; }
+                if this.renaming_id.is_some() { Self::confirm_rename(this, cx); }
+                cx.notify();
             })));
+
+        // Delete confirmation modal (centered overlay)
+        if let Some(ref target) = self.confirm_delete_target.clone() {
+            let label = match target {
+                ContextTarget::File(id) => format!("le fichier \"{}\"", projects.iter().find(|p| p.id == *id).map(|p| p.name.as_str()).unwrap_or("?")),
+                ContextTarget::Folder(id) => format!("le dossier \"{}\" et tout son contenu", workspaces.iter().find(|w| w.id == *id).map(|w| w.name.as_str()).unwrap_or("?")),
+            };
+            let target_clone = target.clone();
+            panel = panel.child(
+                div().id("delete-modal").size_full().absolute().top_0().left_0()
+                    .bg(hsla(0.0, 0.0, 0.0, 0.4))
+                    .flex().items_center().justify_center()
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        this.confirm_delete_target = None; cx.notify();
+                    }))
+                    .child(div().w(px(340.0)).rounded(px(12.0)).bg(bg_secondary())
+                        .border_1().border_color(border_c()).p(px(24.0))
+                        .flex().flex_col().gap(px(16.0)).items_center()
+                        .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, _| {}))
+                        .child(Icon::new(IconName::TriangleAlert).text_color(danger()))
+                        .child(div().text_sm().text_color(text_primary()).child(format!("Supprimer {label} ?")))
+                        .child(div().text_xs().text_color(text_muted()).child("Cette action est irreversible."))
+                        .child(div().flex().gap(px(8.0))
+                            .child(div().px(px(16.0)).py(px(6.0)).rounded(px(6.0)).bg(bg_tertiary())
+                                .text_xs().text_color(text_secondary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                                .child("Annuler")
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    this.confirm_delete_target = None; cx.notify();
+                                })))
+                            .child(div().px(px(16.0)).py(px(6.0)).rounded(px(6.0)).bg(danger())
+                                .text_xs().text_color(ink_white()).cursor_pointer()
+                                .child("Supprimer")
+                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                    match &target_clone {
+                                        ContextTarget::File(id) => {
+                                            let id = id.clone();
+                                            crate::persistence::delete_project(&id);
+                                            this.store.update(cx, |s, cx| {
+                                                s.projects.retain(|p| p.id != id);
+                                                s.confirm_delete = None;
+                                                cx.emit(StoreEvent::ProjectChanged);
+                                            });
+                                        }
+                                        ContextTarget::Folder(id) => {
+                                            let id = id.clone();
+                                            this.store.update(cx, |s, cx| {
+                                                s.workspaces.retain(|w| w.id != id);
+                                                // TODO: cascade delete projects in this workspace
+                                                cx.emit(StoreEvent::ProjectChanged);
+                                            });
+                                        }
+                                    }
+                                    this.confirm_delete_target = None; cx.notify();
+                                })))))
+            );
+        }
 
         panel
     }
 }
 
 impl LeftPanel {
+    fn confirm_rename(this: &mut Self, cx: &mut Context<Self>) {
+        if let (Some(ref id), Some(ref input)) = (&this.renaming_id, &this.rename_input) {
+            let new_name = input.read(cx).value().to_string();
+            if !new_name.trim().is_empty() {
+                let id = id.clone();
+                let name = new_name.trim().to_string();
+                this.store.update(cx, |s, cx| {
+                    // Try renaming workspace
+                    if let Some(ws) = s.workspaces.iter_mut().find(|w| w.id == id) {
+                        ws.name = name.clone();
+                    }
+                    // Try renaming project
+                    if let Some(p) = s.projects.iter_mut().find(|p| p.id == id) {
+                        p.name = name.clone();
+                    }
+                    if s.project.id == id {
+                        s.project.name = name;
+                    }
+                    s.save_pending = true;
+                    cx.emit(StoreEvent::ProjectChanged);
+                });
+            }
+        }
+        this.renaming_id = None;
+        this.rename_input = None;
+        cx.notify();
+    }
+
     fn create_workspace(this: &mut Self, cx: &mut Context<Self>) {
         let name = this.new_ws_input.as_ref()
             .map(|i| i.read(cx).value().to_string()).unwrap_or_default();
@@ -244,116 +365,201 @@ impl LeftPanel {
         let mut c = div().flex_1().px(px(12.0)).py(px(6.0)).flex().flex_col().gap(px(1.0));
         let search = self.search_input.as_ref().map(|i| i.read(cx).value().to_string().to_lowercase()).unwrap_or_default();
 
-        // ── Workspaces ──
+        let renaming = self.renaming_id.clone();
+        let ctx_menu = self.context_menu.clone();
+
+        // ── Workspaces (Dossiers) ──
         for ws in workspaces {
             let color = hex_to_hsla(&ws.color);
             let ws_id = ws.id.clone();
-            let ws_del_id = ws.id.clone();
+            let ws_id2 = ws.id.clone();
+            let ws_id3 = ws.id.clone();
+            let ws_id4 = ws.id.clone();
             let is_expanded = self.expanded_workspaces.contains(&ws.id);
-            let project_count = projects.len(); // All projects shown under workspace for now
+            let project_count = projects.len();
+            let is_renaming = renaming.as_deref() == Some(&ws.id);
 
-            c = c.child(
-                div().px(px(6.0)).py(px(5.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                    .hover(|s| s.bg(bg_tertiary()))
-                    // Expand chevron
-                    .child(
-                        div().w(px(14.0)).text_color(text_muted())
-                            .child(Icon::new(if is_expanded { IconName::ChevronDown } else { IconName::ChevronRight }))
-                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                if this.expanded_workspaces.contains(&ws_id) {
-                                    this.expanded_workspaces.retain(|id| id != &ws_id);
-                                } else {
-                                    this.expanded_workspaces.push(ws_id.clone());
-                                }
-                                cx.notify();
-                            }))
-                    )
-                    // Color dot
-                    .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color))
-                    // Name
-                    .child(div().flex_1().text_xs().text_color(text_primary()).child(ws.name.clone()))
-                    // Count
-                    .child(div().text_xs().text_color(text_muted()).child(format!("{project_count}")))
-                    // Delete (hover only — we keep it always visible for now)
-                    .child(div().text_color(text_muted()).child(Icon::new(IconName::Close))
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                            this.store.update(cx, |s, cx| { s.workspaces.retain(|w| w.id != ws_del_id); cx.emit(StoreEvent::ProjectChanged); });
-                        })))
-            );
+            let mut ws_row = div().px(px(6.0)).py(px(5.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                .hover(|s| s.bg(bg_tertiary()))
+                // Expand chevron
+                .child(div().w(px(14.0)).text_color(text_muted())
+                    .child(Icon::new(if is_expanded { IconName::ChevronDown } else { IconName::ChevronRight }))
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        if this.expanded_workspaces.contains(&ws_id) {
+                            this.expanded_workspaces.retain(|id| id != &ws_id);
+                        } else { this.expanded_workspaces.push(ws_id.clone()); }
+                        cx.notify();
+                    })))
+                // Color dot
+                .child(div().w(px(8.0)).h(px(8.0)).rounded(px(4.0)).bg(color));
+
+            // Name or rename input
+            if is_renaming {
+                ws_row = ws_row.child(if let Some(ref entity) = self.rename_input {
+                    div().flex_1().child(Input::new(entity))
+                } else { div().flex_1() });
+            } else {
+                ws_row = ws_row.child(div().flex_1().text_xs().text_color(text_primary()).child(ws.name.clone())
+                    // Double-click to rename
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                        if ev.click_count == 2 {
+                            this.renaming_id = Some(ws_id2.clone());
+                            this.rename_input = None; // will be created below
+                            cx.notify();
+                        }
+                    })));
+            }
+
+            ws_row = ws_row
+                // Count
+                .child(div().text_xs().text_color(text_muted()).child(format!("{project_count}")))
+                // Add file in folder button
+                .child(div().text_color(text_muted()).child(Icon::new(IconName::Plus))
+                    .cursor_pointer().hover(|s| s.bg(accent_bg()))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, cx| {
+                            let mut p = Project::default_prompt();
+                            p.name = "Nouveau Prompte".into();
+                            p.workspace_id = Some(ws_id3.clone());
+                            let now = chrono::Local::now();
+                            p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
+                            s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone() });
+                            s.project = p; s.prompt_dirty = true; s.save_pending = true;
+                            cx.emit(StoreEvent::ProjectChanged);
+                        });
+                    })))
+                // Delete folder (with confirmation)
+                .child(div().text_color(text_muted()).child(Icon::new(IconName::Trash2))
+                    .cursor_pointer().hover(|s| s.opacity(1.0))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.confirm_delete_target = Some(ContextTarget::Folder(ws_id4.clone()));
+                        cx.notify();
+                    })));
+
+            // Right-click context menu
+            let ws_ctx_id = ws.id.clone();
+            ws_row = ws_row.on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+                this.context_menu = Some(ContextTarget::Folder(ws_ctx_id.clone()));
+                cx.notify();
+            }));
+
+            c = c.child(ws_row);
+
+            // Show context menu for this folder
+            if let Some(ContextTarget::Folder(ref ctx_id)) = ctx_menu {
+                if ctx_id == &ws.id {
+                    let rename_id = ws.id.clone();
+                    let delete_id = ws.id.clone();
+                    c = c.child(div().mx(px(8.0)).my(px(2.0)).rounded(px(6.0)).bg(bg_secondary())
+                        .border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
+                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                            .text_xs().text_color(text_primary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                            .child(Icon::new(IconName::PenTool)).child("Renommer")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.renaming_id = Some(rename_id.clone());
+                                this.rename_input = None;
+                                this.context_menu = None; cx.notify();
+                            })))
+                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                            .text_xs().text_color(danger()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                            .child(Icon::new(IconName::Trash2)).child("Supprimer")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.confirm_delete_target = Some(ContextTarget::Folder(delete_id.clone()));
+                                this.context_menu = None; cx.notify();
+                            }))));
+                }
+            }
         }
 
         if !workspaces.is_empty() {
             c = c.child(div().h(px(1.0)).bg(border_c()).my(px(4.0)));
         }
 
-        // ── Projects ──
+        // ── Projects (Fichiers) ──
         let filtered: Vec<&ProjectSummary> = projects.iter()
             .filter(|p| search.is_empty() || p.name.to_lowercase().contains(&search)).collect();
 
         for p in &filtered {
             let id = p.id.clone();
-            let del_id = p.id.clone();
+            let id2 = p.id.clone();
+            let id_ctx = p.id.clone();
             let is_active = current_id == p.id;
+            let is_renaming = renaming.as_deref() == Some(&p.id);
+
             let mut row = div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
                 .hover(|s| s.bg(bg_tertiary()))
                 .cursor_pointer();
-            // Active state: accent left border + tinted background (matching web)
             if is_active {
                 row = row.border_l_3().border_color(accent()).bg(accent_bg());
             }
-            row = row
-                // File icon
-                .child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }))
-                // Clock icon + relative time (matching web "il y a 43min")
-                .child(Icon::new(IconName::Clock).text_color(text_muted()))
-                // Name + time
-                .child(div().flex_1().flex().flex_col().gap(px(1.0)).overflow_hidden()
-                    .child(div().text_xs()
-                        .text_color(if is_active { text_primary() } else { text_secondary() })
-                        .child(p.name.clone()))
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        let local = crate::persistence::load_all_projects();
-                        if let Some(lp) = local.iter().find(|p| p.id == id) {
-                            this.store.update(cx, |s, cx| {
-                                s.project.id = lp.id.clone(); s.project.name = lp.name.clone();
-                                s.project.framework = lp.framework.clone(); s.project.tags = lp.tags.clone();
-                                s.project.variables = lp.variables.clone();
-                                s.project.blocks = lp.blocks.iter().map(|b| Block {
-                                    id: b.id.clone(), block_type: b.block_type, content: b.content.clone(),
-                                    enabled: b.enabled, editing: false,
-                                }).collect();
-                                s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged);
-                            });
-                        }
-                    })))
-                // Delete (Trash icon, visible on hover)
-                .child(div().text_color(danger()).opacity(0.5)
-                    .hover(|s| s.opacity(1.0))
-                    .child(Icon::new(IconName::Trash2))
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.store.update(cx, |s, _| { s.confirm_delete = Some(del_id.clone()); }); cx.notify();
-                    })));
-            c = c.child(row);
-        }
 
-        // ── Delete confirm ──
-        if let Some(ref del_id) = confirm_delete {
-            let del = del_id.clone();
-            c = c.child(
-                div().p(px(10.0)).mt(px(4.0)).rounded(px(8.0)).bg(hsla(0.0, 0.75, 0.55, 0.1)).border_1().border_color(danger())
-                    .flex().flex_col().gap(px(6.0))
-                    .child(div().text_xs().text_color(danger()).child("Supprimer ce prompt ?"))
-                    .child(div().flex().gap(px(6.0))
-                        .child(div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(danger()).text_xs().text_color(white()).child("Supprimer")
-                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                let id = del.clone(); crate::persistence::delete_project(&id);
-                                this.store.update(cx, |s, cx| { s.projects.retain(|p| p.id != id); s.confirm_delete = None; cx.emit(StoreEvent::ProjectChanged); });
+            row = row.child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }));
+
+            // Name (or rename input)
+            if is_renaming {
+                row = row.child(if let Some(ref entity) = self.rename_input {
+                    div().flex_1().child(Input::new(entity))
+                } else { div().flex_1() });
+            } else {
+                row = row.child(div().flex_1().text_xs().overflow_hidden()
+                    .text_color(if is_active { text_primary() } else { text_secondary() })
+                    .child(p.name.clone())
+                    // Single click to open, double-click to rename
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                        if ev.click_count == 2 {
+                            this.renaming_id = Some(id2.clone());
+                            this.rename_input = None;
+                            cx.notify();
+                        } else {
+                            let local = crate::persistence::load_all_projects();
+                            if let Some(lp) = local.iter().find(|p| p.id == id) {
+                                this.store.update(cx, |s, cx| {
+                                    s.project.id = lp.id.clone(); s.project.name = lp.name.clone();
+                                    s.project.framework = lp.framework.clone(); s.project.tags = lp.tags.clone();
+                                    s.project.variables = lp.variables.clone();
+                                    s.project.blocks = lp.blocks.iter().map(|b| Block {
+                                        id: b.id.clone(), block_type: b.block_type, content: b.content.clone(),
+                                        enabled: b.enabled, editing: false,
+                                    }).collect();
+                                    s.prompt_dirty = true; cx.emit(StoreEvent::ProjectChanged);
+                                });
+                            }
+                        }
+                    })));
+            }
+
+            // Right-click context menu trigger
+            row = row.on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+                this.context_menu = Some(ContextTarget::File(id_ctx.clone()));
+                cx.notify();
+            }));
+
+            c = c.child(row);
+
+            // Show context menu for this file
+            if let Some(ContextTarget::File(ref ctx_id)) = ctx_menu {
+                if ctx_id == &p.id {
+                    let rename_id = p.id.clone();
+                    let delete_id = p.id.clone();
+                    c = c.child(div().mx(px(8.0)).my(px(2.0)).rounded(px(6.0)).bg(bg_secondary())
+                        .border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
+                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                            .text_xs().text_color(text_primary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                            .child(Icon::new(IconName::PenTool)).child("Renommer")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.renaming_id = Some(rename_id.clone());
+                                this.rename_input = None;
+                                this.context_menu = None; cx.notify();
                             })))
-                        .child(div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(bg_tertiary()).text_xs().text_color(text_secondary()).child("Annuler")
-                            .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                this.store.update(cx, |s, _| { s.confirm_delete = None; }); cx.notify();
-                            }))))
-            );
+                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                            .text_xs().text_color(danger()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                            .child(Icon::new(IconName::Trash2)).child("Supprimer")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.confirm_delete_target = Some(ContextTarget::File(delete_id.clone()));
+                                this.context_menu = None; cx.notify();
+                            }))));
+                }
+            }
         }
 
         // ── Empty state ──

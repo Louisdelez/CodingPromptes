@@ -1,6 +1,7 @@
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
+use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
 use crate::store::{AppStore, StoreEvent};
 use crate::state::*;
 use crate::ui::colors::*;
@@ -400,6 +401,7 @@ impl LeftPanel {
 
         let renaming = self.renaming_id.clone();
         let ctx_menu = self.context_menu.clone();
+        let weak_view = cx.entity().downgrade();
 
         // ── Workspaces (Dossiers) ──
         for ws in workspaces {
@@ -486,39 +488,30 @@ impl LeftPanel {
                         cx.notify();
                     })));
 
-            // Right-click context menu
-            let ws_ctx_id = ws.id.clone();
-            ws_row = ws_row.on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
-                this.context_menu = Some(ContextTarget::Folder(ws_ctx_id.clone()));
-                cx.notify();
+            // Native right-click context menu (floating)
+            let ws_rename = ws.id.clone();
+            let ws_delete = ws.id.clone();
+            let view_ws = weak_view.clone();
+            let view_ws2 = weak_view.clone();
+            c = c.child(ws_row.context_menu(move |menu, _, _| {
+                let rid = ws_rename.clone();
+                let did = ws_delete.clone();
+                let v1 = view_ws.clone();
+                let v2 = view_ws2.clone();
+                menu.item(PopupMenuItem::new("Renommer").on_click(move |_, _, cx| {
+                    v1.update(cx, |this, cx| {
+                        this.renaming_id = Some(rid.clone());
+                        this.rename_input = None; cx.notify();
+                    }).ok();
+                }))
+                .separator()
+                .item(PopupMenuItem::new("Supprimer").on_click(move |_, _, cx| {
+                    v2.update(cx, |this, cx| {
+                        this.confirm_delete_target = Some(ContextTarget::Folder(did.clone()));
+                        cx.notify();
+                    }).ok();
+                }))
             }));
-
-            c = c.child(ws_row);
-
-            // Show context menu for this folder
-            if let Some(ContextTarget::Folder(ref ctx_id)) = ctx_menu {
-                if ctx_id == &ws.id {
-                    let rename_id = ws.id.clone();
-                    let delete_id = ws.id.clone();
-                    c = c.child(div().mx(px(8.0)).my(px(2.0)).rounded(px(6.0)).bg(bg_secondary())
-                        .border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
-                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                            .text_xs().text_color(text_primary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
-                            .child(Icon::new(IconName::PenTool)).child("Renommer")
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                this.renaming_id = Some(rename_id.clone());
-                                this.rename_input = None;
-                                this.context_menu = None; cx.notify();
-                            })))
-                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                            .text_xs().text_color(danger()).cursor_pointer().hover(|s| s.bg(bg_hover()))
-                            .child(Icon::new(IconName::Trash2)).child("Supprimer")
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                this.confirm_delete_target = Some(ContextTarget::Folder(delete_id.clone()));
-                                this.context_menu = None; cx.notify();
-                            }))));
-                }
-            }
         }
 
         if !workspaces.is_empty() {
@@ -585,38 +578,30 @@ impl LeftPanel {
                     })));
             }
 
-            // Right-click context menu trigger
-            row = row.on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
-                this.context_menu = Some(ContextTarget::File(id_ctx.clone()));
-                cx.notify();
+            // Native right-click context menu (floating)
+            let file_rename = p.id.clone();
+            let file_delete = p.id.clone();
+            let view_f1 = weak_view.clone();
+            let view_f2 = weak_view.clone();
+            c = c.child(row.context_menu(move |menu, _, _| {
+                let rid = file_rename.clone();
+                let did = file_delete.clone();
+                let v1 = view_f1.clone();
+                let v2 = view_f2.clone();
+                menu.item(PopupMenuItem::new("Renommer").on_click(move |_, _, cx| {
+                    v1.update(cx, |this, cx| {
+                        this.renaming_id = Some(rid.clone());
+                        this.rename_input = None; cx.notify();
+                    }).ok();
+                }))
+                .separator()
+                .item(PopupMenuItem::new("Supprimer").on_click(move |_, _, cx| {
+                    v2.update(cx, |this, cx| {
+                        this.confirm_delete_target = Some(ContextTarget::File(did.clone()));
+                        cx.notify();
+                    }).ok();
+                }))
             }));
-
-            c = c.child(row);
-
-            // Show context menu for this file
-            if let Some(ContextTarget::File(ref ctx_id)) = ctx_menu {
-                if ctx_id == &p.id {
-                    let rename_id = p.id.clone();
-                    let delete_id = p.id.clone();
-                    c = c.child(div().mx(px(8.0)).my(px(2.0)).rounded(px(6.0)).bg(bg_secondary())
-                        .border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
-                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                            .text_xs().text_color(text_primary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
-                            .child(Icon::new(IconName::PenTool)).child("Renommer")
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                this.renaming_id = Some(rename_id.clone());
-                                this.rename_input = None;
-                                this.context_menu = None; cx.notify();
-                            })))
-                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                            .text_xs().text_color(danger()).cursor_pointer().hover(|s| s.bg(bg_hover()))
-                            .child(Icon::new(IconName::Trash2)).child("Supprimer")
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                this.confirm_delete_target = Some(ContextTarget::File(delete_id.clone()));
-                                this.context_menu = None; cx.notify();
-                            }))));
-                }
-            }
         }
 
         // ── Empty state ──

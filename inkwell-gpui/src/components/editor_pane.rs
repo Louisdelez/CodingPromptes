@@ -389,13 +389,11 @@ impl Render for EditorPane {
             // Scrollable editor area
             .child(div().id("editor-scroll").flex_1().overflow_y_scroll()
                 .p(px(16.0)).flex().flex_col().gap(px(12.0)).child(block_list)
-                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     // Close all sidebar menus when clicking on editor
                     this.store.update(cx, |_s, cx| { cx.emit(StoreEvent::CloseAllMenus); });
                     // Close add menu
                     if this.show_add_menu { this.show_add_menu = false; cx.notify(); }
-                    // Blur all inputs (search, etc.)
-                    window.blur();
                 })))
             // Terminal at bottom (like VS Code / Zed)
             .children(terminal_output)

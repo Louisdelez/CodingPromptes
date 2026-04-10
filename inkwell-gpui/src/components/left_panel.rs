@@ -131,7 +131,14 @@ impl Render for LeftPanel {
                             .cursor_pointer().hover(|s| s.bg(accent_bg()))
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                                 this.show_new_workspace = true;
-                                this.new_ws_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Nom du projet...")));
+                                let input = cx.new(|cx| InputState::new(window, cx).placeholder("Nom du dossier..."));
+                                // Subscribe to Enter key on the input
+                                cx.subscribe(&input, |this, _, event: &gpui_component::input::InputEvent, cx| {
+                                    if matches!(event, gpui_component::input::InputEvent::PressEnter { .. }) {
+                                        Self::create_workspace(this, cx);
+                                    }
+                                }).detach();
+                                this.new_ws_input = Some(input);
                                 cx.notify();
                             }))
                     )
@@ -141,7 +148,11 @@ impl Render for LeftPanel {
                             .cursor_pointer().hover(|s| s.bg(accent_bg()))
                             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                                 this.store.update(cx, |s, cx| {
-                                    let p = Project::default_prompt();
+                                    let mut p = Project::default_prompt();
+                                    p.name = "Nouveau Prompte".into();
+                                    // Auto-tag with creation date/time
+                                    let now = chrono::Local::now();
+                                    p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
                                     s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone() });
                                     s.project = p; s.prompt_dirty = true; s.save_pending = true;
                                     cx.emit(StoreEvent::ProjectChanged);
@@ -182,19 +193,7 @@ impl Render for LeftPanel {
                             .child(div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(accent())
                                 .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).child("Creer")
                                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                                    let name = this.new_ws_input.as_ref().map(|i| i.read(cx).value().to_string()).unwrap_or_default();
-                                    if name.trim().is_empty() { return; }
-                                    let color = this.new_ws_color.clone();
-                                    this.store.update(cx, |s, cx| {
-                                        s.workspaces.push(inkwell_core::types::Workspace {
-                                            id: uuid::Uuid::new_v4().to_string(), name: name.trim().to_string(),
-                                            description: String::new(), color, constitution: None,
-                                            created_at: chrono::Utc::now().timestamp_millis(),
-                                            updated_at: chrono::Utc::now().timestamp_millis(),
-                                        });
-                                        cx.emit(StoreEvent::ProjectChanged);
-                                    });
-                                    this.show_new_workspace = false; this.new_ws_input = None; cx.notify();
+                                    Self::create_workspace(this, cx);
                                 })))
                             .child(div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                                 .child(Icon::new(IconName::Close).text_color(text_muted()))
@@ -223,6 +222,23 @@ impl Render for LeftPanel {
 }
 
 impl LeftPanel {
+    fn create_workspace(this: &mut Self, cx: &mut Context<Self>) {
+        let name = this.new_ws_input.as_ref()
+            .map(|i| i.read(cx).value().to_string()).unwrap_or_default();
+        let name = if name.trim().is_empty() { "Nouveau Dossier".to_string() } else { name.trim().to_string() };
+        let color = this.new_ws_color.clone();
+        this.store.update(cx, |s, cx| {
+            s.workspaces.push(inkwell_core::types::Workspace {
+                id: uuid::Uuid::new_v4().to_string(), name,
+                description: String::new(), color, constitution: None,
+                created_at: chrono::Utc::now().timestamp_millis(),
+                updated_at: chrono::Utc::now().timestamp_millis(),
+            });
+            cx.emit(StoreEvent::ProjectChanged);
+        });
+        this.show_new_workspace = false; this.new_ws_input = None; cx.notify();
+    }
+
     fn render_library(&self, projects: &[ProjectSummary], workspaces: &[inkwell_core::types::Workspace],
                       current_id: &str, confirm_delete: &Option<String>, cx: &mut Context<Self>) -> Div {
         let mut c = div().flex_1().px(px(12.0)).py(px(6.0)).flex().flex_col().gap(px(1.0));

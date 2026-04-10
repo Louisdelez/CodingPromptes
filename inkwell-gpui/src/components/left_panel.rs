@@ -34,6 +34,7 @@ impl Render for DragFile {
 }
 
 pub struct LeftPanel {
+    pub(crate) focus_handle: FocusHandle,
     pub(crate) store: Entity<AppStore>,
     pub(crate) search_input: Option<Entity<InputState>>,
     pub(crate) view: SidebarView,
@@ -61,6 +62,7 @@ pub struct LeftPanel {
 
 impl LeftPanel {
     pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
         let search_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher...")));
         cx.subscribe(&store, |this, _, event: &StoreEvent, cx| {
             match event {
@@ -75,7 +77,7 @@ impl LeftPanel {
             }
         }).detach();
         Self {
-            store, search_input, view: SidebarView::Library,
+            focus_handle, store, search_input, view: SidebarView::Library,
             show_dropdown: false, show_new_workspace: false,
             new_ws_input: None, new_ws_color: "#6366f1".into(),
             expanded_workspaces: vec![],
@@ -85,6 +87,10 @@ impl LeftPanel {
             context_menu: None, confirm_delete_target: None,
         }
     }
+}
+
+impl Focusable for LeftPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle { self.focus_handle.clone() }
 }
 
 impl Render for LeftPanel {
@@ -104,7 +110,7 @@ impl Render for LeftPanel {
         };
 
         let panel_width = self.store.read(cx).left_width;
-        let mut panel = div().w(px(panel_width)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
+        let mut panel = div().track_focus(&self.focus_handle).w(px(panel_width)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col();
 
         let view_icon = match self.view {

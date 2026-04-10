@@ -8,6 +8,7 @@ use crate::state::*;
 use crate::ui::colors::*;
 
 pub struct RightPanel {
+    pub(crate) focus_handle: FocusHandle,
     pub(crate) store: Entity<AppStore>,
     pub(crate) active_tab: RightTab,
     pub(crate) show_dropdown: bool,
@@ -15,8 +16,13 @@ pub struct RightPanel {
     pub(crate) copy_feedback: u32,
 }
 
+impl Focusable for RightPanel {
+    fn focus_handle(&self, _: &App) -> FocusHandle { self.focus_handle.clone() }
+}
+
 impl RightPanel {
     pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
         let chat_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Envoyer un message...")));
         cx.subscribe(&store, |this, _, event: &StoreEvent, cx| {
             match event {
@@ -28,7 +34,7 @@ impl RightPanel {
                 _ => {}
             }
         }).detach();
-        Self { store, active_tab: RightTab::Preview, show_dropdown: false, chat_input, copy_feedback: 0 }
+        Self { focus_handle, store, active_tab: RightTab::Preview, show_dropdown: false, chat_input, copy_feedback: 0 }
     }
 }
 
@@ -125,7 +131,7 @@ impl Render for RightPanel {
             );
 
         let panel_width = self.store.read(cx).right_width;
-        div().w(px(panel_width)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
+        div().track_focus(&self.focus_handle).w(px(panel_width)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col().child(header).children(dropdown).child(content_animated)
     }
 }

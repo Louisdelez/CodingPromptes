@@ -10,6 +10,7 @@ mod persistence;
 mod state;
 mod store;
 mod theme;
+mod types;
 mod ui;
 
 fn main() {

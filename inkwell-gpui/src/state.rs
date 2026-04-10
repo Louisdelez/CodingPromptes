@@ -1,3 +1,6 @@
+// Re-export all pure types so `use crate::state::*` still works everywhere
+pub use crate::types::*;
+
 use inkwell_core::types::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;

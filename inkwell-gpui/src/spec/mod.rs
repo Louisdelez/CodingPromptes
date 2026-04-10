@@ -9,3 +9,6 @@ pub mod validator;
 pub mod generator;
 pub mod workflow;
 pub mod export;
+pub mod git;
+pub mod presets;
+pub mod extensions;

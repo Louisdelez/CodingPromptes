@@ -548,7 +548,9 @@ impl LeftPanel {
                 row = row.border_l_3().border_color(accent()).bg(accent_bg());
             }
 
-            row = row.child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }));
+            row = row
+                .child(Icon::new(IconName::File).text_color(if is_active { accent() } else { text_muted() }))
+                .child(Icon::new(IconName::Clock).text_color(text_muted()));
 
             // Name (or rename input)
             if is_renaming {

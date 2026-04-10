@@ -35,7 +35,6 @@ pub struct EditorPane {
     variable_inputs: std::collections::HashMap<String, Entity<InputState>>,
     show_add_menu: bool,
     last_block_count: usize,
-    confirm_delete_block: Option<usize>,
     reorder_gen: u64,
 }
 
@@ -68,7 +67,7 @@ impl EditorPane {
         Self {
             store, block_editors, tag_input,
             variable_inputs: std::collections::HashMap::new(),
-            show_add_menu: false, confirm_delete_block: None, reorder_gen: 0,
+            show_add_menu: false, reorder_gen: 0,
             last_block_count: block_count,
         }
     }
@@ -136,11 +135,6 @@ impl Render for EditorPane {
         // Block editors — each is an independent Entity, wrapped in drag-drop targets
         for (i, editor) in self.block_editors.iter().enumerate() {
             // Read block info for drag preview
-            let store = self.store.read(cx);
-            let (_label, _color) = store.project.blocks.get(i)
-                .map(|b| (b.block_type.label(&store.lang).to_string(), hex_to_hsla(b.block_type.color())))
-                .unwrap_or(("Block".into(), text_muted()));
-
             block_list = block_list.child(
                 div().id(("block-drop", i))
                     .drag_over::<DragBlock>(|this, _, _, _cx| {

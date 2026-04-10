@@ -57,27 +57,31 @@ impl Render for RightPanel {
             .unwrap_or(("Preview", IconName::File));
         let show_dd = self.show_dropdown;
 
-        let header = div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
+        // Header — full button click triggers dropdown
+        let header = div().id("right-panel-header").h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
             .border_b_1().border_color(border_c())
+            .cursor_pointer().hover(|s| s.bg(bg_hover()))
             .child(Icon::new(tab_icon).text_color(text_muted()))
             .child(div().flex_1().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(tab_label))
-            .child(div().text_color(text_muted()).child(Icon::new(IconName::ChevronDown))
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                    this.show_dropdown = !this.show_dropdown; cx.notify();
-                })));
+            .child(Icon::new(if show_dd { IconName::ChevronUp } else { IconName::ChevronDown }).text_color(text_muted()))
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                this.show_dropdown = !this.show_dropdown; cx.notify();
+            }));
 
+        // Dropdown — hover animations on items
         let dropdown = if show_dd {
-            let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
-                .bg(bg_tertiary()).border_1().border_color(border_c()).p(px(4.0)).flex().flex_col();
+            let mut menu = div().mx(px(8.0)).my(px(4.0)).rounded(px(8.0))
+                .bg(bg_tertiary()).border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0));
             for (label, tab, icon) in TABS {
                 let tab = *tab; let icon = icon.clone();
                 let is_active = self.active_tab == tab;
-                menu = menu.child(div().px(px(10.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                    .text_xs().text_color(if is_active { accent() } else { text_secondary() })
-                    .bg(if is_active { accent_bg() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                    .hover(|s| s.bg(bg_secondary()))
+                menu = menu.child(div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
+                    .text_sm().cursor_pointer()
+                    .text_color(if is_active { accent() } else { text_primary() })
+                    .bg(if is_active { accent_bg() } else { transparent() })
+                    .hover(|s| s.bg(bg_hover()))
                     .child(Icon::new(icon)).child(label.to_string())
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         this.active_tab = tab; this.show_dropdown = false;
                         this.store.update(cx, |s, _| { s.right_tab = tab; }); cx.notify();
                     })));
@@ -103,8 +107,11 @@ impl Render for RightPanel {
 
         let anim = Animation::new(Duration::from_millis(150))
             .with_easing(cubic_bezier(0.25, 0.1, 0.25, 1.0));
-        let content_animated = div().flex_1().overflow_hidden()
+        let content_animated = div().id("right-content").flex_1().overflow_y_scroll()
             .child(content)
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.show_dropdown { this.show_dropdown = false; cx.notify(); }
+            }))
             .with_animation(
                 SharedString::from(format!("tab-fade-{:?}", active)),
                 anim,

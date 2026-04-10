@@ -4,13 +4,10 @@ mod settings_modal;
 mod profile_modal;
 
 use gpui::*;
-use gpui_component::input::{Input, InputState};
-use gpui_component::{Icon, IconName, Theme, ThemeMode};
+use gpui_component::input::InputState;
 use crate::state::*;
-use crate::ui::colors::*;
 
 // Re-export for use in sub-modules
-pub(crate) use workspace::{LeftResizeDrag, RightResizeDrag};
 
 // Actions for keyboard shortcuts
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);

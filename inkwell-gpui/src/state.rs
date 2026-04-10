@@ -1,4 +1,4 @@
-// Re-export all pure types so `use crate::state::*` still works everywhere
+// Re-export pure types so `use crate::state::*` still works everywhere
 pub use crate::types::*;
 
 use inkwell_core::types::*;
@@ -136,116 +136,6 @@ pub struct AppState {
     pub msg_tx: mpsc::Sender<AsyncMsg>,
 }
 
-#[derive(Debug)]
-#[allow(dead_code)]
-pub enum AsyncMsg {
-    AuthSuccess { session: AuthSession, projects: Vec<PromptProject>, workspaces: Vec<Workspace> },
-    AuthError(String),
-    LlmResponse(String),
-    LlmDone,
-    LlmError(String),
-    TerminalOutput(String),
-    SddBlockResult { idx: usize, content: String },
-    ExportReady(String),
-    VersionsLoaded(Vec<inkwell_core::types::Version>),
-    NodesLoaded(Vec<inkwell_core::types::GpuNode>),
-    LlmChunk(String),
-    SttResult { block_idx: usize, text: String },
-    SttError(String),
-    // Custom frameworks
-    CustomFrameworkSaved,
-    // Multi-model
-    MultiModelResult { model: String, response: String },
-    MultiModelDone,
-    // Execution recorded
-    ExecutionRecorded(Execution),
-    // Collab
-    CollabUsersLoaded(Vec<CollabUser>),
-    // GitHub
-    GitHubPushed(String),
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum Screen { Auth, Ide }
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum AuthMode { Login, Register }
-
-#[derive(Clone, Copy, PartialEq)]
-#[allow(dead_code)]
-pub enum LeftTab { Library, Frameworks, Versions }
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum RightTab { Preview, Playground, Stt, History, Export, Fleet, Terminal, Optimize, Lint, Chat, Analytics, Collab, Chain }
-
-#[allow(dead_code)]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-    pub workspace_id: Option<String>,
-    pub blocks: Vec<Block>,
-    pub variables: HashMap<String, String>,
-    pub tags: Vec<String>,
-    pub framework: Option<String>,
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct Block {
-    pub id: String,
-    pub block_type: BlockType,
-    pub content: String,
-    pub enabled: bool,
-    pub editing: bool,
-}
-
-#[derive(Clone)]
-pub struct CustomFramework {
-    pub name: String,
-    pub blocks: Vec<(inkwell_core::types::BlockType, String)>,
-}
-
-pub struct TerminalSession {
-    pub label: String,
-    pub output: String,
-    pub running: bool,
-    pub input_tx: Option<mpsc::Sender<String>>,
-}
-
-#[derive(Clone)]
-pub struct ProjectSummary {
-    pub id: String,
-    pub name: String,
-    pub workspace_id: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct Execution {
-    pub model: String,
-    pub tokens_in: u64,
-    pub tokens_out: u64,
-    pub latency_ms: u64,
-    pub cost: f64,
-    pub timestamp: i64,
-    pub prompt_preview: String,
-    pub response_preview: String,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum SttProvider { Local, OpenaiWhisper, Groq, Deepgram }
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum AnalyticsRange { Week, Month, All }
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct CollabUser {
-    pub name: String,
-    pub email: String,
-    pub online: bool,
-}
-
 impl AppState {
     pub fn new() -> Self {
         let (msg_tx, msg_rx) = mpsc::channel();
@@ -255,24 +145,19 @@ impl AppState {
     pub fn new_with_channel(msg_tx: mpsc::Sender<AsyncMsg>, msg_rx: mpsc::Receiver<AsyncMsg>) -> Self {
         let saved = crate::persistence::load_session();
         let server_url = if saved.server_url.is_empty() { "http://localhost:8910".to_string() } else { saved.server_url };
-
-        // Load local data
         let local_projects = crate::persistence::load_all_projects();
         let local_settings = crate::persistence::load_settings();
         let local_frameworks = crate::persistence::load_frameworks();
 
-        // Load first project from local storage, or create default
         let (project, project_summaries) = if let Some(first) = local_projects.first() {
             let proj = Project {
-                id: first.id.clone(),
-                name: first.name.clone(),
+                id: first.id.clone(), name: first.name.clone(),
                 workspace_id: first.workspace_id.clone(),
                 blocks: first.blocks.iter().map(|b| Block {
                     id: b.id.clone(), block_type: b.block_type,
                     content: b.content.clone(), enabled: b.enabled, editing: false,
                 }).collect(),
-                variables: first.variables.clone(),
-                tags: first.tags.clone(),
+                variables: first.variables.clone(), tags: first.tags.clone(),
                 framework: first.framework.clone(),
             };
             let summaries: Vec<ProjectSummary> = local_projects.iter()
@@ -287,145 +172,42 @@ impl AppState {
             .map(|f| CustomFramework { name: f.name.clone(), blocks: f.blocks.clone() })
             .collect();
 
-        // Always start in IDE mode (local-first). Auth is optional for server sync.
         Self {
-            screen: Screen::Ide,
-            lang: if saved.lang.is_empty() { "fr".into() } else { saved.lang },
-            server_url,
-            server_url_input: None,
-            email_input: None,
-            password_input: None,
-            block_inputs: vec![],
-            chat_system_prompt: String::new(),
-            save_status: "idle",
-            save_status_timer: 0,
-            editing_name: false,
-            name_input_entity: None,
-            playground_temperature: 0.7,
-            playground_max_tokens: 2048,
+            screen: Screen::Ide, lang: if saved.lang.is_empty() { "fr".into() } else { saved.lang },
+            server_url, server_url_input: None, email_input: None, password_input: None,
+            block_inputs: vec![], chat_system_prompt: String::new(),
+            save_status: "idle", save_status_timer: 0, editing_name: false, name_input_entity: None,
+            playground_temperature: 0.7, playground_max_tokens: 2048,
             playground_selected_models: vec!["gpt-4o-mini".into()],
-            save_pending: false,
-            save_timer: 0,
-            versions: vec![],
-            gpu_nodes: vec![],
-            stt_recording: false,
-            stt_target_block: None,
-            stt_stop_tx: None,
+            save_pending: false, save_timer: 0, versions: vec![], gpu_nodes: vec![],
+            stt_recording: false, stt_target_block: None, stt_stop_tx: None,
             show_settings: false,
             api_key_openai: local_settings.api_key_openai,
             api_key_anthropic: local_settings.api_key_anthropic,
             api_key_google: local_settings.api_key_google,
-            api_key_openai_input: None,
-            api_key_anthropic_input: None,
-            api_key_google_input: None,
-            ssh_port_input: None,
-            auth_error: None,
-            auth_loading: false,
-            auth_mode: AuthMode::Login,
-            session: None,
-            project,
-            projects: project_summaries,
-            workspaces: vec![],
-            left_tab: LeftTab::Library,
-            right_tab: RightTab::Preview,
-            left_open: saved.left_open,
-            right_open: saved.right_open,
-            dark_mode: saved.dark_mode,
-            show_add_menu: false,
-            custom_frameworks,
+            api_key_openai_input: None, api_key_anthropic_input: None, api_key_google_input: None,
+            ssh_port_input: None, auth_error: None, auth_loading: false, auth_mode: AuthMode::Login,
+            session: None, project, projects: project_summaries, workspaces: vec![],
+            left_tab: LeftTab::Library, right_tab: RightTab::Preview,
+            left_open: saved.left_open, right_open: saved.right_open,
+            dark_mode: saved.dark_mode, show_add_menu: false, custom_frameworks,
             selected_model: if local_settings.selected_model.is_empty() { "gpt-4o-mini".into() } else { local_settings.selected_model },
-            sdd_running: false,
-            playground_response: String::new(),
-            playground_loading: false,
-            chat_messages: vec![],
-            chat_input_entity: None,
-            terminal_sessions: vec![],
-            active_terminal: 0,
-            terminal_input_entity: None,
-            show_ssh_modal: false,
-            ssh_host: String::new(),
-            ssh_user: String::new(),
-            ssh_port: "22".into(),
-            ssh_host_input: None,
-            ssh_user_input: None,
-            tag_input: None,
-            version_label_input: None,
-            cached_prompt: String::new(),
-            cached_tokens: 0,
-            cached_chars: 0,
-            cached_words: 0,
-            cached_lines: 0,
-            prompt_dirty: true,
-            cached_vars: vec![],
-            undo_stack: VecDeque::new(),
-            confirm_delete: None,
-            search_query: String::new(),
-            search_input: None,
-            variable_inputs: HashMap::new(),
-            executions: vec![],
-            multi_model_responses: vec![],
-            multi_model_loading: false,
-            stt_provider: SttProvider::Local,
-            analytics_range: AnalyticsRange::All,
-            github_repo: local_settings.github_repo,
-            github_repo_input: None,
-            collab_users: vec![],
-            editing_workspace_id: None,
-            workspace_name_input: None,
-            show_profile: false,
-            framework_name_input: None,
-            selected_workspace_color: "#6366f1".into(),
-            copy_feedback: 0,
-            fleet_poll_timer: 0,
-            collab_poll_timer: 0,
-            frame_count: 0,
-            inputs_initialized: false,
-            msg_rx,
-            msg_tx,
-        }
-    }
-}
-
-impl Project {
-    pub fn default_prompt() -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: "Nouveau prompt".into(),
-            workspace_id: None,
-            blocks: vec![
-                Block::new(BlockType::Role),
-                Block::new(BlockType::Context),
-                Block::new(BlockType::Task),
-            ],
-            variables: HashMap::new(),
-            tags: vec![],
-            framework: None,
-        }
-    }
-
-    pub fn compiled_prompt(&self) -> String {
-        let blocks: Vec<inkwell_core::types::PromptBlock> = self.blocks.iter()
-            .map(|b| inkwell_core::types::PromptBlock {
-                id: b.id.clone(),
-                block_type: b.block_type,
-                content: b.content.clone(),
-                enabled: b.enabled,
-            })
-            .collect();
-        inkwell_core::prompt::compile_prompt(&blocks, &self.variables)
-    }
-
-    // token_count, char_count, word_count are now cached in AppState
-}
-
-impl Block {
-    pub fn new(block_type: BlockType) -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            block_type,
-            content: String::new(),
-            enabled: true,
-            editing: false,
+            sdd_running: false, playground_response: String::new(), playground_loading: false,
+            chat_messages: vec![], chat_input_entity: None,
+            terminal_sessions: vec![], active_terminal: 0, terminal_input_entity: None,
+            show_ssh_modal: false, ssh_host: String::new(), ssh_user: String::new(), ssh_port: "22".into(),
+            ssh_host_input: None, ssh_user_input: None, tag_input: None, version_label_input: None,
+            cached_prompt: String::new(), cached_tokens: 0, cached_chars: 0, cached_words: 0, cached_lines: 0,
+            prompt_dirty: true, cached_vars: vec![], undo_stack: VecDeque::new(),
+            confirm_delete: None, search_query: String::new(), search_input: None,
+            variable_inputs: HashMap::new(), executions: vec![],
+            multi_model_responses: vec![], multi_model_loading: false,
+            stt_provider: SttProvider::Local, analytics_range: AnalyticsRange::All,
+            github_repo: local_settings.github_repo, github_repo_input: None,
+            collab_users: vec![], editing_workspace_id: None, workspace_name_input: None,
+            show_profile: false, framework_name_input: None, selected_workspace_color: "#6366f1".into(),
+            copy_feedback: 0, fleet_poll_timer: 0, collab_poll_timer: 0,
+            frame_count: 0, inputs_initialized: false, msg_rx, msg_tx,
         }
     }
 }

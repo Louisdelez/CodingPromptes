@@ -1,5 +1,5 @@
 use gpui::*;
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::InputState;
 use gpui_component::{Icon, IconName};
 use gpui_component::animation::cubic_bezier;
 use std::time::Duration;

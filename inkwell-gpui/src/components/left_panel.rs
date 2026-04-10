@@ -1,7 +1,7 @@
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
-use gpui_component::menu::{ContextMenuExt, PopupMenuItem};
+use gpui_component::menu::ContextMenuExt;
 use crate::store::{AppStore, StoreEvent};
 use crate::state::*;
 use crate::ui::colors::*;

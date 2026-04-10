@@ -414,6 +414,23 @@ impl LeftPanel {
             }
         }
 
+        // ── Steering Rules Section (Kiro) ──
+        c = c.child(div().h(px(1.0)).bg(border_c()).my(px(4.0)));
+        c = c.child(div().flex().items_center().gap(px(6.0))
+            .child(Icon::new(IconName::Scroll).text_color(text_muted()))
+            .child(div().flex_1().text_xs().text_color(text_muted()).child("Steering (Kiro)")));
+
+        // Default steering rules
+        let steering_rules = ["product — Contexte produit", "tech — Stack technique", "structure — Organisation du projet"];
+        for rule in steering_rules {
+            c = c.child(
+                div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                    .hover(|s| s.bg(bg_tertiary()))
+                    .child(Icon::new(IconName::File).text_color(text_muted()))
+                    .child(div().text_xs().text_color(text_secondary()).child(rule.to_string()))
+            );
+        }
+
         c
     }
 

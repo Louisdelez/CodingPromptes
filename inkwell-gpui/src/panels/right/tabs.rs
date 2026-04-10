@@ -773,11 +773,29 @@ impl RightPanel {
                     .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
                     .text_xs().text_color(text_secondary()).cursor_pointer()
                     .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Download)).child("Export .specify/"))
+                    .child(Icon::new(IconName::Download)).child("Export .specify/")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        let s = this.store.read(cx);
+                        let blocks: Vec<crate::types::Block> = s.project.blocks.clone();
+                        let name = s.project.name.clone();
+                        std::thread::spawn(move || {
+                            let dir = dirs::document_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+                            let _ = crate::spec::export::export_speckit(&blocks, &name, &dir);
+                        });
+                    })))
                 .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
                     .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
                     .text_xs().text_color(text_secondary()).cursor_pointer()
                     .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Download)).child("Export .kiro/")))
+                    .child(Icon::new(IconName::Download)).child("Export .kiro/")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        let s = this.store.read(cx);
+                        let blocks: Vec<crate::types::Block> = s.project.blocks.clone();
+                        let name = s.project.name.clone();
+                        std::thread::spawn(move || {
+                            let dir = dirs::document_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+                            let _ = crate::spec::export::export_kiro(&blocks, &name, &dir);
+                        });
+                    }))))
     }
 }

@@ -2,7 +2,6 @@ use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName, Theme, ThemeMode};
 use crate::state::*;
-use inkwell_core::types::BlockType;
 
 // Actions for keyboard shortcuts
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
@@ -832,15 +831,15 @@ impl InkwellApp {
         let show_settings = s.show_settings;
         let show_profile = s.show_profile;
         let dark_mode = s.dark_mode;
-        drop(s);
+        let left_w = s.left_width;
+        let right_w = s.right_width;
 
         set_dark_mode(dark_mode);
         // Sync gpui-component theme so Input, Button, etc. follow dark/light mode
         Theme::change(if dark_mode { ThemeMode::Dark } else { ThemeMode::Light }, None, cx);
         let t = crate::theme::InkwellTheme::from_mode(dark_mode);
         let mut main_row = div().flex_1().flex().overflow_hidden();
-        let left_w = self.store.read(cx).left_width;
-        let right_w = self.store.read(cx).right_width;
+        // left_w and right_w already read above
         if left_open {
             main_row = main_row.child(self.left_panel.clone());
             // Left resize handle — drag to resize

@@ -1,7 +1,6 @@
 use gpui::*;
 use gpui_component::{Icon, IconName};
 use crate::store::{AppStore, StoreEvent};
-use crate::state::*;
 use crate::ui::colors::*;
 
 fn stat_item(icon: IconName, value: &str, label: &str) -> Div {
@@ -47,7 +46,6 @@ impl Render for BottomBar {
         let left_open = store.left_open;
         let right_open = store.right_open;
         let terminal_open = store.terminal_open;
-        drop(store);
 
         let max_ctx = 128000u64;
         let pct = (tokens as f64 / max_ctx as f64 * 100.0).min(100.0);

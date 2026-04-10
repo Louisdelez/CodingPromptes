@@ -42,6 +42,7 @@ pub fn transparent() -> Hsla { hsla(0.0, 0.0, 0.0, 0.0) }
 
 pub fn hex_to_hsla(hex: &str) -> Hsla {
     let hex = hex.trim_start_matches('#');
+    if hex.len() < 6 { return hsla(0.0, 0.0, 0.5, 1.0); } // Fallback for invalid hex
     let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(128) as f32 / 255.0;
     let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(128) as f32 / 255.0;
     let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(128) as f32 / 255.0;

@@ -2,7 +2,6 @@ use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
 use crate::store::{AppStore, StoreEvent};
-use crate::state::*;
 use crate::ui::colors::*;
 use inkwell_core::types::BlockType;
 
@@ -58,7 +57,6 @@ impl BlockEditor {
                 if val != block.content.as_str() {
                     let new_content = val.to_string();
                     let idx = self.block_index;
-                    drop(store);
                     self.store.update(cx, |s, _cx| {
                         if let Some(b) = s.project.blocks.get_mut(idx) {
                             b.content = new_content;
@@ -100,7 +98,6 @@ impl Render for BlockEditor {
         let is_sdd = block.block_type.is_sdd();
         let is_recording = store.stt_recording && store.stt_target_block == Some(idx);
         let lang = store.lang.clone();
-        drop(store);
 
         // Block type icon mapping (matching web)
         let type_icon = match block.block_type {

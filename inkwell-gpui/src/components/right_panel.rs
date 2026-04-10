@@ -136,7 +136,6 @@ impl RightPanel {
         let s = self.store.read(cx);
         let compiled = s.cached_prompt.clone();
         let is_copied = self.copy_feedback > 0;
-        drop(s);
         div().flex_1().flex().flex_col()
             .child(div().px(px(16.0)).py(px(10.0)).flex().items_center().gap(px(8.0))
                 .border_b_1().border_color(border_c())
@@ -163,7 +162,6 @@ impl RightPanel {
         let response = s.playground_response.clone(); let loading = s.playground_loading;
         let selected = s.selected_model.clone();
         let last_exec = s.executions.last().cloned();
-        drop(s);
 
         const CLOUD_MODELS: &[&str] = &[
             "GPT-4o", "GPT-4o Mini", "GPT-4.1", "GPT-4.1 Mini",
@@ -185,7 +183,6 @@ impl RightPanel {
                     let prompt = s.cached_prompt.clone(); let model = s.selected_model.clone();
                     let server = s.server_url.clone(); let tx = s.msg_tx.clone();
                     let temp = s.playground_temperature; let max_tok = s.playground_max_tokens;
-                    drop(s);
                     std::thread::spawn(move || { crate::app::rt().block_on(async {
                         let client = reqwest::Client::new();
                         let body = serde_json::json!({"model":model,"messages":[{"role":"user","content":prompt}],"temperature":temp,"max_tokens":max_tok,"stream":false});
@@ -239,7 +236,6 @@ impl RightPanel {
         let messages: Vec<(String, String)> = s.chat_messages.clone();
         let model = s.selected_model.clone();
         let system_prompt = s.chat_system_prompt.clone();
-        drop(s);
 
         // Messages area
         let mut msg_view = div().flex().flex_col().gap(px(8.0));
@@ -290,11 +286,13 @@ impl RightPanel {
                 .child(if let Some(ref e) = self.chat_input { div().flex_1().child(Input::new(e)) } else { div().flex_1() })
                 .child(div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent())
                     .child(Icon::new(IconName::Play).text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)))
-                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                         let msg = this.chat_input.as_ref().map(|e| e.read(cx).value().to_string()).unwrap_or_default();
                         if msg.is_empty() { return; }
                         this.store.update(cx, |s, _| { s.chat_messages.push(("user".into(), msg.clone())); });
-                        this.chat_input = None; cx.notify();
+                        // Re-create input for next message
+                        this.chat_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Envoyer un message...")));
+                        cx.notify();
                         let msgs: Vec<serde_json::Value> = this.store.read(cx).chat_messages.iter()
                             .map(|(r, c)| serde_json::json!({"role":r,"content":c})).collect();
                         let server = this.store.read(cx).server_url.clone();
@@ -316,7 +314,6 @@ impl RightPanel {
         let s = self.store.read(cx);
         let recording = s.stt_recording;
         let provider = s.stt_provider;
-        drop(s);
 
         const PROVIDERS: &[(&str, &str, SttProvider)] = &[
             ("Local", "Utilise le serveur GPU local", SttProvider::Local),
@@ -385,7 +382,6 @@ impl RightPanel {
         let s = self.store.read(cx);
         let response = s.playground_response.clone();
         let loading = s.playground_loading;
-        drop(s);
         let has_result = response.starts_with("--- Optimise ---");
 
         div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
@@ -404,7 +400,6 @@ impl RightPanel {
                         this.store.update(cx, |s, _| { if s.playground_loading { return; } s.playground_loading = true; s.playground_response.clear(); });
                         let s = this.store.read(cx);
                         let prompt = s.cached_prompt.clone(); let server = s.server_url.clone(); let tx = s.msg_tx.clone();
-                        drop(s);
                         std::thread::spawn(move || { crate::app::rt().block_on(async {
                             let client = reqwest::Client::new();
                             let body = serde_json::json!({"model":"gpt-4o-mini","messages":[
@@ -447,7 +442,6 @@ impl RightPanel {
         let unresolved = s.cached_prompt.matches("{{").count();
         let chars = s.cached_chars; let has_neg = s.cached_prompt.contains("don't") || s.cached_prompt.contains("never");
         let has_ex = blocks.iter().any(|b| b.block_type == inkwell_core::types::BlockType::Examples && b.enabled);
-        drop(s);
         let mut checks = div().flex().flex_col().gap(px(6.0));
         if enabled == 0 { checks = checks.child(lint("error", "Aucun bloc active")); }
         if empty > 0 { checks = checks.child(lint("warning", &format!("{empty} bloc(s) vide(s)"))); }
@@ -473,7 +467,6 @@ impl RightPanel {
         let s = self.store.read(cx);
         let nodes = s.gpu_nodes.clone(); let server = s.server_url.clone();
         let node_count = nodes.len();
-        drop(s);
         let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(8.0));
         c = c.child(div().flex().items_center().gap(px(6.0))
             .child(Icon::new(IconName::Globe).text_color(text_muted()))
@@ -531,7 +524,6 @@ impl RightPanel {
     fn tab_terminal(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let output = s.terminal_sessions.get(s.active_terminal).map(|t| t.output.clone()).unwrap_or_default();
-        drop(s);
         div().flex_1().flex().flex_col()
             .child(div().flex_1().p(px(8.0)).bg(hsla(0.0, 0.0, 0.04, 1.0))
                 .text_xs().text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0))
@@ -595,7 +587,6 @@ impl RightPanel {
     fn tab_history(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let execs: Vec<Execution> = s.executions.iter().rev().take(20).cloned().collect();
-        drop(s);
         let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(6.0));
         c = c.child(div().flex().items_center().gap(px(6.0))
             .child(Icon::new(IconName::Clock).text_color(text_muted()))
@@ -642,7 +633,6 @@ impl RightPanel {
         }
         model_counts.sort_by(|a, b| b.1.cmp(&a.1));
         let max_count = model_counts.first().map(|(_, c)| *c).unwrap_or(1);
-        drop(s);
 
         // Time range buttons
         let time_range = div().flex().gap(px(4.0))
@@ -694,7 +684,6 @@ impl RightPanel {
             .map(|(i, b)| (i, if b.content.len() > 40 { format!("{}...", &b.content[..40]) } else { b.content.clone() }))
             .collect();
         let model = s.selected_model.clone();
-        drop(s);
 
         // Workspace selector
         let ws_selector = div().flex().flex_col().gap(px(4.0))
@@ -742,7 +731,7 @@ impl RightPanel {
                     let s = this.store.read(cx);
                     let blocks: Vec<String> = s.project.blocks.iter().filter(|b| b.enabled && !b.content.is_empty())
                         .map(|b| b.content.clone()).collect();
-                    let server = s.server_url.clone(); let tx = s.msg_tx.clone(); drop(s);
+                    let _server = s.server_url.clone(); let tx = s.msg_tx.clone(); drop(s);
                     std::thread::spawn(move || { crate::app::rt().block_on(async {
                         let client = reqwest::Client::new(); let mut output = String::new();
                         for (i, content) in blocks.iter().enumerate() {
@@ -765,7 +754,6 @@ impl RightPanel {
         let s = self.store.read(cx);
         let session = s.session.clone(); let users = s.collab_users.clone();
         let online_count = users.iter().filter(|u| u.online).count() + if session.is_some() { 1 } else { 0 };
-        drop(s);
         let mut c = div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0));
         // Header with refresh
         c = c.child(div().flex().items_center().gap(px(6.0))

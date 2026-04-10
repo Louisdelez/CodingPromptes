@@ -2,7 +2,6 @@ use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
 use crate::store::{AppStore, StoreEvent};
-use crate::state::*;
 use crate::ui::colors::*;
 
 pub struct HeaderBar {
@@ -33,13 +32,12 @@ impl Render for HeaderBar {
         let s = self.store.read(cx);
         let save_status = s.save_status;
         let project_name = s.project.name.clone();
-        let framework = s.project.framework.clone();
+        let _framework = s.project.framework.clone();
         let session_email = s.session.as_ref().map(|s| s.email.clone());
         let dark_mode = s.dark_mode;
         let is_fr = s.lang == "fr";
         let lang = s.lang.to_uppercase();
         let _show_settings = s.show_settings;
-        drop(s);
 
         // Init name input
         if self.editing_name && self.name_input.is_none() {
@@ -53,9 +51,16 @@ impl Render for HeaderBar {
         // Left section: logo + project name + save status
         let left = div().flex().items_center().gap(px(8.0))
             .child(div().flex().items_center().gap(px(6.0))
-                .child(img(std::path::PathBuf::from("/home/louis/Documents/CodingPromptes/inkwell-gpui/assets/logo-64.png"))
-                    .w(px(28.0)).h(px(28.0)).rounded(px(8.0))
-                    .object_fit(gpui::ObjectFit::Contain))
+                .child({
+                    let logo_path = std::env::current_exe().ok()
+                        .and_then(|p| p.parent().map(|d| d.join("../assets/logo-64.png")))
+                        .unwrap_or_else(|| std::path::PathBuf::from("assets/logo-64.png"));
+                    // Fallback to absolute if relative doesn't exist
+                    let logo_path = if logo_path.exists() { logo_path }
+                        else { std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/logo-64.png")) };
+                    img(logo_path).w(px(28.0)).h(px(28.0)).rounded(px(8.0))
+                        .object_fit(gpui::ObjectFit::Contain)
+                })
                 .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child("Inkwell")))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
             // Project name (editable)
@@ -182,7 +187,6 @@ impl Render for HeaderBar {
             let s = self.store.read(cx);
             let display_name = s.session.as_ref().map(|s| s.display_name.clone()).unwrap_or(email.clone());
             let initial = display_name.chars().next().unwrap_or('U').to_uppercase().to_string();
-            drop(s);
             let dn = display_name.clone(); let em = email.clone(); let ini = initial.clone();
             user_dd = user_dd
                 .child(div().px(px(6.0)).py(px(4.0)).rounded(px(6.0)).flex().items_center().gap(px(6.0))

@@ -96,7 +96,6 @@ impl Render for LeftPanel {
         let confirm_delete = s.confirm_delete.clone();
         let custom_fw: Vec<CustomFramework> = s.custom_frameworks.clone();
         let versions: Vec<inkwell_core::types::Version> = s.versions.clone();
-        drop(s);
 
         let view_label = match self.view {
             SidebarView::Library => "Bibliotheque",
@@ -401,12 +400,12 @@ impl LeftPanel {
     }
 
     fn render_library(&self, projects: &[ProjectSummary], workspaces: &[inkwell_core::types::Workspace],
-                      current_id: &str, confirm_delete: &Option<String>, cx: &mut Context<Self>) -> Div {
+                      current_id: &str, _confirm_delete: &Option<String>, cx: &mut Context<Self>) -> Div {
         let mut c = div().flex_1().px(px(12.0)).py(px(6.0)).flex().flex_col().gap(px(1.0));
         let search = self.search_input.as_ref().map(|i| i.read(cx).value().to_string().to_lowercase()).unwrap_or_default();
 
         let renaming = self.renaming_id.clone();
-        let ctx_menu = self.context_menu.clone();
+        let _ctx_menu = self.context_menu.clone();
         let weak_view = cx.entity().downgrade();
 
         // ── Workspaces (Dossiers) ──
@@ -531,7 +530,7 @@ impl LeftPanel {
         for p in &filtered {
             let id = p.id.clone();
             let id2 = p.id.clone();
-            let id_ctx = p.id.clone();
+            let _id_ctx = p.id.clone();
             let is_active = current_id == p.id;
             let is_renaming = renaming.as_deref() == Some(&p.id);
 

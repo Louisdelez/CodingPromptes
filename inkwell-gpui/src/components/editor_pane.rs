@@ -51,7 +51,7 @@ impl EditorPane {
 
         let tag_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Ajouter un tag...")));
 
-        cx.subscribe(&store, |this: &mut Self, _, event: &StoreEvent, cx| {
+        cx.subscribe(&store, |_this: &mut Self, _, event: &StoreEvent, cx| {
             match event {
                 StoreEvent::ProjectChanged => {
                     // Block count may have changed — need to rebuild editors
@@ -81,7 +81,6 @@ impl EditorPane {
         let ids_match = count == self.block_editors.len() && self.block_editors.iter().enumerate().all(|(i, e)| {
             e.read(cx).block_index == i
         });
-        drop(store);
         if count == self.last_block_count && ids_match { return; }
 
         // Rebuild all editors (blocks were added/removed/reordered)
@@ -111,7 +110,6 @@ impl EditorPane {
                 let old = store.project.variables.get(&var_name).map(|s| s.as_str()).unwrap_or("");
                 if val != old && !val.is_empty() {
                     let new_val = val.to_string();
-                    drop(store);
                     self.store.update(cx, |s, _| {
                         s.project.variables.insert(var_name.clone(), new_val);
                         s.prompt_dirty = true;
@@ -132,7 +130,6 @@ impl Render for EditorPane {
         let cached_vars = store.cached_vars.clone();
         let tags = store.project.tags.clone();
         let lang = store.lang.clone();
-        drop(store);
 
         let mut block_list = div().flex().flex_col().gap(px(12.0));
 
@@ -140,10 +137,9 @@ impl Render for EditorPane {
         for (i, editor) in self.block_editors.iter().enumerate() {
             // Read block info for drag preview
             let store = self.store.read(cx);
-            let (label, color) = store.project.blocks.get(i)
+            let (_label, _color) = store.project.blocks.get(i)
                 .map(|b| (b.block_type.label(&store.lang).to_string(), hex_to_hsla(b.block_type.color())))
                 .unwrap_or(("Block".into(), text_muted()));
-            drop(store);
 
             block_list = block_list.child(
                 div().id(("block-drop", i))
@@ -328,7 +324,6 @@ impl Render for EditorPane {
         let terminal_output = if terminal_open {
             let s = self.store.read(cx);
             let output = s.terminal_sessions.get(s.active_terminal).map(|t| t.output.clone()).unwrap_or_default();
-            drop(s);
             Some(div().h(px(200.0)).flex_shrink_0().border_t_1().border_color(border_c())
                 .bg(hsla(0.0, 0.0, 0.04, 1.0))
                 .p(px(8.0)).text_xs()

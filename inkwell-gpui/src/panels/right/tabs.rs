@@ -166,9 +166,12 @@ impl RightPanel {
                 .child(div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent())
                     .child(Icon::new(IconName::Play).text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)))
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
-                        let msg = this.chat_input.as_ref().map(|e| e.read(cx).value().to_string()).unwrap_or_default();
-                        if msg.is_empty() { return; }
-                        this.store.update(cx, |s, _| { s.chat_messages.push(("user".into(), msg.clone())); });
+                        let raw_msg = this.chat_input.as_ref().map(|e| e.read(cx).value().to_string()).unwrap_or_default();
+                        if raw_msg.is_empty() { return; }
+                        // Enrich with context providers (#codebase, #file, #git, #steering)
+                        let steering_ctx = this.store.read(cx).steering.get_context(None);
+                        let msg = crate::kiro::context::build_contextual_prompt(&raw_msg, &steering_ctx);
+                        this.store.update(cx, |s, _| { s.chat_messages.push(("user".into(), raw_msg.clone())); });
                         // Re-create input for next message
                         this.chat_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Envoyer un message...")));
                         cx.notify();
@@ -767,6 +770,39 @@ impl RightPanel {
                 }
                 Some(issues_div)
             } else { None })
+            // Git integration
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child(div().flex().gap(px(8.0))
+                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()))
+                    .child(Icon::new(IconName::GitBranch)).child("Creer branche")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        let s = this.store.read(cx);
+                        let num = s.feature_counter;
+                        let name = s.project.name.clone();
+                        std::thread::spawn(move || {
+                            let dir = std::env::current_dir().unwrap_or_default();
+                            match crate::spec::git::create_feature_branch(&dir, num, &name) {
+                                Ok(branch) => eprintln!("Created branch: {}", branch),
+                                Err(e) => eprintln!("Git error: {}", e),
+                            }
+                        });
+                    })))
+                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()))
+                    .child(Icon::new(IconName::GitBranch)).child("Commit specs")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        let name = this.store.read(cx).project.name.clone();
+                        std::thread::spawn(move || {
+                            let dir = std::env::current_dir().unwrap_or_default();
+                            let msg = format!("spec: {}", name);
+                            let _ = crate::spec::git::commit_specs(&dir, &msg);
+                        });
+                    }))))
             // Export buttons
             .child(div().h(px(1.0)).bg(border_c()))
             .child(div().flex().gap(px(8.0))
@@ -844,6 +880,24 @@ impl RightPanel {
                         }
                     })))
             )
+            // Extensions section
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child({
+                let extensions = &self.store.read(cx).extensions;
+                let mut ext_section = div().flex().flex_col().gap(px(4.0))
+                    .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted()).child("Extensions"));
+                for ext in &extensions.extensions {
+                    ext_section = ext_section.child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(bg_tertiary())
+                            .flex().items_center().gap(px(6.0))
+                            .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
+                                .bg(if ext.enabled { success() } else { text_muted() }))
+                            .child(div().flex_1().text_xs().text_color(text_primary()).child(ext.name.clone()))
+                            .child(div().text_xs().text_color(text_muted()).child(ext.version.clone()))
+                    );
+                }
+                ext_section
+            })
     }
 }
 

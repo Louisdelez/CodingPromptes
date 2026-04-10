@@ -27,7 +27,8 @@ pub struct SpecContext {
     pub tasks: String,
     pub implementation: String,
     pub tech_stack: String,
-    pub steering_context: String, // Kiro steering rules injected as context
+    pub steering_context: String,
+    pub preset_engine: Option<super::presets::PresetEngine>,
 }
 
 impl SpecContext {
@@ -41,6 +42,7 @@ impl SpecContext {
             implementation: String::new(),
             tech_stack: String::new(),
             steering_context: String::new(),
+            preset_engine: None,
         }
     }
 
@@ -81,13 +83,26 @@ pub fn build_system_prompt(phase: SpecPhase, action: SpecAction) -> String {
 pub fn build_user_prompt(phase: SpecPhase, action: SpecAction, ctx: &SpecContext) -> String {
     match action {
         SpecAction::Generate => {
-            let template = match phase {
-                SpecPhase::Constitution => templates::CONSTITUTION_TEMPLATE.replace("{PROJECT}", &ctx.project_name),
-                SpecPhase::Specification => templates::SPEC_TEMPLATE.replace("{FEATURE}", &ctx.project_name),
-                SpecPhase::Plan => templates::PLAN_TEMPLATE.replace("{FEATURE}", &ctx.project_name),
-                SpecPhase::Tasks => templates::TASKS_TEMPLATE.replace("{FEATURE}", &ctx.project_name),
-                SpecPhase::Implementation => String::new(),
+            // Resolve template via presets (if available) or fallback to core
+            let template_type = match phase {
+                SpecPhase::Constitution => "constitution",
+                SpecPhase::Specification => "specification",
+                SpecPhase::Plan => "plan",
+                SpecPhase::Tasks => "tasks",
+                SpecPhase::Implementation => "",
             };
+            let raw_template = if let Some(ref presets) = ctx.preset_engine {
+                presets.resolve_template(template_type)
+            } else {
+                match phase {
+                    SpecPhase::Constitution => templates::CONSTITUTION_TEMPLATE.to_string(),
+                    SpecPhase::Specification => templates::SPEC_TEMPLATE.to_string(),
+                    SpecPhase::Plan => templates::PLAN_TEMPLATE.to_string(),
+                    SpecPhase::Tasks => templates::TASKS_TEMPLATE.to_string(),
+                    SpecPhase::Implementation => String::new(),
+                }
+            };
+            let template = raw_template.replace("{PROJECT}", &ctx.project_name).replace("{FEATURE}", &ctx.project_name);
 
             let mut prompt = String::new();
 

@@ -79,30 +79,8 @@ impl InkwellApp {
         let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
         state.dark_mode = store.read(cx).dark_mode;
 
-        // Sync store changes back to state (temporary bridge during migration)
-        cx.subscribe(&store, |this: &mut Self, _, event: &crate::store::StoreEvent, cx| {
-            match event {
-                crate::store::StoreEvent::SettingsChanged => {
-                    let s = this.store.read(cx);
-                    this.state.dark_mode = s.dark_mode;
-                    this.state.lang = s.lang.clone();
-                    this.state.show_settings = s.show_settings;
-                    this.state.show_profile = s.show_profile;
-                    this.state.left_open = s.left_open;
-                    this.state.right_open = s.right_open;
-                }
-                crate::store::StoreEvent::ProjectChanged => {
-                    let s = this.store.read(cx);
-                    this.state.project.name = s.project.name.clone();
-                    this.state.save_pending = s.save_pending;
-                }
-                crate::store::StoreEvent::SwitchRightTab(tab) => {
-                    this.state.right_tab = *tab;
-                    this.state.right_open = true;
-                }
-                _ => {}
-            }
-        }).detach();
+        // State→Store sync now happens every 100ms in start_periodic_sync()
+        // No more manual bridge needed — state is pushed to store continuously
 
         Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock, auth_inputs: auth_screen::AuthScreenInputs::default(), settings_inputs: settings_modal::SettingsInputs::default() }
     }
@@ -123,6 +101,45 @@ impl InkwellApp {
                 let should_continue = this.update(cx, |this, cx| {
                     // Poll async messages
                     this.poll_messages(cx);
+
+                    // Push AppState → AppStore (eliminates stale data)
+                    this.store.update(cx, |s, _| {
+                        s.screen = this.state.screen;
+                        s.lang = this.state.lang.clone();
+                        s.dark_mode = this.state.dark_mode;
+                        s.server_url = this.state.server_url.clone();
+                        s.auth_error = this.state.auth_error.clone();
+                        s.auth_loading = this.state.auth_loading;
+                        s.auth_mode = this.state.auth_mode;
+                        s.session = this.state.session.clone();
+                        s.project = this.state.project.clone();
+                        s.projects = this.state.projects.clone();
+                        s.workspaces = this.state.workspaces.clone();
+                        s.save_status = this.state.save_status;
+                        s.save_pending = this.state.save_pending;
+                        s.prompt_dirty = this.state.prompt_dirty;
+                        s.cached_prompt = this.state.cached_prompt.clone();
+                        s.cached_tokens = this.state.cached_tokens;
+                        s.cached_chars = this.state.cached_chars;
+                        s.cached_words = this.state.cached_words;
+                        s.cached_lines = this.state.cached_lines;
+                        s.cached_vars = this.state.cached_vars.clone();
+                        s.playground_response = this.state.playground_response.clone();
+                        s.playground_loading = this.state.playground_loading;
+                        s.selected_model = this.state.selected_model.clone();
+                        s.executions = this.state.executions.clone();
+                        s.stt_recording = this.state.stt_recording;
+                        s.custom_frameworks = this.state.custom_frameworks.clone();
+                        s.chat_messages = this.state.chat_messages.clone();
+                        // terminal_sessions not cloned (contains non-Clone mpsc::Sender)
+                        s.versions = this.state.versions.clone();
+                        s.gpu_nodes = this.state.gpu_nodes.clone();
+                        s.collab_users = this.state.collab_users.clone();
+                        s.api_key_openai = this.state.api_key_openai.clone();
+                        s.api_key_anthropic = this.state.api_key_anthropic.clone();
+                        s.api_key_google = this.state.api_key_google.clone();
+                        s.github_repo = this.state.github_repo.clone();
+                    });
 
                     // Sync editor content to store
                     let changed = this.editor.update(cx, |e, cx| e.sync_content(cx));

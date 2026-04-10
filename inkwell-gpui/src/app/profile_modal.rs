@@ -6,7 +6,7 @@ use super::InkwellApp;
 
 impl InkwellApp {
     pub(crate) fn render_profile(&self, cx: &mut Context<Self>) -> Div {
-        let session = self.state.session.as_ref();
+        let session = self.store.read(cx).session.as_ref();
         let email = session.map(|s| s.email.clone()).unwrap_or_default();
         let display_name = session.map(|s| s.display_name.clone()).unwrap_or("User".into());
         let initial = email.chars().next().unwrap_or('U').to_uppercase().to_string();
@@ -42,10 +42,10 @@ impl InkwellApp {
             )
             .child(
                 div().flex().gap(px(8.0))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("Server: {}", self.state.server_url)))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("{} projects", self.state.projects.len())))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("{} workspaces", self.state.workspaces.len())))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("{} executions", self.state.executions.len())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("Server: {}", self.store.read(cx).server_url)))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} projects", self.store.read(cx).projects.len())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} workspaces", self.store.read(cx).workspaces.len())))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("{} executions", self.store.read(cx).executions.len())))
                 )
     }
 }

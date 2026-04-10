@@ -23,7 +23,7 @@ impl Default for SettingsInputs {
 
 impl InkwellApp {
     pub(crate) fn render_settings(&self, cx: &mut Context<Self>) -> Div {
-        let lang = self.state.lang.clone();
+        let lang = self.store.read(cx).lang.clone();
         // Modal overlay (matching web: centered card over backdrop)
         div().size_full().absolute().top_0().left_0()
             .bg(hsla(0.0, 0.0, 0.0, 0.4))
@@ -77,7 +77,7 @@ impl InkwellApp {
                         .child(div().h(px(28.0)).px(px(8.0)).bg(bg_tertiary()).rounded(px(4.0))
                             .border_1().border_color(border_c())
                             .flex().items_center().text_xs().text_color(text_secondary())
-                            .child(self.state.server_url.clone()))
+                            .child(self.store.read(cx).server_url.clone()))
                     )
                     // API Keys
                     .child(div().flex().flex_col().gap(px(6.0))
@@ -153,9 +153,9 @@ impl InkwellApp {
                     .child(div().flex_1())
                     .child(
                         div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
-                            .bg(if self.state.session.is_some() { danger() } else { accent() })
+                            .bg(if self.store.read(cx).session.is_some() { danger() } else { accent() })
                             .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
-                            .child(if self.state.session.is_some() { "Deconnecter sync" } else { "Connecter sync" })
+                            .child(if self.store.read(cx).session.is_some() { "Deconnecter sync" } else { "Connecter sync" })
                             .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, _| {
                                 if this.state.session.is_some() {
                                     // Disconnect sync (keep local data)

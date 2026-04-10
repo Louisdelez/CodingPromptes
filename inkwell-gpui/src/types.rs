@@ -25,6 +25,7 @@ pub enum RightTab {
 
 // ── Project & Blocks ──
 
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Project {
     pub id: String,

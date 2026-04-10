@@ -199,7 +199,7 @@ impl Render for BlockEditor {
 
                         if let Some(bt) = block_type {
                             if let Some(phase) = crate::spec::generator::block_type_to_phase(bt) {
-                                let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                                let mut ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
                                 let (system, user) = crate::spec::workflow::build_llm_messages(
                                     phase, crate::spec::generator::SpecAction::Generate, &ctx
                                 );
@@ -276,7 +276,7 @@ impl Render for BlockEditor {
 
                         if let Some(bt) = block_type {
                             if let Some(phase) = crate::spec::generator::block_type_to_phase(bt) {
-                                let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                                let mut ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
                                 let (system, user) = crate::spec::workflow::build_llm_messages(
                                     phase, crate::spec::generator::SpecAction::Improve, &ctx
                                 );
@@ -326,7 +326,7 @@ impl Render for BlockEditor {
                         let tx = store.msg_tx.clone();
                         if let Some(bt) = block_type {
                             if let Some(phase) = crate::spec::generator::block_type_to_phase(bt) {
-                                let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                                let mut ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
                                 let (system, user) = crate::spec::workflow::build_llm_messages(
                                     phase, crate::spec::generator::SpecAction::Clarify, &ctx);
                                 std::thread::spawn(move || { crate::app::rt().block_on(async {

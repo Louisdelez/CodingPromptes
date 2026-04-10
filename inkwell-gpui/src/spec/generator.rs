@@ -27,6 +27,7 @@ pub struct SpecContext {
     pub tasks: String,
     pub implementation: String,
     pub tech_stack: String,
+    pub steering_context: String, // Kiro steering rules injected as context
 }
 
 impl SpecContext {
@@ -39,6 +40,7 @@ impl SpecContext {
             tasks: String::new(),
             implementation: String::new(),
             tech_stack: String::new(),
+            steering_context: String::new(),
         }
     }
 
@@ -104,6 +106,9 @@ pub fn build_user_prompt(phase: SpecPhase, action: SpecAction, ctx: &SpecContext
             }
             if !ctx.tech_stack.is_empty() {
                 prompt.push_str(&format!("## Tech Stack\n{}\n\n", ctx.tech_stack));
+            }
+            if !ctx.steering_context.is_empty() {
+                prompt.push_str(&format!("## Steering Context (Project Rules)\n{}\n\n", ctx.steering_context));
             }
 
             prompt.push_str(&format!("Generate the content following this template structure:\n\n{}\n\nProject: {}\nDate: {}", template, ctx.project_name, chrono::Local::now().format("%Y-%m-%d")));

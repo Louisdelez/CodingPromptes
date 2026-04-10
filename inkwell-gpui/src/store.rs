@@ -71,6 +71,7 @@ pub struct AppStore {
     // Kiro
     pub hooks: crate::kiro::hooks::HookEngine,
     pub steering: crate::kiro::steering::SteeringEngine,
+    pub feature_counter: u32, // Auto-increment for feature numbering (001, 002...)
 
     // STT
     pub stt_recording: bool,
@@ -191,6 +192,7 @@ impl AppStore {
             sdd_running: false,
             hooks: crate::kiro::hooks::HookEngine::new(),
             steering: crate::kiro::steering::SteeringEngine::new(),
+            feature_counter: 1,
             stt_recording: false, stt_target_block: None, stt_stop_tx: None, stt_provider: SttProvider::Local,
             show_settings: false, show_profile: false,
             api_key_openai: local_settings.api_key_openai,

@@ -131,14 +131,16 @@ impl LeftPanel {
                     .cursor_pointer().hover(|s| s.bg(accent_bg()))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         this.store.update(cx, |s, cx| {
+                            let num = s.feature_counter;
                             let mut p = Project::default_prompt();
-                            p.name = "Nouveau Prompte".into();
+                            p.name = format!("{:03}-nouveau-prompte", num);
                             p.workspace_id = Some(ws_id3.clone());
                             let now = chrono::Local::now();
                             p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
                             let ws = Some(ws_id3.clone());
                             s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone(), workspace_id: ws });
                             s.project = p; s.prompt_dirty = true; s.save_pending = true;
+                            s.feature_counter += 1;
                             cx.emit(StoreEvent::ProjectChanged);
                         });
                     })))

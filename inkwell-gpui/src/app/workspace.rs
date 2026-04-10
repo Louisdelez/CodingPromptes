@@ -23,13 +23,15 @@ impl InkwellApp {
         let dock = self.dock.clone();
 
         div().size_full().bg(t.bg_primary).flex().flex_col()
-            .on_action(cx.listener(|this, _: &NewProject, _, _| {
+            .on_action(cx.listener(|this, _: &NewProject, _, cx| {
+                let num = this.store.read(cx).feature_counter;
                 let mut p = Project::default_prompt();
-                p.name = "Nouveau Prompte".into();
+                p.name = format!("{:03}-nouveau-prompte", num);
                 let now = chrono::Local::now();
                 p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
                 this.state.project = p;
                 this.state.block_inputs.clear();
+                this.store.update(cx, |s, _| { s.feature_counter += 1; });
             }))
             .on_action(cx.listener(|this, _: &ToggleTerminal, _, cx| {
                 this.state.right_tab = RightTab::Terminal;

@@ -73,40 +73,42 @@ impl Render for LeftPanel {
             SidebarView::Versions => IconName::History,
         };
 
-        // ── Header: view name + dropdown chevron (matching web: 44px, px-16) ──
+        let show_dd = self.show_dropdown;
+
+        // ── Header: click anywhere on header toggles dropdown ──
         panel = panel.child(
-            div().h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
+            div().id("left-panel-header").h(px(44.0)).px(px(16.0)).flex().items_center().gap(px(8.0))
                 .border_b_1().border_color(border_c())
+                .cursor_pointer().hover(|s| s.bg(bg_hover()))
                 .child(Icon::new(view_icon).text_color(text_muted()))
                 .child(div().flex_1().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child(view_label))
-                .child(
-                    div().text_color(text_muted())
-                        .child(Icon::new(IconName::ChevronDown))
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                            this.show_dropdown = !this.show_dropdown; cx.notify();
-                        }))
-                )
+                .child(Icon::new(if show_dd { IconName::ChevronUp } else { IconName::ChevronDown }).text_color(text_muted()))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.show_dropdown = !this.show_dropdown; cx.notify();
+                }))
         );
 
-        // ── Dropdown menu ──
-        if self.show_dropdown {
+        // ── Dropdown menu (in flow, with hover animations) ──
+        if show_dd {
             let items = [
                 ("Bibliotheque", SidebarView::Library, IconName::FolderOpen),
                 ("Frameworks", SidebarView::Frameworks, IconName::Layers),
                 ("Versions", SidebarView::Versions, IconName::History),
             ];
-            let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
-                .bg(bg_tertiary()).border_1().border_color(border_c()).p(px(4.0))
-                .flex().flex_col();
+            let mut menu = div().mx(px(8.0)).my(px(4.0)).rounded(px(8.0))
+                .bg(bg_tertiary()).border_1().border_color(border_c())
+                .p(px(4.0)).flex().flex_col().gap(px(2.0));
             for (label, view, icon) in items {
                 let is_active = self.view == view;
                 menu = menu.child(
-                    div().px(px(10.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                        .text_xs().text_color(if is_active { accent() } else { text_secondary() })
-                        .bg(if is_active { accent_bg() } else { hsla(0.0, 0.0, 0.0, 0.0) })
-                        .hover(|s| s.bg(bg_secondary()))
-                        .child(Icon::new(icon)).child(label.to_string())
-                        .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                    div().px(px(10.0)).py(px(8.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
+                        .text_sm().cursor_pointer()
+                        .text_color(if is_active { accent() } else { text_primary() })
+                        .bg(if is_active { accent_bg() } else { transparent() })
+                        .hover(|s| s.bg(bg_hover()))
+                        .child(Icon::new(icon))
+                        .child(label.to_string())
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                             this.view = view; this.show_dropdown = false; cx.notify();
                         }))
                 );
@@ -203,12 +205,17 @@ impl Render for LeftPanel {
             }
         }
 
-        // ── Content ──
-        panel = panel.child(match self.view {
+        // ── Content (scrollable) ──
+        let content = match self.view {
             SidebarView::Library => self.render_library(&projects, &workspaces, &current_id, &confirm_delete, cx),
             SidebarView::Frameworks => self.render_frameworks(&custom_fw, cx),
             SidebarView::Versions => self.render_versions(&versions, window, cx),
-        });
+        };
+        panel = panel.child(div().id("left-content").flex_1().overflow_y_scroll()
+            .child(content)
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                if this.show_dropdown { this.show_dropdown = false; cx.notify(); }
+            })));
 
         panel
     }

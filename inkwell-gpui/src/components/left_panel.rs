@@ -270,10 +270,11 @@ impl Render for LeftPanel {
 
         panel = panel.child(div().id("left-content").flex_1().overflow_y_scroll()
             .child(content)
-            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                 if this.show_dropdown { this.show_dropdown = false; }
                 if this.context_menu.is_some() { this.context_menu = None; }
                 if this.renaming_id.is_some() { Self::confirm_rename(this, cx); }
+                window.blur(); // Remove focus from search input
                 cx.notify();
             })));
 

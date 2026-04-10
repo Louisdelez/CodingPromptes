@@ -822,9 +822,23 @@ impl InkwellApp {
         Theme::change(if dark_mode { ThemeMode::Dark } else { ThemeMode::Light }, None, cx);
         let t = crate::theme::InkwellTheme::from_mode(dark_mode);
         let mut main_row = div().flex_1().flex().overflow_hidden();
-        if left_open { main_row = main_row.child(self.left_panel.clone()); }
+        if left_open {
+            main_row = main_row.child(self.left_panel.clone());
+            // Left resize handle
+            main_row = main_row.child(
+                div().id("left-resize").w(px(4.0)).flex_shrink_0().cursor_pointer()
+                    .hover(|s| s.bg(accent()))
+            );
+        }
         main_row = main_row.child(self.editor.clone());
-        if right_open { main_row = main_row.child(self.right_panel.clone()); }
+        if right_open {
+            // Right resize handle
+            main_row = main_row.child(
+                div().id("right-resize").w(px(4.0)).flex_shrink_0().cursor_pointer()
+                    .hover(|s| s.bg(accent()))
+            );
+            main_row = main_row.child(self.right_panel.clone());
+        }
 
         div().size_full().bg(t.bg_primary).flex().flex_col()
             .on_action(cx.listener(|this, _: &NewProject, _, _| {

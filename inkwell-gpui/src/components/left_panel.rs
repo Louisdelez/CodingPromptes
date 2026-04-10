@@ -64,7 +64,8 @@ impl Render for LeftPanel {
             SidebarView::Versions => "Versions",
         };
 
-        let mut panel = div().w(px(288.0)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
+        let panel_width = self.store.read(cx).left_width;
+        let mut panel = div().w(px(panel_width)).flex_shrink_0().border_r_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col();
 
         let view_icon = match self.view {

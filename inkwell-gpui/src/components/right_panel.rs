@@ -118,7 +118,8 @@ impl Render for RightPanel {
                 |this, delta| this.opacity(delta),
             );
 
-        div().w(px(384.0)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
+        let panel_width = self.store.read(cx).right_width;
+        div().w(px(panel_width)).flex_shrink_0().border_l_1().border_color(border_c()).bg(bg_secondary())
             .flex().flex_col().child(header).children(dropdown).child(content_animated)
     }
 }

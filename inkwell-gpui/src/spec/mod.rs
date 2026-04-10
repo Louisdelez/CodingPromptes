@@ -12,3 +12,5 @@ pub mod export;
 pub mod git;
 pub mod presets;
 pub mod extensions;
+pub mod agent_files;
+pub mod catalog;

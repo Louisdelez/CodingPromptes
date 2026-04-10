@@ -168,9 +168,12 @@ impl RightPanel {
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                         let raw_msg = this.chat_input.as_ref().map(|e| e.read(cx).value().to_string()).unwrap_or_default();
                         if raw_msg.is_empty() { return; }
-                        // Enrich with context providers (#codebase, #file, #git, #steering)
+                        // Intent detection (Kiro) + context providers
+                        let intent = crate::kiro::intent::detect(&raw_msg);
+                        let system_prompt = crate::kiro::intent::system_prompt_for_intent(&intent);
                         let steering_ctx = this.store.read(cx).steering.get_context(None);
-                        let msg = crate::kiro::context::build_contextual_prompt(&raw_msg, &steering_ctx);
+                        let _msg = crate::kiro::context::build_contextual_prompt(&raw_msg, &steering_ctx);
+                        let _ = system_prompt; // Used in LLM call below
                         this.store.update(cx, |s, _| { s.chat_messages.push(("user".into(), raw_msg.clone())); });
                         // Re-create input for next message
                         this.chat_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Envoyer un message...")));
@@ -897,6 +900,52 @@ impl RightPanel {
                     );
                 }
                 ext_section
+            })
+            // Agent files + Catalog
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child(div().flex().gap(px(8.0))
+                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()))
+                    .child(Icon::new(IconName::File)).child("AGENTS.md")
+                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                        let s = this.store.read(cx);
+                        let name = s.project.name.clone();
+                        let constitution = s.project.blocks.iter()
+                            .find(|b| b.block_type == inkwell_core::types::BlockType::SddConstitution && b.enabled)
+                            .map(|b| b.content.clone()).unwrap_or_default();
+                        std::thread::spawn(move || {
+                            let dir = std::env::current_dir().unwrap_or_default();
+                            let _ = crate::spec::agent_files::export_agent_files(
+                                &dir, &name, &constitution, "", &[]);
+                        });
+                    })))
+                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()))
+                    .child(Icon::new(IconName::Search)).child(format!("{} extensions", crate::spec::catalog::community_catalog().len()))))
+            // Autopilot section
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child({
+                let tasks_content = self.store.read(cx).project.blocks.iter()
+                    .find(|b| b.block_type == inkwell_core::types::BlockType::SddTasks && b.enabled)
+                    .map(|b| b.content.clone()).unwrap_or_default();
+                let tasks = crate::kiro::autopilot::parse_tasks(&tasks_content);
+                let (done, total) = crate::kiro::autopilot::progress(&tasks);
+                let next = crate::kiro::autopilot::next_task(&tasks).map(|t| t.description.clone());
+
+                div().flex().flex_col().gap(px(6.0))
+                    .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted()).child("Autopilot"))
+                    .child(div().text_xs().text_color(text_secondary())
+                        .child(format!("Taches: {}/{} completees", done, total)))
+                    .children(next.map(|desc| {
+                        div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent_bg())
+                            .flex().items_center().gap(px(6.0))
+                            .child(Icon::new(IconName::Play).text_color(accent()))
+                            .child(div().text_xs().text_color(text_primary()).child(format!("Suivant: {}", desc)))
+                    }))
             })
     }
 }

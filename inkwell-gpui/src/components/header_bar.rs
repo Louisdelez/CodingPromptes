@@ -91,9 +91,12 @@ impl Render for HeaderBar {
                     }))
             })
             .child(match save_status {
-                "saving" => div().text_xs().text_color(warning()).child("Saving..."),
-                "saved" => div().flex().items_center().gap(px(2.0)).text_xs().text_color(success())
-                    .child(Icon::new(IconName::Check)).child("Saved"),
+                "saving" => div().text_xs().text_color(warning()).flex().items_center().gap(px(4.0))
+                    .child(Icon::new(IconName::LoaderCircle).text_color(warning()))
+                    .child(if is_fr { "Sauvegarde..." } else { "Saving..." }),
+                "saved" => div().flex().items_center().gap(px(4.0)).text_xs().text_color(success())
+                    .child(Icon::new(IconName::Check))
+                    .child(if is_fr { "Sauvegarde" } else { "Saved" }),
                 _ => div(),
             });
 

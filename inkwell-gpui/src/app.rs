@@ -878,7 +878,11 @@ impl InkwellApp {
 
         div().size_full().bg(t.bg_primary).flex().flex_col()
             .on_action(cx.listener(|this, _: &NewProject, _, _| {
-                this.state.project = Project::default_prompt();
+                let mut p = Project::default_prompt();
+                p.name = "Nouveau Prompte".into();
+                let now = chrono::Local::now();
+                p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
+                this.state.project = p;
                 this.state.block_inputs.clear();
             }))
             .on_action(cx.listener(|this, _: &ToggleTerminal, _, cx| {

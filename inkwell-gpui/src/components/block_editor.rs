@@ -217,19 +217,15 @@ impl Render for BlockEditor {
                 }))
         );
 
-        // Delete
+        // Delete — triggers confirmation modal in EditorPane
         header = header.child(
             div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                 .text_xs().text_color(danger()).child(Icon::new(IconName::Trash2))
-                .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                .cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                     this.store.update(cx, |s, cx| {
-                        if idx < s.project.blocks.len() {
-                            s.undo_stack.push_back(s.project.blocks.clone());
-                            while s.undo_stack.len() > 50 { s.undo_stack.pop_front(); }
-                            s.project.blocks.remove(idx);
-                            s.prompt_dirty = true;
-                            cx.emit(StoreEvent::ProjectChanged);
-                        }
+                        s.confirm_delete_block = Some(idx);
+                        cx.emit(StoreEvent::ProjectChanged);
                     });
                 }))
         );

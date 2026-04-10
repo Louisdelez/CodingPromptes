@@ -33,6 +33,7 @@ pub struct EditorPane {
     variable_inputs: std::collections::HashMap<String, Entity<InputState>>,
     show_add_menu: bool,
     last_block_count: usize,
+    confirm_delete_block: Option<usize>,
 }
 
 impl EditorPane {
@@ -64,7 +65,7 @@ impl EditorPane {
         Self {
             store, block_editors, tag_input,
             variable_inputs: std::collections::HashMap::new(),
-            show_add_menu: false,
+            show_add_menu: false, confirm_delete_block: None,
             last_block_count: block_count,
         }
     }
@@ -306,7 +307,75 @@ impl Render for EditorPane {
                 .child(tags_row)
         );
 
-        div().flex_1().flex().flex_col().min_w_0().overflow_hidden()
-            .child(div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0)).child(block_list))
+        // Terminal at bottom (when open)
+        let terminal_open = self.store.read(cx).terminal_open;
+        let terminal_output = if terminal_open {
+            let s = self.store.read(cx);
+            let output = s.terminal_sessions.get(s.active_terminal).map(|t| t.output.clone()).unwrap_or_default();
+            drop(s);
+            Some(div().h(px(200.0)).flex_shrink_0().border_t_1().border_color(border_c())
+                .bg(hsla(0.0, 0.0, 0.04, 1.0))
+                .p(px(8.0)).text_xs()
+                .text_color(hsla(120.0 / 360.0, 0.8, 0.6, 1.0))
+                .child(if output.is_empty() { "Terminal pret. Utilisez le serveur pour executer des commandes.".into() } else {
+                    let lines: Vec<&str> = output.lines().collect();
+                    let start = if lines.len() > 30 { lines.len() - 30 } else { 0 };
+                    lines[start..].join("\n")
+                }))
+        } else { None };
+
+        // Delete block confirmation modal
+        let confirm_del = self.store.read(cx).confirm_delete_block;
+        let delete_modal = confirm_del.map(|block_idx| {
+            let block_label = self.store.read(cx).project.blocks.get(block_idx)
+                .map(|b| b.block_type.label(&self.store.read(cx).lang).to_string())
+                .unwrap_or("bloc".into());
+            div().id("delete-modal-backdrop").size_full().absolute().top_0().left_0()
+                .bg(hsla(0.0, 0.0, 0.0, 0.4))
+                .flex().items_center().justify_center()
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |s, cx| { s.confirm_delete_block = None; cx.emit(StoreEvent::ProjectChanged); });
+                }))
+                .child(div().w(px(340.0)).rounded(px(12.0)).bg(bg_secondary())
+                    .border_1().border_color(border_c()).p(px(24.0))
+                    .flex().flex_col().gap(px(16.0)).items_center()
+                    .on_mouse_down(MouseButton::Left, cx.listener(|_, _, _, _| { /* stop propagation */ }))
+                    .child(Icon::new(IconName::TriangleAlert).text_color(danger()))
+                    .child(div().text_sm().text_color(text_primary()).child(format!("Supprimer le bloc \"{block_label}\" ?")))
+                    .child(div().text_xs().text_color(text_muted()).child("Cette action est irreversible."))
+                    .child(div().flex().gap(px(8.0))
+                        .child(div().px(px(16.0)).py(px(6.0)).rounded(px(6.0)).bg(bg_tertiary())
+                            .text_xs().text_color(text_secondary()).cursor_pointer().hover(|s| s.bg(bg_hover()))
+                            .child("Annuler")
+                            .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                this.store.update(cx, |s, cx| { s.confirm_delete_block = None; cx.emit(StoreEvent::ProjectChanged); });
+                            })))
+                        .child(div().px(px(16.0)).py(px(6.0)).rounded(px(6.0)).bg(danger())
+                            .text_xs().text_color(ink_white()).cursor_pointer().hover(|s| s.bg(hsla(0.0, 0.7, 0.4, 1.0)))
+                            .child("Supprimer")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                this.store.update(cx, |s, cx| {
+                                    if let Some(idx) = s.confirm_delete_block {
+                                        if idx < s.project.blocks.len() {
+                                            s.undo_stack.push_back(s.project.blocks.clone());
+                                            while s.undo_stack.len() > 50 { s.undo_stack.pop_front(); }
+                                            s.project.blocks.remove(idx);
+                                            s.prompt_dirty = true;
+                                        }
+                                    }
+                                    s.confirm_delete_block = None;
+                                    cx.emit(StoreEvent::ProjectChanged);
+                                });
+                            })))))
+        });
+
+        div().flex_1().flex().flex_col().min_w_0()
+            // Scrollable editor area
+            .child(div().id("editor-scroll").flex_1().overflow_y_scroll()
+                .p(px(16.0)).flex().flex_col().gap(px(12.0)).child(block_list))
+            // Terminal at bottom (like VS Code / Zed)
+            .children(terminal_output)
+            // Delete confirmation overlay
+            .children(delete_modal)
     }
 }

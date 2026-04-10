@@ -5,6 +5,7 @@ use gpui_component_assets::Assets;
 
 mod app;
 mod components;
+mod dock;
 mod llm;
 mod persistence;
 mod state;

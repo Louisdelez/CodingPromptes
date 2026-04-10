@@ -52,6 +52,7 @@ pub struct InkwellApp {
     pub editor: Entity<crate::components::editor_pane::EditorPane>,
     pub left_panel: Entity<crate::components::left_panel::LeftPanel>,
     pub right_panel: Entity<crate::components::right_panel::RightPanel>,
+    pub dock: Entity<crate::dock::DockArea>,
 }
 
 impl InkwellApp {
@@ -63,6 +64,17 @@ impl InkwellApp {
         let editor = cx.new(|cx| crate::components::editor_pane::EditorPane::new(store.clone(), window, cx));
         let left_panel = cx.new(|cx| crate::components::left_panel::LeftPanel::new(store.clone(), window, cx));
         let right_panel = cx.new(|cx| crate::components::right_panel::RightPanel::new(store.clone(), window, cx));
+
+        // DockArea manages the three-panel layout + resize handles
+        let lp: AnyView = left_panel.clone().into();
+        let center: AnyView = editor.clone().into();
+        let rp: AnyView = right_panel.clone().into();
+        let dock = cx.new(|cx| {
+            let mut d = crate::dock::DockArea::new(store.clone(), center, cx);
+            d.set_left(lp);
+            d.set_right(rp);
+            d
+        });
 
         let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
         state.dark_mode = store.read(cx).dark_mode;
@@ -92,7 +104,7 @@ impl InkwellApp {
             }
         }).detach();
 
-        Self { state, store, header, bottom_bar, editor, left_panel, right_panel }
+        Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock }
     }
 
     fn t(&self) -> crate::theme::InkwellTheme {

@@ -19,6 +19,7 @@ pub enum SpecAction {
     Clarify,
 }
 
+#[derive(Clone)]
 pub struct SpecContext {
     pub project_name: String,
     pub constitution: String,

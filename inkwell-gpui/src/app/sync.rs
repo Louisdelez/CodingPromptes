@@ -138,10 +138,30 @@ impl InkwellApp {
                     if let Some(block) = self.state.project.blocks.get_mut(idx) {
                         block.content = content.clone();
                     }
-                    // Reset the input state for this block so it picks up new content
                     if idx < self.state.block_inputs.len() {
-                        self.state.block_inputs[idx] = None; // Will be recreated next frame
+                        self.state.block_inputs[idx] = None;
                     }
+                    // Execute hooks after spec generation
+                    let hooks = self.store.read(cx).hooks.fire(&crate::kiro::hooks::HookEvent::SpecGenerated);
+                    for hook in hooks {
+                        match &hook.action {
+                            crate::kiro::hooks::HookAction::ValidateSpec => {
+                                let issues = crate::spec::workflow::validate_all(&self.state.project.blocks);
+                                let count: usize = issues.iter().map(|(_, i)| i.len()).sum();
+                                if count > 0 {
+                                    self.state.playground_response = format!("[Hook] Validation: {} probleme(s) detecte(s)", count);
+                                }
+                            }
+                            crate::kiro::hooks::HookAction::AutoSave => {
+                                self.state.save_pending = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                    // Track credits
+                    self.store.update(cx, |s, _| {
+                        s.credits.record_from_text(&s.selected_model, 500, content.len());
+                    });
                 }
                 AsyncMsg::ExportReady(path) => {
                     self.state.playground_response = format!("Exported to {path}");

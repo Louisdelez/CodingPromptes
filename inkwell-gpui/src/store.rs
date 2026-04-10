@@ -74,6 +74,9 @@ pub struct AppStore {
     pub feature_counter: u32,
     pub presets: crate::spec::presets::PresetEngine,
     pub extensions: crate::spec::extensions::ExtensionRegistry,
+    pub credits: crate::kiro::credits::CreditTracker,
+    pub sessions: crate::kiro::sessions::SessionManager,
+    pub pending_diff: Option<(usize, String)>, // (block_idx, new_content) for live diff preview
 
     // STT
     pub stt_recording: bool,
@@ -197,6 +200,9 @@ impl AppStore {
             feature_counter: 1,
             presets: crate::spec::presets::PresetEngine::new(),
             extensions: crate::spec::extensions::ExtensionRegistry::new(),
+            credits: crate::kiro::credits::CreditTracker::new(),
+            sessions: crate::kiro::sessions::SessionManager::new(),
+            pending_diff: None,
             stt_recording: false, stt_target_block: None, stt_stop_tx: None, stt_provider: SttProvider::Local,
             show_settings: false, show_profile: false,
             api_key_openai: local_settings.api_key_openai,

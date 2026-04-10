@@ -168,26 +168,64 @@ impl RightPanel {
                     .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                         let raw_msg = this.chat_input.as_ref().map(|e| e.read(cx).value().to_string()).unwrap_or_default();
                         if raw_msg.is_empty() { return; }
-                        // Intent detection (Kiro) + context providers
+                        // Intent detection (Kiro) + context providers + slash commands
                         let intent = crate::kiro::intent::detect(&raw_msg);
-                        let system_prompt = crate::kiro::intent::system_prompt_for_intent(&intent);
-                        let steering_ctx = this.store.read(cx).steering.get_context(None);
-                        let _msg = crate::kiro::context::build_contextual_prompt(&raw_msg, &steering_ctx);
-                        let _ = system_prompt; // Used in LLM call below
                         this.store.update(cx, |s, _| { s.chat_messages.push(("user".into(), raw_msg.clone())); });
-                        // Re-create input for next message
                         this.chat_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Envoyer un message...")));
                         cx.notify();
-                        let msgs: Vec<serde_json::Value> = this.store.read(cx).chat_messages.iter()
-                            .map(|(r, c)| serde_json::json!({"role":r,"content":c})).collect();
+
+                        // Check for /speckit.* slash commands FIRST
+                        if let Some(cmd) = crate::kiro::commands::parse_command(&raw_msg) {
+                            let store = this.store.read(cx);
+                            let blocks: Vec<crate::types::Block> = store.project.blocks.clone();
+                            let name = store.project.name.clone();
+                            let model = store.selected_model.clone();
+                            let server = store.server_url.clone();
+                            let tx = store.msg_tx.clone();
+
+                            if let Some((system, user, target_bt)) = crate::kiro::commands::build_command_prompt(&cmd, &blocks, &name) {
+                                // If command creates a block, send SddBlockResult; otherwise chat response
+                                std::thread::spawn(move || { crate::app::rt().block_on(async {
+                                    let client = reqwest::Client::new();
+                                    let body = serde_json::json!({"model":model,"messages":[
+                                        {"role":"system","content":system},
+                                        {"role":"user","content":user}
+                                    ],"temperature":0.3,"max_tokens":4096,"stream":false});
+                                    if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                            if target_bt.is_some() {
+                                                // Result goes to pending diff for review
+                                                let _ = tx.send(AsyncMsg::LlmResponse(format!("__CHAT__Commande executee. Resultat disponible dans le Playground.")));
+                                                let _ = tx.send(AsyncMsg::LlmResponse(text));
+                                            } else {
+                                                let _ = tx.send(AsyncMsg::LlmResponse(format!("__CHAT__{text}")));
+                                            }
+                                        }
+                                    }
+                                    let _ = tx.send(AsyncMsg::LlmDone);
+                                }); });
+                            }
+                            return;
+                        }
+
+                        // Regular chat — use intent-based system prompt + context
+                        let system_prompt = crate::kiro::intent::system_prompt_for_intent(&intent);
+                        let steering_ctx = this.store.read(cx).steering.get_context(None);
+                        let enriched_msg = crate::kiro::context::build_contextual_prompt(&raw_msg, &steering_ctx);
+                        let model = this.store.read(cx).selected_model.clone();
                         let server = this.store.read(cx).server_url.clone();
                         let tx = this.store.read(cx).msg_tx.clone();
+                        let msgs: Vec<serde_json::Value> = vec![
+                            serde_json::json!({"role":"system","content":system_prompt}),
+                            serde_json::json!({"role":"user","content":enriched_msg}),
+                        ];
                         std::thread::spawn(move || { crate::app::rt().block_on(async {
                             let client = reqwest::Client::new();
-                            let body = serde_json::json!({"model":"gpt-4o-mini","messages":msgs,"temperature":0.7,"max_tokens":2048,"stream":false});
-                            if let Ok(resp) = crate::app::llm_post(&client, "gpt-4o-mini", &server, body).send().await {
+                            let body = serde_json::json!({"model":model,"messages":msgs,"temperature":0.7,"max_tokens":2048,"stream":false});
+                            if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
                                 if let Ok(data) = resp.json::<serde_json::Value>().await {
-                                    let text = crate::llm::parse_llm_response("gpt-4o-mini", &data).unwrap_or_default();
+                                    let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
                                     let _ = tx.send(AsyncMsg::LlmResponse(format!("__CHAT__{text}")));
                                 }
                             }

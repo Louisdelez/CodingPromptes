@@ -5,3 +5,6 @@ pub mod steering;
 pub mod context;
 pub mod intent;
 pub mod autopilot;
+pub mod commands;
+pub mod credits;
+pub mod sessions;

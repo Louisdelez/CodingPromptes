@@ -176,11 +176,137 @@ impl Render for BlockEditor {
             })
             .child(div().flex_1());
 
-        // SDD action buttons (generate/improve/clarify) — simplified in block, full version in EditorPane
+        // SDD action buttons — Generate, Validate, Improve
         if is_sdd {
+            // Generate button (fills block from previous SDD blocks context)
             header = header.child(
-                div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
-                    .text_xs().text_color(accent()).child(Icon::new(IconName::Wand2))
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).flex().items_center().gap(px(2.0))
+                    .text_xs().text_color(accent()).cursor_pointer()
+                    .hover(|s| s.bg(accent_bg()))
+                    .child(Icon::new(IconName::Sparkles))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        // Collect SDD context from all blocks and generate this one
+                        let store = this.store.read(cx);
+                        let blocks: Vec<(inkwell_core::types::BlockType, String)> = store.project.blocks.iter()
+                            .filter(|b| b.enabled && b.block_type.is_sdd())
+                            .map(|b| (b.block_type, b.content.clone()))
+                            .collect();
+                        let project_name = store.project.name.clone();
+                        let model = store.selected_model.clone();
+                        let server = store.server_url.clone();
+                        let block_type = store.project.blocks.get(idx).map(|b| b.block_type);
+                        let tx = store.msg_tx.clone();
+
+                        if let Some(bt) = block_type {
+                            if let Some(phase) = crate::spec::generator::block_type_to_phase(bt) {
+                                let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                                let (system, user) = crate::spec::workflow::build_llm_messages(
+                                    phase, crate::spec::generator::SpecAction::Generate, &ctx
+                                );
+                                this.store.update(cx, |s, _| { s.sdd_running = true; });
+
+                                std::thread::spawn(move || {
+                                    crate::app::rt().block_on(async {
+                                        let client = reqwest::Client::new();
+                                        let body = serde_json::json!({
+                                            "model": model,
+                                            "messages": [
+                                                {"role": "system", "content": system},
+                                                {"role": "user", "content": user}
+                                            ],
+                                            "temperature": 0.3,
+                                            "max_tokens": 4096,
+                                            "stream": false
+                                        });
+                                        if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                                let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx, content: text });
+                                            }
+                                        }
+                                        let _ = tx.send(crate::types::AsyncMsg::LlmDone);
+                                    });
+                                });
+                            }
+                        }
+                    }))
+            );
+            // Validate button
+            header = header.child(
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                    .text_xs().text_color(success()).cursor_pointer()
+                    .hover(|s| s.bg(accent_bg()))
+                    .child(Icon::new(IconName::Check))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        let store = this.store.read(cx);
+                        if let Some(block) = store.project.blocks.get(idx) {
+                            let issues = match block.block_type {
+                                BlockType::SddConstitution => crate::spec::validator::validate_constitution(&block.content),
+                                BlockType::SddSpecification => crate::spec::validator::validate_specification(&block.content),
+                                BlockType::SddPlan => crate::spec::validator::validate_plan(&block.content),
+                                BlockType::SddTasks => crate::spec::validator::validate_tasks(&block.content),
+                                _ => vec![],
+                            };
+                            let msg = if issues.is_empty() {
+                                "Validation OK".to_string()
+                            } else {
+                                issues.iter().map(|i| format!("{:?}: {}", i.severity, i.message)).collect::<Vec<_>>().join("\n")
+                            };
+                            let _ = store.msg_tx.send(crate::types::AsyncMsg::LlmResponse(msg));
+                        }
+                    }))
+            );
+            // Improve button
+            header = header.child(
+                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                    .text_xs().text_color(text_muted()).cursor_pointer()
+                    .hover(|s| s.bg(accent_bg()))
+                    .child(Icon::new(IconName::Wand2))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        let store = this.store.read(cx);
+                        let blocks: Vec<(inkwell_core::types::BlockType, String)> = store.project.blocks.iter()
+                            .filter(|b| b.enabled && b.block_type.is_sdd())
+                            .map(|b| (b.block_type, b.content.clone()))
+                            .collect();
+                        let project_name = store.project.name.clone();
+                        let model = store.selected_model.clone();
+                        let server = store.server_url.clone();
+                        let block_type = store.project.blocks.get(idx).map(|b| b.block_type);
+                        let tx = store.msg_tx.clone();
+
+                        if let Some(bt) = block_type {
+                            if let Some(phase) = crate::spec::generator::block_type_to_phase(bt) {
+                                let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                                let (system, user) = crate::spec::workflow::build_llm_messages(
+                                    phase, crate::spec::generator::SpecAction::Improve, &ctx
+                                );
+                                this.store.update(cx, |s, _| { s.sdd_running = true; });
+
+                                std::thread::spawn(move || {
+                                    crate::app::rt().block_on(async {
+                                        let client = reqwest::Client::new();
+                                        let body = serde_json::json!({
+                                            "model": model,
+                                            "messages": [
+                                                {"role": "system", "content": system},
+                                                {"role": "user", "content": user}
+                                            ],
+                                            "temperature": 0.3,
+                                            "max_tokens": 4096,
+                                            "stream": false
+                                        });
+                                        if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                                let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx, content: text });
+                                            }
+                                        }
+                                        let _ = tx.send(crate::types::AsyncMsg::LlmDone);
+                                    });
+                                });
+                            }
+                        }
+                    }))
             );
         }
 

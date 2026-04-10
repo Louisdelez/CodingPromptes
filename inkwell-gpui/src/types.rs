@@ -20,7 +20,7 @@ pub enum LeftTab { Library, Frameworks, Versions }
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum RightTab {
     Preview, Playground, Stt, History, Export, Fleet,
-    Terminal, Optimize, Lint, Chat, Analytics, Collab, Chain,
+    Terminal, Optimize, Lint, Chat, Analytics, Collab, Chain, Sdd,
 }
 
 // ── Project & Blocks ──

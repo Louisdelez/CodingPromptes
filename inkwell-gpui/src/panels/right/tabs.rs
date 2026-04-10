@@ -678,4 +678,106 @@ impl RightPanel {
             .child(div().text_xs().text_color(text_muted()).child(format!("{online_count} collaborateur(s) actif(s)"))));
         c
     }
+
+    pub(crate) fn tab_sdd(&self, cx: &mut Context<Self>) -> Div {
+        let s = self.store.read(cx);
+        let sdd_running = s.sdd_running;
+        let blocks = &s.project.blocks;
+
+        // Count SDD block status
+        let sdd_blocks: Vec<(usize, &str, bool)> = blocks.iter().enumerate()
+            .filter(|(_, b)| b.block_type.is_sdd() && b.enabled)
+            .map(|(i, b)| (i, b.block_type.label("fr"), !b.content.trim().is_empty()))
+            .collect();
+
+        let completed = sdd_blocks.iter().filter(|(_, _, done)| *done).count();
+        let total = sdd_blocks.len();
+
+        // Validate all SDD blocks
+        let validation = crate::spec::workflow::validate_all(blocks);
+        let total_issues: usize = validation.iter().map(|(_, issues)| issues.len()).sum();
+
+        div().flex_1().p(px(16.0)).flex().flex_col().gap(px(12.0))
+            // Header
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(IconName::Scroll).text_color(text_muted()))
+                .child(div().text_xs().text_color(text_muted()).child("Spec-Driven Development")))
+            // Progress
+            .child(div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                .flex().flex_col().gap(px(8.0))
+                .child(div().flex().items_center().gap(px(8.0))
+                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary())
+                        .child(format!("{completed}/{total} phases")))
+                    .child(div().flex_1())
+                    .child(if sdd_running {
+                        div().text_xs().text_color(warning()).child("Generation...")
+                    } else if completed == total && total > 0 {
+                        div().text_xs().text_color(success()).child("Complet")
+                    } else {
+                        div().text_xs().text_color(text_muted()).child("En attente")
+                    }))
+                // Progress bar
+                .child(div().w_full().h(px(4.0)).rounded(px(2.0)).bg(border_c())
+                    .child(div().h(px(4.0)).rounded(px(2.0))
+                        .bg(if completed == total && total > 0 { success() } else { accent() })
+                        .w(px(if total > 0 { completed as f32 / total as f32 * 200.0 } else { 0.0 })))))
+            // Phase list
+            .child({
+                let mut phases = div().flex().flex_col().gap(px(4.0));
+                for (_, label, done) in &sdd_blocks {
+                    phases = phases.child(
+                        div().px(px(10.0)).py(px(6.0)).rounded(px(6.0))
+                            .bg(if *done { accent_bg() } else { bg_tertiary() })
+                            .flex().items_center().gap(px(8.0))
+                            .child(Icon::new(if *done { IconName::Check } else { IconName::Circle })
+                                .text_color(if *done { success() } else { text_muted() }))
+                            .child(div().text_xs().text_color(if *done { text_primary() } else { text_secondary() })
+                                .child(label.to_string()))
+                    );
+                }
+                phases
+            })
+            // Validation results
+            .child(div().flex().items_center().gap(px(6.0))
+                .child(Icon::new(if total_issues == 0 { IconName::Check } else { IconName::TriangleAlert })
+                    .text_color(if total_issues == 0 { success() } else { warning() }))
+                .child(div().text_xs().text_color(text_muted())
+                    .child(if total_issues == 0 { "Validation OK".to_string() } else { format!("{total_issues} probleme(s) detecte(s)") })))
+            // Validation details
+            .children(if total_issues > 0 {
+                let mut issues_div = div().flex().flex_col().gap(px(4.0));
+                for (block_idx, issues) in &validation {
+                    let label = blocks.get(*block_idx).map(|b| b.block_type.label("fr")).unwrap_or("?");
+                    for issue in issues {
+                        let (color, icon) = match issue.severity {
+                            crate::spec::validator::Severity::Error => (danger(), IconName::Close),
+                            crate::spec::validator::Severity::Warning => (warning(), IconName::TriangleAlert),
+                            crate::spec::validator::Severity::Info => (text_muted(), IconName::Info),
+                        };
+                        issues_div = issues_div.child(
+                            div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                                .bg(hsla(color.h, color.s, color.l, 0.1))
+                                .flex().items_center().gap(px(6.0))
+                                .child(Icon::new(icon).text_color(color))
+                                .child(div().text_xs().text_color(color)
+                                    .child(format!("[{}] {}", label, issue.message)))
+                        );
+                    }
+                }
+                Some(issues_div)
+            } else { None })
+            // Export buttons
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child(div().flex().gap(px(8.0))
+                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()))
+                    .child(Icon::new(IconName::Download)).child("Export .specify/"))
+                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
+                    .text_xs().text_color(text_secondary()).cursor_pointer()
+                    .hover(|s| s.bg(bg_hover()))
+                    .child(Icon::new(IconName::Download)).child("Export .kiro/")))
+    }
 }

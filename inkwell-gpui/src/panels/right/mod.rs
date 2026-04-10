@@ -56,6 +56,7 @@ impl Render for RightPanel {
             ("Chat", RightTab::Chat, IconName::Bot),
             ("Collab", RightTab::Collab, IconName::User),
             ("GPU", RightTab::Fleet, IconName::Globe),
+            ("SDD", RightTab::Sdd, IconName::Scroll),
         ];
 
         let active = self.active_tab;
@@ -116,6 +117,7 @@ impl Render for RightPanel {
             RightTab::Analytics => self.tab_analytics(cx),
             RightTab::Chain => self.tab_chain(cx),
             RightTab::Collab => self.tab_collab(cx),
+            RightTab::Sdd => self.tab_sdd(cx),
         };
 
         let anim = Animation::new(Duration::from_millis(150))

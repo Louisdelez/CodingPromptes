@@ -165,6 +165,73 @@ impl Render for EditorPane {
             );
         }
 
+        // SDD "Run All" button — visible only when SDD blocks exist
+        {
+            let store = self.store.read(cx);
+            let has_sdd = store.project.blocks.iter().any(|b| b.block_type.is_sdd() && b.enabled);
+            let sdd_running = store.sdd_running;
+            if has_sdd {
+                block_list = block_list.child(
+                    div().py(px(10.0)).px(px(16.0)).rounded(px(8.0))
+                        .bg(if sdd_running { text_muted() } else { accent() })
+                        .flex().items_center().justify_center().gap(px(8.0))
+                        .text_sm().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0))
+                        .cursor_pointer()
+                        .child(Icon::new(IconName::Sparkles))
+                        .child(if sdd_running { "Generation en cours..." } else { "Generer tout SDD" })
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                            let store = this.store.read(cx);
+                            if store.sdd_running { return; }
+                            let sdd_blocks = crate::spec::workflow::find_sdd_blocks(&store.project.blocks);
+                            let project_name = store.project.name.clone();
+                            let model = store.selected_model.clone();
+                            let server = store.server_url.clone();
+                            let tx = store.msg_tx.clone();
+                            let blocks: Vec<(inkwell_core::types::BlockType, String)> = store.project.blocks.iter()
+                                .filter(|b| b.enabled && b.block_type.is_sdd())
+                                .map(|b| (b.block_type, b.content.clone()))
+                                .collect();
+                            this.store.update(cx, |s, _| { s.sdd_running = true; });
+
+                            // Run all phases sequentially in background
+                            std::thread::spawn(move || {
+                                crate::app::rt().block_on(async {
+                                    let client = reqwest::Client::new();
+                                    let mut ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+
+                                    for (block_idx, phase) in &sdd_blocks {
+                                        let (system, user) = crate::spec::workflow::build_llm_messages(
+                                            *phase, crate::spec::generator::SpecAction::Generate, &ctx
+                                        );
+                                        let body = serde_json::json!({
+                                            "model": model, "messages": [
+                                                {"role": "system", "content": system},
+                                                {"role": "user", "content": user}
+                                            ], "temperature": 0.3, "max_tokens": 4096, "stream": false
+                                        });
+                                        if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body.clone()).send().await {
+                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                                let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                                // Update context for next phase
+                                                match phase {
+                                                    crate::spec::generator::SpecPhase::Constitution => ctx.constitution = text.clone(),
+                                                    crate::spec::generator::SpecPhase::Specification => ctx.specification = text.clone(),
+                                                    crate::spec::generator::SpecPhase::Plan => ctx.plan = text.clone(),
+                                                    crate::spec::generator::SpecPhase::Tasks => ctx.tasks = text.clone(),
+                                                    crate::spec::generator::SpecPhase::Implementation => ctx.implementation = text.clone(),
+                                                }
+                                                let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx: *block_idx, content: text });
+                                            }
+                                        }
+                                    }
+                                    let _ = tx.send(crate::types::AsyncMsg::LlmDone);
+                                });
+                            });
+                        }))
+                );
+            }
+        }
+
         // Add block button (dashed border style like web)
         block_list = block_list.child(
             div().py(px(12.0)).flex().items_center().justify_center().gap(px(6.0))

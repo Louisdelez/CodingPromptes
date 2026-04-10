@@ -513,6 +513,16 @@ impl InkwellApp {
             selected_model: self.state.selected_model.clone(),
         });
 
+        // Save layout state
+        crate::layout::SavedLayout {
+            left_open: self.state.left_open,
+            left_width: self.state.left_open as u32 as f32 * 288.0, // TODO: read from store
+            right_open: self.state.right_open,
+            right_width: 384.0,
+            terminal_open: false,
+            dark_mode: self.state.dark_mode,
+        }.save();
+
         // 2. Background sync to server (non-blocking, best-effort)
         let server_url = self.state.server_url.clone();
         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();

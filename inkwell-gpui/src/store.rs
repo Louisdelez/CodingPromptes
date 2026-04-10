@@ -130,6 +130,7 @@ impl EventEmitter<StoreEvent> for AppStore {}
 impl AppStore {
     pub fn new(msg_tx: mpsc::Sender<AsyncMsg>) -> Self {
         let saved = crate::persistence::load_session();
+        let saved_layout = crate::layout::SavedLayout::load();
         let local_projects = crate::persistence::load_all_projects();
         let local_settings = crate::persistence::load_settings();
         let local_frameworks = crate::persistence::load_frameworks();
@@ -193,8 +194,12 @@ impl AppStore {
             github_repo: local_settings.github_repo,
             versions: vec![], executions: vec![], gpu_nodes: vec![],
             left_tab: LeftTab::Library, right_tab: RightTab::Preview,
-            left_open: true, right_open: true, terminal_open: false,
-            left_width: 288.0, right_width: 384.0,
+            // Load layout from disk
+            left_open: saved_layout.left_open,
+            right_open: saved_layout.right_open,
+            terminal_open: saved_layout.terminal_open,
+            left_width: saved_layout.left_width,
+            right_width: saved_layout.right_width,
             show_add_menu: false, show_ssh_modal: false,
             editing_workspace_id: None, selected_workspace_color: "#6366f1".into(),
             confirm_delete: None, confirm_delete_block: None, search_query: String::new(),

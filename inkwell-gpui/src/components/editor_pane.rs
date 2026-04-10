@@ -1,6 +1,8 @@
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
+use gpui_component::animation::cubic_bezier;
+use std::time::Duration;
 use crate::store::{AppStore, StoreEvent};
 use crate::state::*;
 use crate::ui::colors::*;
@@ -34,6 +36,7 @@ pub struct EditorPane {
     show_add_menu: bool,
     last_block_count: usize,
     confirm_delete_block: Option<usize>,
+    reorder_gen: u64,
 }
 
 impl EditorPane {
@@ -65,7 +68,7 @@ impl EditorPane {
         Self {
             store, block_editors, tag_input,
             variable_inputs: std::collections::HashMap::new(),
-            show_add_menu: false, confirm_delete_block: None,
+            show_add_menu: false, confirm_delete_block: None, reorder_gen: 0,
             last_block_count: block_count,
         }
     }
@@ -158,9 +161,17 @@ impl Render for EditorPane {
                                 s.prompt_dirty = true;
                                 cx.emit(StoreEvent::ProjectChanged);
                             });
+                            this.reorder_gen += 1;
                         }
                     }))
                     .child(editor.clone())
+                    // Fade-in animation after reorder
+                    .with_animation(
+                        SharedString::from(format!("block-{}-{}", i, self.reorder_gen)),
+                        Animation::new(Duration::from_millis(200))
+                            .with_easing(cubic_bezier(0.25, 0.1, 0.25, 1.0)),
+                        |this, delta| this.opacity(0.3 + delta * 0.7),
+                    )
             );
         }
 

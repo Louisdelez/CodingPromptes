@@ -70,9 +70,11 @@ impl Render for RightPanel {
             }));
 
         // Dropdown — hover animations on items
+        let panel_width = self.store.read(cx).right_width;
         let dropdown = if show_dd {
-            let mut menu = div().mx(px(8.0)).my(px(4.0)).rounded(px(8.0))
-                .bg(bg_tertiary()).border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0));
+            let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
+                .bg(bg_secondary()).border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
+                .w(px(panel_width - 16.0));
             for (label, tab, icon) in TABS {
                 let tab = *tab; let icon = icon.clone();
                 let is_active = self.active_tab == tab;
@@ -87,7 +89,10 @@ impl Render for RightPanel {
                         this.store.update(cx, |s, _| { s.right_tab = tab; }); cx.notify();
                     })));
             }
-            Some(menu)
+            // Floating overlay
+            Some(deferred(
+                anchored().snap_to_window_with_margin(px(8.0)).child(menu)
+            ).with_priority(1))
         } else { None };
 
         let content = match self.active_tab {

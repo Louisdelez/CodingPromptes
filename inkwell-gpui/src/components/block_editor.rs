@@ -170,7 +170,10 @@ impl Render for BlockEditor {
                                 }))
                         );
                     }
-                    type_btn = type_btn.child(menu);
+                    // Floating overlay
+                    type_btn = type_btn.child(
+                        deferred(anchored().snap_to_window_with_margin(px(8.0)).child(menu)).with_priority(1)
+                    );
                 }
                 type_btn
             })

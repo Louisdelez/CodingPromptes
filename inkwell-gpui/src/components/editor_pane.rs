@@ -221,7 +221,12 @@ impl Render for EditorPane {
                         }))
                 );
             }
-            block_list = block_list.child(menu);
+            // Floating overlay — does NOT push content
+            block_list = block_list.child(
+                deferred(
+                    anchored().snap_to_window_with_margin(px(8.0)).child(menu)
+                ).with_priority(1)
+            );
         }
 
         // Variable hint

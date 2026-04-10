@@ -112,7 +112,7 @@ impl Render for HeaderBar {
                     this.show_lang_menu = false; this.show_user_menu = false; cx.notify();
                 })));
         if show_theme {
-            theme_dd = theme_dd.child(
+            theme_dd = theme_dd.child(deferred(anchored().snap_to_window_with_margin(px(8.0)).child(
                 div().mt(px(4.0)).w(px(140.0)).rounded(px(8.0)).bg(bg_secondary())
                     .border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
                     .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
@@ -133,7 +133,7 @@ impl Render for HeaderBar {
                             this.show_theme_menu = false;
                             this.store.update(cx, |s, cx| { s.dark_mode = true; cx.emit(StoreEvent::SettingsChanged); });
                         })))
-            );
+            )).with_priority(1));
         }
 
         // Language dropdown
@@ -148,7 +148,7 @@ impl Render for HeaderBar {
                     this.show_theme_menu = false; this.show_user_menu = false; cx.notify();
                 })));
         if show_lang {
-            lang_dd = lang_dd.child(
+            lang_dd = lang_dd.child(deferred(anchored().snap_to_window_with_margin(px(8.0)).child(
                 div().mt(px(4.0)).w(px(140.0)).rounded(px(8.0)).bg(bg_secondary())
                     .border_1().border_color(border_c()).p(px(4.0)).flex().flex_col().gap(px(2.0))
                     .child(div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
@@ -169,7 +169,7 @@ impl Render for HeaderBar {
                             this.show_lang_menu = false;
                             this.store.update(cx, |s, cx| { s.lang = "en".into(); cx.emit(StoreEvent::SettingsChanged); });
                         })))
-            );
+            )).with_priority(1));
         }
 
         // User menu
@@ -193,7 +193,7 @@ impl Render for HeaderBar {
                         this.show_theme_menu = false; this.show_lang_menu = false; cx.notify();
                     })));
             if show_menu {
-                user_dd = user_dd.child(
+                user_dd = user_dd.child(deferred(anchored().snap_to_window_with_margin(px(8.0)).child(
                     div().mt(px(4.0)).w(px(200.0)).rounded(px(8.0)).bg(bg_secondary())
                         .border_1().border_color(border_c()).p(px(8.0)).flex().flex_col().gap(px(4.0))
                         .child(div().p(px(8.0)).flex().items_center().gap(px(8.0))
@@ -217,7 +217,7 @@ impl Render for HeaderBar {
                                 this.show_user_menu = false;
                                 this.store.update(cx, |s, cx| { s.session = None; s.screen = crate::state::Screen::Auth; cx.emit(StoreEvent::SessionChanged); });
                             })))
-                );
+                )).with_priority(1));
             }
         }
 

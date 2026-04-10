@@ -129,16 +129,17 @@ impl Render for LeftPanel {
                 }))
         );
 
-        // ── Dropdown menu (in flow, with hover animations) ──
+        // ── Dropdown menu (floating overlay via deferred+anchored) ──
         if show_dd {
             let items = [
                 ("Bibliotheque", SidebarView::Library, IconName::FolderOpen),
                 ("Frameworks", SidebarView::Frameworks, IconName::Layers),
                 ("Versions", SidebarView::Versions, IconName::History),
             ];
-            let mut menu = div().mx(px(8.0)).my(px(4.0)).rounded(px(8.0))
-                .bg(bg_tertiary()).border_1().border_color(border_c())
-                .p(px(4.0)).flex().flex_col().gap(px(2.0));
+            let mut menu = div().mx(px(8.0)).mt(px(4.0)).rounded(px(8.0))
+                .bg(bg_secondary()).border_1().border_color(border_c())
+                .p(px(4.0)).flex().flex_col().gap(px(2.0))
+                .w(px(panel_width - 16.0));
             for (label, view, icon) in items {
                 let is_active = self.view == view;
                 menu = menu.child(
@@ -154,7 +155,12 @@ impl Render for LeftPanel {
                         }))
                 );
             }
-            panel = panel.child(menu);
+            // Floating overlay — does NOT push content down
+            panel = panel.child(
+                deferred(
+                    anchored().snap_to_window_with_margin(px(8.0)).child(menu)
+                ).with_priority(1)
+            );
         }
 
         // ── Search bar + action buttons (like web: loupe + input + FolderPlus + Plus) ──

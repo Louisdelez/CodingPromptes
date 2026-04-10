@@ -24,6 +24,7 @@ impl RightPanel {
                 StoreEvent::ChatMessageReceived | StoreEvent::TerminalOutput |
                 StoreEvent::ProjectChanged => cx.notify(),
                 StoreEvent::SwitchRightTab(tab) => { this.active_tab = *tab; cx.notify(); }
+                StoreEvent::CloseAllMenus => { this.show_dropdown = false; cx.notify(); }
                 _ => {}
             }
         }).detach();

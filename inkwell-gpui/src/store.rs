@@ -16,6 +16,7 @@ pub enum StoreEvent {
     SessionChanged,
     BlockContentChanged(usize),
     SwitchRightTab(RightTab),
+    CloseAllMenus,
 }
 
 /// Shared application data — all entities read from this

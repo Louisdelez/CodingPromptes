@@ -7,6 +7,23 @@ use inkwell_core::types::BlockType;
 // Actions for keyboard shortcuts
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
 
+/// Drag payload for panel resize handles
+#[derive(Clone)]
+struct ResizeDrag {
+    side: ResizeSide,
+    start_x: f32,
+    start_width: f32,
+}
+
+#[derive(Clone, Copy)]
+enum ResizeSide { Left, Right }
+
+impl Render for ResizeDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().w(px(4.0)).h(px(40.0)).bg(accent()).rounded(px(2.0))
+    }
+}
+
 // Import shared UI modules
 use crate::ui::colors::*;
 
@@ -822,20 +839,39 @@ impl InkwellApp {
         Theme::change(if dark_mode { ThemeMode::Dark } else { ThemeMode::Light }, None, cx);
         let t = crate::theme::InkwellTheme::from_mode(dark_mode);
         let mut main_row = div().flex_1().flex().overflow_hidden();
+        let left_w = self.store.read(cx).left_width;
+        let right_w = self.store.read(cx).right_width;
         if left_open {
             main_row = main_row.child(self.left_panel.clone());
-            // Left resize handle
+            // Left resize handle — drag to resize
             main_row = main_row.child(
                 div().id("left-resize").w(px(4.0)).flex_shrink_0().cursor_pointer()
                     .hover(|s| s.bg(accent()))
+                    .on_drag(ResizeDrag { side: ResizeSide::Left, start_x: 0.0, start_width: left_w },
+                        |drag, _, _, cx| cx.new(|_| drag.clone()))
+                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, _, cx| {
+                        let new_w = f32::from(ev.event.position.x).clamp(180.0, 500.0);
+                        this.store.update(cx, |s, _| { s.left_width = new_w; });
+                        cx.notify();
+                    }))
             );
         }
         main_row = main_row.child(self.editor.clone());
         if right_open {
-            // Right resize handle
+            // Right resize handle — drag to resize
             main_row = main_row.child(
                 div().id("right-resize").w(px(4.0)).flex_shrink_0().cursor_pointer()
                     .hover(|s| s.bg(accent()))
+                    .on_drag(ResizeDrag { side: ResizeSide::Right, start_x: 0.0, start_width: right_w },
+                        |drag, _, _, cx| cx.new(|_| drag.clone()))
+                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, window, cx| {
+                        // Right panel width = window_width - mouse_x
+                        let mouse_x = f32::from(ev.event.position.x);
+                        let win_w = f32::from(window.viewport_size().width);
+                        let new_w = (win_w - mouse_x).clamp(250.0, 600.0);
+                        this.store.update(cx, |s, _| { s.right_width = new_w; });
+                        cx.notify();
+                    }))
             );
             main_row = main_row.child(self.right_panel.clone());
         }

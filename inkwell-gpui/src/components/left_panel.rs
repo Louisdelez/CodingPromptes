@@ -15,6 +15,23 @@ enum ContextTarget {
     Folder(String),     // workspace id
 }
 
+/// Drag payload for file → folder DnD
+#[derive(Clone)]
+pub struct DragFile {
+    pub project_id: String,
+    pub name: String,
+}
+
+impl Render for DragFile {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().w(px(160.0)).h(px(28.0)).rounded(px(6.0))
+            .bg(bg_tertiary()).opacity(0.85).px(px(8.0))
+            .flex().items_center().gap(px(6.0))
+            .child(Icon::new(IconName::File).text_color(accent()))
+            .child(div().text_xs().text_color(text_primary()).child(self.name.clone()))
+    }
+}
+
 pub struct LeftPanel {
     store: Entity<AppStore>,
     search_input: Option<Entity<InputState>>,
@@ -44,9 +61,15 @@ pub struct LeftPanel {
 impl LeftPanel {
     pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher...")));
-        cx.subscribe(&store, |_this, _, event: &StoreEvent, cx| {
+        cx.subscribe(&store, |this, _, event: &StoreEvent, cx| {
             match event {
                 StoreEvent::ProjectChanged | StoreEvent::SessionChanged => cx.notify(),
+                StoreEvent::CloseAllMenus => {
+                    this.show_dropdown = false;
+                    this.context_menu = None;
+                    if this.renaming_id.is_some() { Self::confirm_rename(this, cx); }
+                    cx.notify();
+                }
                 _ => {}
             }
         }).detach();
@@ -388,8 +411,24 @@ impl LeftPanel {
             let project_count = projects.len();
             let is_renaming = renaming.as_deref() == Some(&ws.id);
 
-            let mut ws_row = div().px(px(6.0)).py(px(5.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+            let ws_drop_id = ws.id.clone();
+            let mut ws_row = div().id(SharedString::from(format!("ws-{}", ws.id)))
+                .px(px(6.0)).py(px(5.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
                 .hover(|s| s.bg(bg_tertiary()))
+                // Drop target: accept file DnD
+                .drag_over::<DragFile>(|this, _, _, _| {
+                    this.border_2().border_color(accent()).bg(accent_bg())
+                })
+                .on_drop(cx.listener(move |this, drag: &DragFile, _, cx| {
+                    let pid = drag.project_id.clone();
+                    let wid = ws_drop_id.clone();
+                    this.store.update(cx, |s, cx| {
+                        if let Some(p) = s.projects.iter_mut().find(|p| p.id == pid) {
+                            p.workspace_id = Some(wid);
+                        }
+                        cx.emit(StoreEvent::ProjectChanged);
+                    });
+                }))
                 // Expand chevron
                 .child(div().w(px(14.0)).text_color(text_muted())
                     .child(Icon::new(if is_expanded { IconName::ChevronDown } else { IconName::ChevronRight }))
@@ -496,9 +535,16 @@ impl LeftPanel {
             let is_active = current_id == p.id;
             let is_renaming = renaming.as_deref() == Some(&p.id);
 
-            let mut row = div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
+            let drag_id = p.id.clone();
+            let drag_name = p.name.clone();
+            let mut row = div().id(SharedString::from(format!("file-{}", p.id)))
+                .px(px(8.0)).py(px(6.0)).rounded(px(6.0)).flex().items_center().gap(px(8.0))
                 .hover(|s| s.bg(bg_tertiary()))
-                .cursor_pointer();
+                .cursor_pointer()
+                // Make file draggable for DnD into folders
+                .on_drag(DragFile { project_id: drag_id, name: drag_name }, |drag, _, _, cx| {
+                    cx.new(|_| drag.clone())
+                });
             if is_active {
                 row = row.border_l_3().border_color(accent()).bg(accent_bg());
             }

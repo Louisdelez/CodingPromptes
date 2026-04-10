@@ -52,9 +52,9 @@ impl Render for HeaderBar {
         // Left section: logo + project name + save status
         let left = div().flex().items_center().gap(px(8.0))
             .child(div().flex().items_center().gap(px(6.0))
-                .child(div().w(px(28.0)).h(px(28.0)).rounded(px(8.0)).bg(bg_tertiary())
-                    .flex().items_center().justify_center()
-                    .child(Icon::new(IconName::PenTool).text_color(accent())))
+                .child(img(std::path::PathBuf::from("/home/louis/Documents/CodingPromptes/inkwell-gpui/assets/logo-64.png"))
+                    .w(px(28.0)).h(px(28.0)).rounded(px(8.0))
+                    .object_fit(gpui::ObjectFit::Contain))
                 .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).text_color(text_primary()).child("Inkwell")))
             .child(div().w(px(1.0)).h(px(16.0)).bg(border_c()))
             // Project name (editable)

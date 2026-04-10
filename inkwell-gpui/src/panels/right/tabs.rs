@@ -939,7 +939,7 @@ impl RightPanel {
                 }
                 ext_section
             })
-            // Agent files + Catalog
+            // Agent files (Phase 4 — with real steering rules)
             .child(div().h(px(1.0)).bg(border_c()))
             .child(div().flex().gap(px(8.0))
                 .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
@@ -953,18 +953,105 @@ impl RightPanel {
                         let constitution = s.project.blocks.iter()
                             .find(|b| b.block_type == inkwell_core::types::BlockType::SddConstitution && b.enabled)
                             .map(|b| b.content.clone()).unwrap_or_default();
+                        // Real steering rules from store
+                        let steering_pairs: Vec<(String, String)> = s.steering.rules.iter()
+                            .filter(|r| r.enabled && !r.content.is_empty())
+                            .map(|r| (r.name.clone(), r.content.clone())).collect();
+                        let tech = s.steering.rules.iter()
+                            .find(|r| r.name == "tech" && r.enabled)
+                            .map(|r| r.content.clone()).unwrap_or_default();
                         std::thread::spawn(move || {
                             let dir = std::env::current_dir().unwrap_or_default();
+                            let pairs: Vec<(&str, &str)> = steering_pairs.iter()
+                                .map(|(a, b)| (a.as_str(), b.as_str())).collect();
                             let _ = crate::spec::agent_files::export_agent_files(
-                                &dir, &name, &constitution, "", &[]);
+                                &dir, &name, &constitution, &tech, &pairs);
                         });
-                    })))
-                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
-                    .text_xs().text_color(text_secondary()).cursor_pointer()
-                    .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Search)).child(format!("{} extensions", crate::spec::catalog::community_catalog().len()))))
-            // Autopilot section
+                    }))))
+
+            // Credits (Phase 5)
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child({
+                let credits = &self.store.read(cx).credits;
+                div().flex().items_center().gap(px(12.0))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("Prompts: {}", credits.prompts_count)))
+                    .child(div().text_xs().text_color(text_muted()).child(format!("Tokens: {}↑ {}↓", credits.total_tokens_in, credits.total_tokens_out)))
+                    .child(div().text_xs().text_color(accent()).child(format!("~${:.4}", credits.total_cost)))
+            })
+
+            // Live diff preview (Phase 6)
+            .children({
+                let diff = self.store.read(cx).pending_diff.clone();
+                diff.map(|(idx, content)| {
+                    let block_label = self.store.read(cx).project.blocks.get(idx)
+                        .map(|b| b.block_type.label("fr").to_string()).unwrap_or("?".into());
+                    div().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(accent())
+                        .flex().flex_col().gap(px(8.0))
+                        .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(accent())
+                            .child(format!("Diff: {} (bloc {})", block_label, idx)))
+                        .child(div().text_xs().text_color(text_secondary()).max_h(px(100.0)).overflow_hidden()
+                            .child(if content.len() > 200 { format!("{}...", &content[..200]) } else { content.clone() }))
+                        .child(div().flex().gap(px(8.0))
+                            .child(div().px(px(12.0)).py(px(4.0)).rounded(px(6.0)).bg(success())
+                                .text_xs().text_color(ink_white()).cursor_pointer()
+                                .child("Accepter")
+                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                    if let Some((idx, content)) = this.store.read(cx).pending_diff.clone() {
+                                        this.store.update(cx, |s, cx| {
+                                            if let Some(b) = s.project.blocks.get_mut(idx) { b.content = content; }
+                                            s.pending_diff = None;
+                                            s.prompt_dirty = true;
+                                            cx.emit(StoreEvent::ProjectChanged);
+                                        });
+                                    }
+                                })))
+                            .child(div().px(px(12.0)).py(px(4.0)).rounded(px(6.0)).bg(danger())
+                                .text_xs().text_color(ink_white()).cursor_pointer()
+                                .child("Rejeter")
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    this.store.update(cx, |s, _| { s.pending_diff = None; });
+                                }))))
+                })
+            })
+
+            // Catalog browser (Phase 8)
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child({
+                let catalog = crate::spec::catalog::community_catalog();
+                let mut cat_section = div().flex().flex_col().gap(px(4.0))
+                    .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted())
+                        .child(format!("Catalog ({} extensions)", catalog.len())));
+                for entry in &catalog {
+                    cat_section = cat_section.child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0))
+                            .flex().items_center().gap(px(6.0))
+                            .child(div().flex_1().flex().flex_col()
+                                .child(div().text_xs().text_color(text_primary()).child(entry.name.clone()))
+                                .child(div().text_xs().text_color(text_muted()).child(entry.description.clone())))
+                            .child(div().text_xs().text_color(text_muted()).child(entry.ext_type.clone()))
+                    );
+                }
+                cat_section
+            })
+
+            // Presets (Phase 10)
+            .child(div().h(px(1.0)).bg(border_c()))
+            .child({
+                let presets = &self.store.read(cx).presets;
+                let mut preset_section = div().flex().flex_col().gap(px(4.0))
+                    .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted()).child("Presets"));
+                for preset in &presets.presets {
+                    preset_section = preset_section.child(
+                        div().px(px(8.0)).py(px(4.0)).rounded(px(4.0)).bg(bg_tertiary())
+                            .flex().items_center().gap(px(6.0))
+                            .child(div().flex_1().text_xs().text_color(text_primary()).child(preset.name.clone()))
+                            .child(div().text_xs().text_color(text_muted()).child(format!("P{}", preset.priority)))
+                    );
+                }
+                preset_section
+            })
+
+            // Autopilot (Phase 3 — with execute button)
             .child(div().h(px(1.0)).bg(border_c()))
             .child({
                 let tasks_content = self.store.read(cx).project.blocks.iter()
@@ -972,18 +1059,55 @@ impl RightPanel {
                     .map(|b| b.content.clone()).unwrap_or_default();
                 let tasks = crate::kiro::autopilot::parse_tasks(&tasks_content);
                 let (done, total) = crate::kiro::autopilot::progress(&tasks);
-                let next = crate::kiro::autopilot::next_task(&tasks).map(|t| t.description.clone());
+                let next_task = crate::kiro::autopilot::next_task(&tasks).cloned();
 
-                div().flex().flex_col().gap(px(6.0))
+                let mut section = div().flex().flex_col().gap(px(6.0))
                     .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(text_muted()).child("Autopilot"))
                     .child(div().text_xs().text_color(text_secondary())
-                        .child(format!("Taches: {}/{} completees", done, total)))
-                    .children(next.map(|desc| {
-                        div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent_bg())
+                        .child(format!("Taches: {}/{} completees", done, total)));
+
+                if let Some(task) = next_task {
+                    let task_desc = task.description.clone();
+                    section = section
+                        .child(div().px(px(8.0)).py(px(6.0)).rounded(px(6.0)).bg(accent_bg())
                             .flex().items_center().gap(px(6.0))
                             .child(Icon::new(IconName::Play).text_color(accent()))
-                            .child(div().text_xs().text_color(text_primary()).child(format!("Suivant: {}", desc)))
-                    }))
+                            .child(div().flex_1().text_xs().text_color(text_primary()).child(format!("{}: {}", task.id, task_desc))))
+                        // Execute button
+                        .child(div().py(px(6.0)).px(px(12.0)).rounded(px(6.0)).bg(accent())
+                            .text_xs().text_color(ink_white()).cursor_pointer()
+                            .flex().items_center().justify_center().gap(px(4.0))
+                            .child(Icon::new(IconName::Play))
+                            .child("Executer la tache")
+                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                let s = this.store.read(cx);
+                                let constitution = s.project.blocks.iter()
+                                    .find(|b| b.block_type == inkwell_core::types::BlockType::SddConstitution && b.enabled)
+                                    .map(|b| b.content.clone()).unwrap_or_default();
+                                let plan = s.project.blocks.iter()
+                                    .find(|b| b.block_type == inkwell_core::types::BlockType::SddPlan && b.enabled)
+                                    .map(|b| b.content.clone()).unwrap_or_default();
+                                let prompt = crate::kiro::autopilot::build_task_prompt(&task, &plan, &constitution);
+                                let model = s.selected_model.clone();
+                                let server = s.server_url.clone();
+                                let tx = s.msg_tx.clone();
+                                std::thread::spawn(move || { crate::app::rt().block_on(async {
+                                    let client = reqwest::Client::new();
+                                    let body = serde_json::json!({"model":model,"messages":[
+                                        {"role":"system","content":"You are a developer implementing a task from a spec-driven development plan."},
+                                        {"role":"user","content":prompt}
+                                    ],"temperature":0.3,"max_tokens":4096,"stream":false});
+                                    if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                            let _ = tx.send(AsyncMsg::LlmResponse(text));
+                                        }
+                                    }
+                                    let _ = tx.send(AsyncMsg::LlmDone);
+                                }); });
+                            })));
+                }
+                section
             })
     }
 }

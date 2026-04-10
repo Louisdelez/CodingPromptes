@@ -213,6 +213,7 @@ pub struct TerminalSession {
 pub struct ProjectSummary {
     pub id: String,
     pub name: String,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -272,7 +273,7 @@ impl AppState {
                 framework: first.framework.clone(),
             };
             let summaries: Vec<ProjectSummary> = local_projects.iter()
-                .map(|p| ProjectSummary { id: p.id.clone(), name: p.name.clone() })
+                .map(|p| ProjectSummary { id: p.id.clone(), name: p.name.clone(), workspace_id: None })
                 .collect();
             (proj, summaries)
         } else {

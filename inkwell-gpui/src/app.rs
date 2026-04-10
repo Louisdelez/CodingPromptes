@@ -216,7 +216,7 @@ impl InkwellApp {
                                 updated_at: chrono::Utc::now().timestamp_millis(),
                             };
                             crate::persistence::save_project(&local);
-                            self.state.projects.push(ProjectSummary { id: sp.id.clone(), name: sp.name.clone() });
+                            self.state.projects.push(ProjectSummary { id: sp.id.clone(), name: sp.name.clone(), workspace_id: None });
                         }
                     }
                     // Merge workspaces

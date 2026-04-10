@@ -145,11 +145,11 @@ impl AppStore {
                 variables: first.variables.clone(), tags: first.tags.clone(),
                 framework: first.framework.clone(),
             };
-            let summaries = local_projects.iter().map(|p| ProjectSummary { id: p.id.clone(), name: p.name.clone() }).collect();
+            let summaries = local_projects.iter().map(|p| ProjectSummary { id: p.id.clone(), name: p.name.clone(), workspace_id: None }).collect();
             (proj, summaries)
         } else {
             let default = Project::default_prompt();
-            let summary = ProjectSummary { id: default.id.clone(), name: default.name.clone() };
+            let summary = ProjectSummary { id: default.id.clone(), name: default.name.clone(), workspace_id: None };
             // Save default project to disk so it persists
             crate::persistence::save_project(&crate::persistence::LocalProject {
                 id: default.id.clone(), name: default.name.clone(),

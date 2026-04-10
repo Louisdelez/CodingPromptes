@@ -169,7 +169,7 @@ impl Render for LeftPanel {
                                     // Auto-tag with creation date/time
                                     let now = chrono::Local::now();
                                     p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
-                                    s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone() });
+                                    s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone(), workspace_id: None });
                                     s.project = p; s.prompt_dirty = true; s.save_pending = true;
                                     cx.emit(StoreEvent::ProjectChanged);
                                 });
@@ -298,9 +298,18 @@ impl Render for LeftPanel {
                                         }
                                         ContextTarget::Folder(id) => {
                                             let id = id.clone();
+                                            // Cascade: delete all projects in this workspace
+                                            let id2 = id.clone();
                                             this.store.update(cx, |s, cx| {
-                                                s.workspaces.retain(|w| w.id != id);
-                                                // TODO: cascade delete projects in this workspace
+                                                // Delete projects belonging to this workspace
+                                                let to_delete: Vec<String> = s.projects.iter()
+                                                    .filter(|p| p.workspace_id.as_deref() == Some(&id2))
+                                                    .map(|p| p.id.clone()).collect();
+                                                for pid in &to_delete {
+                                                    crate::persistence::delete_project(pid);
+                                                }
+                                                s.projects.retain(|p| p.workspace_id.as_deref() != Some(&id2));
+                                                s.workspaces.retain(|w| w.id != id2);
                                                 cx.emit(StoreEvent::ProjectChanged);
                                             });
                                         }
@@ -423,7 +432,8 @@ impl LeftPanel {
                             p.workspace_id = Some(ws_id3.clone());
                             let now = chrono::Local::now();
                             p.tags.push(now.format("%Y-%m-%d %H:%M").to_string());
-                            s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone() });
+                            let ws = Some(ws_id3.clone());
+                            s.projects.push(ProjectSummary { id: p.id.clone(), name: p.name.clone(), workspace_id: ws });
                             s.project = p; s.prompt_dirty = true; s.save_pending = true;
                             cx.emit(StoreEvent::ProjectChanged);
                         });

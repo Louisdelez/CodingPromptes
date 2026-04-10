@@ -7,17 +7,20 @@ use crate::state::*;
 actions!(inkwell, [NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow]);
 
 /// Drag payload for panel resize handles
+/// Separate drag types so left/right resize handles don't interfere
 #[derive(Clone)]
-struct ResizeDrag {
-    side: ResizeSide,
-    start_x: f32,
-    start_width: f32,
+struct LeftResizeDrag;
+
+#[derive(Clone)]
+struct RightResizeDrag;
+
+impl Render for LeftResizeDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().w(px(4.0)).h(px(40.0)).bg(accent()).rounded(px(2.0))
+    }
 }
 
-#[derive(Clone, Copy)]
-enum ResizeSide { Left, Right }
-
-impl Render for ResizeDrag {
+impl Render for RightResizeDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div().w(px(4.0)).h(px(40.0)).bg(accent()).rounded(px(2.0))
     }
@@ -842,13 +845,12 @@ impl InkwellApp {
         // left_w and right_w already read above
         if left_open {
             main_row = main_row.child(self.left_panel.clone());
-            // Left resize handle — drag to resize
+            // Left resize handle — only reacts to LeftResizeDrag
             main_row = main_row.child(
                 div().id("left-resize").w(px(4.0)).flex_shrink_0().cursor_pointer()
                     .hover(|s| s.bg(accent()))
-                    .on_drag(ResizeDrag { side: ResizeSide::Left, start_x: 0.0, start_width: left_w },
-                        |drag, _, _, cx| cx.new(|_| drag.clone()))
-                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, _, cx| {
+                    .on_drag(LeftResizeDrag, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<LeftResizeDrag>, _, cx| {
                         let new_w = f32::from(ev.event.position.x).clamp(180.0, 500.0);
                         this.store.update(cx, |s, _| { s.left_width = new_w; });
                         cx.notify();
@@ -857,14 +859,12 @@ impl InkwellApp {
         }
         main_row = main_row.child(self.editor.clone());
         if right_open {
-            // Right resize handle — drag to resize
+            // Right resize handle — only reacts to RightResizeDrag
             main_row = main_row.child(
                 div().id("right-resize").w(px(4.0)).flex_shrink_0().cursor_pointer()
                     .hover(|s| s.bg(accent()))
-                    .on_drag(ResizeDrag { side: ResizeSide::Right, start_x: 0.0, start_width: right_w },
-                        |drag, _, _, cx| cx.new(|_| drag.clone()))
-                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ResizeDrag>, window, cx| {
-                        // Right panel width = window_width - mouse_x
+                    .on_drag(RightResizeDrag, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                    .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<RightResizeDrag>, window, cx| {
                         let mouse_x = f32::from(ev.event.position.x);
                         let win_w = f32::from(window.viewport_size().width);
                         let new_w = (win_w - mouse_x).clamp(250.0, 600.0);

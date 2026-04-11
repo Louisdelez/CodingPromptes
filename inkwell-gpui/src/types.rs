@@ -7,13 +7,13 @@ use std::sync::mpsc;
 
 // ── Screens & Modes ──
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Screen { Auth, Ide }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum AuthMode { Login, Register }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[allow(dead_code)]
 pub enum LeftTab { Library, Frameworks, Versions }
 

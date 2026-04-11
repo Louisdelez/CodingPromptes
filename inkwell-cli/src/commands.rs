@@ -122,6 +122,34 @@ pub fn mcp_install() {
     }
 }
 
+pub fn devtools_install() {
+    let devtools_binary = std::env::current_exe().ok()
+        .and_then(|p| p.parent().map(|d| d.join("inkwell-devtools-mcp").to_string_lossy().to_string()))
+        .unwrap_or_else(|| "inkwell-devtools-mcp".into());
+
+    let claude_config = dirs::home_dir().unwrap_or_default().join(".claude.json");
+    let mut config: serde_json::Value = std::fs::read_to_string(&claude_config).ok()
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or(serde_json::json!({}));
+
+    config["mcpServers"]["inkwell-devtools"] = serde_json::json!({
+        "command": devtools_binary,
+        "args": []
+    });
+
+    if let Ok(json) = serde_json::to_string_pretty(&config) {
+        if let Err(e) = std::fs::write(&claude_config, &json) {
+            println!("{} Erreur: {}", "✗".red(), e);
+            return;
+        }
+        println!("{} DevTools MCP configure dans {}", "✓".green(), claude_config.display());
+        println!("  22 outils: screenshot, app_state, set_block, run_prompt...");
+        println!("  Redemarrez Claude Code pour activer.");
+    } else {
+        println!("{} Erreur lors de la configuration", "✗".red());
+    }
+}
+
 pub fn help() {
     println!("{}", "Inkwell CLI — Spec-Driven Development".bold().cyan());
     println!();

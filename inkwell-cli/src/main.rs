@@ -43,6 +43,8 @@ enum Commands {
     Config { action: Option<String>, key: Option<String>, value: Option<String> },
     /// Install MCP server for Claude Code
     McpInstall,
+    /// Install DevTools MCP for live GPUI app control
+    DevtoolsInstall,
     /// Interactive chat with AI
     Chat,
     /// Generate shell completions (bash, zsh, fish)
@@ -69,6 +71,7 @@ async fn main() {
         Commands::Status => commands::status(),
         Commands::Config { action, key, value } => commands::config(action, key, value),
         Commands::McpInstall => commands::mcp_install(),
+        Commands::DevtoolsInstall => commands::devtools_install(),
         Commands::Chat => chat::run().await,
         Commands::Help => commands::help(),
         Commands::Completions { shell } => {

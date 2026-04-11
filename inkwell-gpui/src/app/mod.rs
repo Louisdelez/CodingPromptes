@@ -52,6 +52,10 @@ pub struct InkwellApp {
     pub dock: Entity<crate::dock::DockArea>,
     pub auth_inputs: auth_screen::AuthScreenInputs,
     pub settings_inputs: settings_modal::SettingsInputs,
+    // DevTools
+    pub devtools_snapshot: std::sync::Arc<std::sync::RwLock<crate::devtools::DevToolsSnapshot>>,
+    pub devtools_cmd_rx: tokio::sync::mpsc::Receiver<crate::devtools::DevToolsCommand>,
+    pub devtools_start_time: std::time::Instant,
 }
 
 impl InkwellApp {
@@ -78,10 +82,24 @@ impl InkwellApp {
         let mut state = AppState::new_with_channel(msg_tx.clone(), msg_rx);
         state.dark_mode = store.read(cx).dark_mode;
 
-        // State→Store sync now happens every 100ms in start_periodic_sync()
-        // No more manual bridge needed — state is pushed to store continuously
+        // DevTools: create shared state and spawn socket server
+        let devtools = crate::devtools::DevToolsServer::new();
+        let devtools_snapshot = devtools.snapshot.clone();
+        let devtools_cmd_tx = devtools.cmd_tx.clone();
+        let devtools_cmd_rx = devtools.cmd_rx;
+        let devtools_start_time = devtools.start_time;
 
-        Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock, auth_inputs: auth_screen::AuthScreenInputs::default(), settings_inputs: settings_modal::SettingsInputs::default() }
+        rt().spawn(crate::devtools::server::run(
+            devtools.snapshot,
+            devtools_cmd_tx,
+            devtools_start_time,
+        ));
+
+        Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock,
+            auth_inputs: auth_screen::AuthScreenInputs::default(),
+            settings_inputs: settings_modal::SettingsInputs::default(),
+            devtools_snapshot, devtools_cmd_rx, devtools_start_time,
+        }
     }
 
     #[allow(dead_code)]
@@ -140,6 +158,45 @@ impl InkwellApp {
                         s.api_key_google = this.state.api_key_google.clone();
                         s.github_repo = this.state.github_repo.clone();
                     });
+
+                    // Update DevTools snapshot from store
+                    if let Ok(mut snap) = this.devtools_snapshot.write() {
+                        let s = this.store.read(cx);
+                        snap.screen = format!("{:?}", this.state.screen).to_lowercase();
+                        snap.project_id = s.project.id.clone();
+                        snap.project_name = s.project.name.clone();
+                        snap.blocks = s.project.blocks.iter().enumerate().map(|(i, b)| {
+                            crate::devtools::BlockSnapshot {
+                                index: i,
+                                id: b.id.clone(),
+                                block_type: format!("{:?}", b.block_type),
+                                content: b.content.clone(),
+                                enabled: b.enabled,
+                            }
+                        }).collect();
+                        snap.projects = s.projects.iter().map(|p| crate::devtools::ProjectSummarySnapshot {
+                            id: p.id.clone(), name: p.name.clone(),
+                        }).collect();
+                        snap.selected_model = s.selected_model.clone();
+                        snap.cached_prompt = s.cached_prompt.clone();
+                        snap.cached_tokens = s.cached_tokens;
+                        snap.cached_chars = s.cached_chars;
+                        snap.cached_words = s.cached_words;
+                        snap.cached_lines = s.cached_lines;
+                        snap.left_tab = format!("{:?}", s.left_tab);
+                        snap.right_tab = format!("{:?}", s.right_tab);
+                        snap.left_open = s.left_open;
+                        snap.right_open = s.right_open;
+                        snap.terminal_open = s.terminal_open;
+                        snap.playground_response = s.playground_response.clone();
+                        snap.playground_loading = s.playground_loading;
+                        snap.sdd_running = s.sdd_running;
+                        snap.dark_mode = s.dark_mode;
+                        snap.save_status = s.save_status.to_string();
+                        snap.chat_messages_count = s.chat_messages.len();
+                        snap.executions_count = s.executions.len();
+                        snap.blocks_enabled = s.project.blocks.iter().filter(|b| b.enabled).count();
+                    }
 
                     // Sync editor content to store
                     let changed = this.editor.update(cx, |e, cx| e.sync_content(cx));

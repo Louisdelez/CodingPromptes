@@ -11,6 +11,22 @@ use super::{InkwellApp, rt};
 
 impl InkwellApp {
     pub(crate) fn poll_messages(&mut self, cx: &mut Context<Self>) {
+        // Poll DevTools commands (write/action handlers)
+        while let Ok(cmd) = self.devtools_cmd_rx.try_recv() {
+            let result = match cmd.method.as_str() {
+                "devtools/set_block" | "devtools/add_block" | "devtools/delete_block"
+                | "devtools/toggle_block" | "devtools/reorder_blocks" | "devtools/select_tab"
+                | "devtools/toggle_panel" | "devtools/set_model" | "devtools/open_project" => {
+                    crate::devtools::mutators::handle_write(&cmd.method, &cmd.params, &mut self.state, &self.store, cx)
+                }
+                "devtools/run_prompt" | "devtools/run_sdd" | "devtools/send_chat" | "devtools/save_project" => {
+                    crate::devtools::actions::handle_action(&cmd.method, &cmd.params, &mut self.state, &self.store, cx)
+                }
+                _ => serde_json::json!({"error": "Unknown command"}),
+            };
+            let _ = cmd.response_tx.send(result);
+        }
+
         // Limit messages per frame to avoid blocking render
         let mut count = 0;
         while count < 50 {

@@ -19,6 +19,7 @@ mod store;
 mod theme;
 mod types;
 mod ui;
+mod devtools;
 
 fn main() {
     env_logger::init();

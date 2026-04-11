@@ -195,11 +195,13 @@ pub fn handle_write(
                 "Stt" => Some(RightTab::Stt),
                 "History" => Some(RightTab::History),
                 "Export" => Some(RightTab::Export),
+                "Fleet" => Some(RightTab::Fleet),
                 "Terminal" => Some(RightTab::Terminal),
                 "Optimize" => Some(RightTab::Optimize),
                 "Lint" => Some(RightTab::Lint),
                 "Chat" => Some(RightTab::Chat),
                 "Analytics" => Some(RightTab::Analytics),
+                "Collab" => Some(RightTab::Collab),
                 "Sdd" => Some(RightTab::Sdd),
                 "Chain" => Some(RightTab::Chain),
                 _ => None,
@@ -264,6 +266,11 @@ pub fn handle_write(
                 .as_str()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "Nouveau prompt".to_string());
+            // CRITICAL: flush any pending edits of the current project to disk
+            // BEFORE replacing state.project. Otherwise rapid switches
+            // (new_project → edits → new_project) lose the first project's work.
+            crate::persistence::flush_project_from_state(state);
+            state.save_pending = false;
             let mut p = crate::state::Project::default_prompt();
             p.name = name.clone();
             let new_id = p.id.clone();
@@ -271,6 +278,10 @@ pub fn handle_write(
             state.block_inputs.clear();
             state.variable_inputs.clear();
             state.prompt_dirty = true;
+            // Reset transient UI state from the previous project, same as open_project.
+            state.playground_response.clear();
+            state.playground_loading = false;
+            state.sdd_running = false;
             let store_blocks: Vec<Block> = p
                 .blocks
                 .iter()
@@ -305,6 +316,9 @@ pub fn handle_write(
                 s.projects.insert(0, summary);
                 s.feature_counter += 1;
                 s.prompt_dirty = true;
+                s.playground_response.clear();
+                s.playground_loading = false;
+                s.sdd_running = false;
                 s.refresh_cache();
                 cx.emit(StoreEvent::ProjectChanged);
                 cx.emit(StoreEvent::PromptCacheUpdated);
@@ -407,6 +421,9 @@ pub fn handle_write(
                 Some(s) => s.to_string(),
                 None => return json!({"ok": false, "error": "Missing 'project_id' parameter"}),
             };
+            // CRITICAL: same as new_project — flush pending edits before swap.
+            crate::persistence::flush_project_from_state(state);
+            state.save_pending = false;
             let local = crate::persistence::load_all_projects();
             let Some(lp) = local.iter().find(|p| p.id == project_id) else {
                 return json!({"ok": false, "error": format!("Project '{}' not found on disk", project_id)});

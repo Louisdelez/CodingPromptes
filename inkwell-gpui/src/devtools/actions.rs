@@ -11,6 +11,14 @@ pub fn handle_action(
 ) -> serde_json::Value {
     match method {
         "devtools/run_prompt" => {
+            // Force a cache refresh first so cached_prompt reflects any edits
+            // (including recent MCP writes or just-loaded projects) — otherwise
+            // the execution would be recorded with an empty prompt_preview.
+            store.update(cx, |s, _| {
+                if s.prompt_dirty || s.cached_prompt.is_empty() {
+                    s.refresh_cache();
+                }
+            });
             // Trigger prompt execution same as Ctrl+Enter
             let s = store.read(cx);
             let model = s.selected_model.clone();

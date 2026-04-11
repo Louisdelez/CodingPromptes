@@ -95,6 +95,31 @@ pub fn save_project(project: &LocalProject) {
     }
 }
 
+/// Flush the current project (from AppState) to disk synchronously.
+/// Used by MCP handlers that are about to replace state.project
+/// (new_project, open_project) — without this, rapid switches lose
+/// pending edits that the periodic auto-save hadn't committed yet.
+pub fn flush_project_from_state(state: &crate::state::AppState) {
+    let local_project = LocalProject {
+        id: state.project.id.clone(),
+        name: state.project.name.clone(),
+        workspace_id: state.project.workspace_id.clone(),
+        blocks: state.project.blocks.iter().map(|b| {
+            inkwell_core::types::PromptBlock {
+                id: b.id.clone(),
+                block_type: b.block_type,
+                content: b.content.clone(),
+                enabled: b.enabled,
+            }
+        }).collect(),
+        variables: state.project.variables.clone(),
+        tags: state.project.tags.clone(),
+        framework: state.project.framework.clone(),
+        updated_at: chrono::Utc::now().timestamp_millis(),
+    };
+    save_project(&local_project);
+}
+
 pub fn delete_project(id: &str) {
     let path = projects_dir().join(format!("{id}.json"));
     let _ = std::fs::remove_file(path);

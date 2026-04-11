@@ -22,6 +22,30 @@ impl BlockType {
         matches!(self, Self::SddConstitution | Self::SddSpecification | Self::SddPlan | Self::SddTasks | Self::SddImplementation)
     }
 
+    /// Parse a canonical lowercase / kebab-case block type name.
+    /// Returns None for unknown names (callers should surface a clear error).
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            "role" => Some(Self::Role),
+            "context" => Some(Self::Context),
+            "task" => Some(Self::Task),
+            "examples" => Some(Self::Examples),
+            "constraints" => Some(Self::Constraints),
+            "format" => Some(Self::Format),
+            "sdd-constitution" | "sdd_constitution" => Some(Self::SddConstitution),
+            "sdd-specification" | "sdd_specification" => Some(Self::SddSpecification),
+            "sdd-plan" | "sdd_plan" => Some(Self::SddPlan),
+            "sdd-tasks" | "sdd_tasks" => Some(Self::SddTasks),
+            "sdd-implementation" | "sdd_implementation" => Some(Self::SddImplementation),
+            _ => None,
+        }
+    }
+
+    pub const ALL_NAMES: &'static [&'static str] = &[
+        "role", "context", "task", "examples", "constraints", "format",
+        "sdd-constitution", "sdd-specification", "sdd-plan", "sdd-tasks", "sdd-implementation",
+    ];
+
     pub fn color(&self) -> &'static str {
         match self {
             Self::Role => "#a78bfa",

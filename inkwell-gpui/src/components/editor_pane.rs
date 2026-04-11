@@ -72,17 +72,24 @@ impl EditorPane {
         }
     }
 
-    /// Sync block editors with current block count/order
+    /// Sync block editors with current block count/order/identity.
+    /// Rebuilds when:
+    ///  - count changed (add/remove),
+    ///  - a block at index i has a different id (reorder or project swap).
     fn sync_editors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let store = self.store.read(cx);
         let count = store.project.blocks.len();
-        // Check if block IDs match current editors (detects reordering)
-        let ids_match = count == self.block_editors.len() && self.block_editors.iter().enumerate().all(|(i, e)| {
-            e.read(cx).block_index == i
-        });
+        let block_ids: Vec<String> = store.project.blocks.iter().map(|b| b.id.clone()).collect();
+        let _ = store;
+
+        let ids_match = count == self.block_editors.len()
+            && self.block_editors.iter().enumerate().all(|(i, e)| {
+                let editor = e.read(cx);
+                editor.block_index == i && editor.block_id() == block_ids[i].as_str()
+            });
         if count == self.last_block_count && ids_match { return; }
 
-        // Rebuild all editors (blocks were added/removed/reordered)
+        // Rebuild all editors (blocks were added/removed/reordered/swapped).
         self.block_editors.clear();
         for i in 0..count {
             let s = self.store.clone();

@@ -21,8 +21,39 @@ mod types;
 mod ui;
 mod devtools;
 
+struct DevToolsLogger {
+    inner: env_logger::Logger,
+}
+
+impl log::Log for DevToolsLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        self.inner.enabled(metadata)
+    }
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            self.inner.log(record);
+            devtools::push_log(format!(
+                "[{}] {} — {}",
+                record.level(),
+                record.target(),
+                record.args()
+            ));
+        }
+    }
+    fn flush(&self) { self.inner.flush(); }
+}
+
+fn init_logging() {
+    let inner = env_logger::Builder::from_default_env().build();
+    let level = inner.filter();
+    let logger = DevToolsLogger { inner };
+    if log::set_boxed_logger(Box::new(logger)).is_ok() {
+        log::set_max_level(level);
+    }
+}
+
 fn main() {
-    env_logger::init();
+    init_logging();
 
     application().with_assets(Assets).run(|cx: &mut App| {
         gpui_component::init(cx);

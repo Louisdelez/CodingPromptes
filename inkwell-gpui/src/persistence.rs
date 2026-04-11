@@ -100,6 +100,13 @@ pub fn delete_project(id: &str) {
     let _ = std::fs::remove_file(path);
 }
 
+/// Persist the current project selection — shared pointer used by CLI and MCP.
+pub fn save_current_project_id(id: &str) {
+    let dir = data_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("current-project-id.txt"), id);
+}
+
 // ── Settings (API keys) ──
 
 #[derive(Debug, Serialize, Deserialize, Default)]

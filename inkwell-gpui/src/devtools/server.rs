@@ -94,6 +94,10 @@ async fn dispatch(
         "devtools/list_tabs" => handlers::list_tabs(snapshot),
         "devtools/get_logs" => handlers::get_logs(&params),
         "devtools/validate_state" => handlers::validate_state(snapshot),
+        "devtools/get_variables" => handlers::get_variables(snapshot),
+        "devtools/get_chat_messages" => handlers::get_chat_messages(snapshot, &params),
+        "devtools/get_executions" => handlers::get_executions(snapshot, &params),
+        "devtools/get_playground_response" => handlers::get_playground_response(snapshot),
 
         // Screenshot
         "devtools/screenshot" => screenshot::capture().await,
@@ -101,7 +105,9 @@ async fn dispatch(
         // Write/Action handlers (round-trip to GPUI thread)
         "devtools/set_block" | "devtools/add_block" | "devtools/delete_block"
         | "devtools/toggle_block" | "devtools/reorder_blocks" | "devtools/select_tab"
-        | "devtools/toggle_panel" | "devtools/set_model" | "devtools/open_project"
+        | "devtools/select_left_tab" | "devtools/toggle_panel" | "devtools/set_model"
+        | "devtools/open_project" | "devtools/new_project" | "devtools/rename_project"
+        | "devtools/set_variable" | "devtools/delete_variable"
         | "devtools/run_prompt" | "devtools/run_sdd" | "devtools/send_chat"
         | "devtools/save_project" => {
             send_command(method, params, cmd_tx).await

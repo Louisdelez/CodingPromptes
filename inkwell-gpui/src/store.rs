@@ -222,8 +222,10 @@ impl AppStore {
             left_open: saved_layout.left_open,
             right_open: saved_layout.right_open,
             terminal_open: saved_layout.terminal_open,
-            left_width: saved_layout.left_width,
-            right_width: saved_layout.right_width,
+            // Clamp loaded widths so a corrupted (e.g. zeroed) layout file
+            // cannot leave a panel invisible after toggling it open.
+            left_width: if saved_layout.left_width < 180.0 { 288.0 } else { saved_layout.left_width },
+            right_width: if saved_layout.right_width < 250.0 { 384.0 } else { saved_layout.right_width },
             show_add_menu: false, show_ssh_modal: false,
             editing_workspace_id: None, selected_workspace_color: "#6366f1".into(),
             confirm_delete: None, confirm_delete_block: None, search_query: String::new(),

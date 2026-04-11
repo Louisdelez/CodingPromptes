@@ -86,6 +86,47 @@ pub fn list_tools() -> Vec<serde_json::Value> {
             "required":["message"]
         })),
         tool("devtools_save_project", "Force save the current project to disk", json!({"type":"object","properties":{}})),
+
+        // New project/variable/tab tools
+        tool("devtools_new_project", "Create a brand new project with default blocks (Role/Context/Task)", json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","description":"Project name (default: 'Nouveau prompt')"}},
+        })),
+        tool("devtools_rename_project", "Rename the currently open project", json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","description":"New project name"}},
+            "required":["name"]
+        })),
+        tool("devtools_set_variable", "Set a template variable value (substitutes {{key}} in the prompt)", json!({
+            "type":"object",
+            "properties":{
+                "key":{"type":"string","description":"Variable name (without braces)"},
+                "value":{"type":"string","description":"Value to substitute"}
+            },
+            "required":["key","value"]
+        })),
+        tool("devtools_delete_variable", "Remove a template variable", json!({
+            "type":"object",
+            "properties":{"key":{"type":"string","description":"Variable name"}},
+            "required":["key"]
+        })),
+        tool("devtools_select_left_tab", "Switch the active left panel tab", json!({
+            "type":"object",
+            "properties":{"tab":{"type":"string","description":"Tab name: Library, Frameworks, Versions"}},
+            "required":["tab"]
+        })),
+
+        // New read tools
+        tool("devtools_get_variables", "Get all template variables defined on the current project", json!({"type":"object","properties":{}})),
+        tool("devtools_get_chat_messages", "Get the chat message history (role, content)", json!({
+            "type":"object",
+            "properties":{"limit":{"type":"integer","description":"Max messages (default: all)"}},
+        })),
+        tool("devtools_get_executions", "Get recent prompt executions with metrics and previews", json!({
+            "type":"object",
+            "properties":{"limit":{"type":"integer","description":"Max executions to return (default 20)"}},
+        })),
+        tool("devtools_get_playground_response", "Get the last run_prompt response and loading state", json!({"type":"object","properties":{}})),
     ]
 }
 
@@ -122,6 +163,15 @@ pub async fn call_tool(name: &str, args: &serde_json::Value) -> String {
         "devtools_run_sdd" => "devtools/run_sdd",
         "devtools_send_chat" => "devtools/send_chat",
         "devtools_save_project" => "devtools/save_project",
+        "devtools_new_project" => "devtools/new_project",
+        "devtools_rename_project" => "devtools/rename_project",
+        "devtools_set_variable" => "devtools/set_variable",
+        "devtools_delete_variable" => "devtools/delete_variable",
+        "devtools_select_left_tab" => "devtools/select_left_tab",
+        "devtools_get_variables" => "devtools/get_variables",
+        "devtools_get_chat_messages" => "devtools/get_chat_messages",
+        "devtools_get_executions" => "devtools/get_executions",
+        "devtools_get_playground_response" => "devtools/get_playground_response",
         _ => return format!("Unknown tool: {}", name),
     };
 

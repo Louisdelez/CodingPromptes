@@ -31,7 +31,17 @@ pub fn get_project(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::Valu
 }
 
 pub fn get_block(snapshot: &Arc<RwLock<DevToolsSnapshot>>, params: &serde_json::Value) -> serde_json::Value {
-    let index = params["index"].as_u64().unwrap_or(0) as usize;
+    let v = &params["index"];
+    let index = if let Some(n) = v.as_u64() {
+        n as usize
+    } else if let Some(n) = v.as_i64() {
+        if n < 0 {
+            return json!({"error": format!("'index' must be >= 0 (got {})", n)});
+        }
+        n as usize
+    } else {
+        return json!({"error": "'index' must be a non-negative integer"});
+    };
     if let Ok(s) = snapshot.read() {
         match s.blocks.get(index) {
             Some(b) => serde_json::to_value(b).unwrap_or(json!({"error": "serialize failed"})),
@@ -71,6 +81,48 @@ pub fn list_tabs(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::Value 
     }
 }
 
+pub fn get_variables(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::Value {
+    if let Ok(s) = snapshot.read() {
+        json!({ "variables": s.variables })
+    } else {
+        json!({"error": "lock poisoned"})
+    }
+}
+
+pub fn get_chat_messages(snapshot: &Arc<RwLock<DevToolsSnapshot>>, params: &serde_json::Value) -> serde_json::Value {
+    let limit = params["limit"].as_u64().map(|n| n as usize);
+    if let Ok(s) = snapshot.read() {
+        let msgs: Vec<_> = match limit {
+            Some(n) if n < s.chat_messages.len() => s.chat_messages[s.chat_messages.len() - n..].to_vec(),
+            _ => s.chat_messages.clone(),
+        };
+        json!({ "messages": msgs, "count": s.chat_messages.len() })
+    } else {
+        json!({"error": "lock poisoned"})
+    }
+}
+
+pub fn get_executions(snapshot: &Arc<RwLock<DevToolsSnapshot>>, params: &serde_json::Value) -> serde_json::Value {
+    let limit = params["limit"].as_u64().map(|n| n as usize).unwrap_or(20);
+    if let Ok(s) = snapshot.read() {
+        let execs: Vec<_> = s.executions.iter().take(limit).cloned().collect();
+        json!({ "executions": execs, "count": s.executions.len() })
+    } else {
+        json!({"error": "lock poisoned"})
+    }
+}
+
+pub fn get_playground_response(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::Value {
+    if let Ok(s) = snapshot.read() {
+        json!({
+            "response": s.playground_response,
+            "loading": s.playground_loading,
+        })
+    } else {
+        json!({"error": "lock poisoned"})
+    }
+}
+
 pub fn get_logs(params: &serde_json::Value) -> serde_json::Value {
     let lines = params["lines"].as_u64().unwrap_or(50) as usize;
     let logs = super::get_logs(lines);
@@ -79,6 +131,7 @@ pub fn get_logs(params: &serde_json::Value) -> serde_json::Value {
 
 pub fn validate_state(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::Value {
     let mut issues = Vec::new();
+    let mut info: Vec<String> = Vec::new();
 
     if let Ok(s) = snapshot.read() {
         if s.project_name.is_empty() {
@@ -87,17 +140,36 @@ pub fn validate_state(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::V
         if s.blocks.is_empty() {
             issues.push("No blocks in project".to_string());
         }
-        let empty_blocks: Vec<usize> = s.blocks.iter()
-            .filter(|b| b.enabled && b.content.is_empty())
+        // SDD blocks start empty by design — they're filled by the pipeline.
+        // Report them separately in `info`, not as problems.
+        let is_sdd_type = |bt: &str| -> bool {
+            matches!(
+                bt,
+                "SddConstitution" | "SddSpecification" | "SddPlan" | "SddTasks" | "SddImplementation"
+            )
+        };
+        let empty_non_sdd: Vec<usize> = s
+            .blocks
+            .iter()
+            .filter(|b| b.enabled && b.content.trim().is_empty() && !is_sdd_type(&b.block_type))
             .map(|b| b.index)
             .collect();
-        if !empty_blocks.is_empty() {
-            issues.push(format!("Empty enabled blocks at indices: {:?}", empty_blocks));
+        let empty_sdd: Vec<usize> = s
+            .blocks
+            .iter()
+            .filter(|b| b.enabled && b.content.trim().is_empty() && is_sdd_type(&b.block_type))
+            .map(|b| b.index)
+            .collect();
+        if !empty_non_sdd.is_empty() {
+            issues.push(format!("Empty enabled blocks at indices: {:?}", empty_non_sdd));
+        }
+        if !empty_sdd.is_empty() {
+            info.push(format!("SDD blocks awaiting generation: {:?}", empty_sdd));
         }
         if s.selected_model.is_empty() {
             issues.push("No LLM model selected".to_string());
         }
     }
 
-    json!({ "issues": issues, "valid": issues.is_empty() })
+    json!({ "issues": issues, "info": info, "valid": issues.is_empty() })
 }

@@ -37,6 +37,9 @@ pub struct DevToolsSnapshot {
     pub chat_messages_count: usize,
     pub executions_count: usize,
     pub blocks_enabled: usize,
+    pub variables: std::collections::HashMap<String, String>,
+    pub chat_messages: Vec<ChatMessageSnapshot>,
+    pub executions: Vec<ExecutionSnapshot>,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -52,6 +55,24 @@ pub struct BlockSnapshot {
 pub struct ProjectSummarySnapshot {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Clone, Serialize, Default)]
+pub struct ChatMessageSnapshot {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Clone, Serialize, Default)]
+pub struct ExecutionSnapshot {
+    pub model: String,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub latency_ms: u64,
+    pub cost: f64,
+    pub timestamp: i64,
+    pub prompt_preview: String,
+    pub response_preview: String,
 }
 
 /// Command sent from the socket server to the GPUI main thread.

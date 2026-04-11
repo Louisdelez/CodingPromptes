@@ -9,16 +9,29 @@ use inkwell_core::types::BlockType;
 pub struct BlockEditor {
     store: Entity<AppStore>,
     pub block_index: usize,
+    /// The stable id of the block this editor was created for. Used to detect when
+    /// the underlying block was replaced (e.g. open_project swapped the whole list)
+    /// so we don't write stale input values back into an unrelated block.
+    block_id: String,
     input: Option<Entity<InputState>>,
     show_type_menu: bool,
+    /// Set when the store content changed from an external source (MCP, SDD generator).
+    /// Render reads this and pushes the store value into the input widget.
+    pending_store_pull: bool,
+    /// Snapshot of the value we last pushed or pulled. Lets sync_content tell
+    /// user edits (input diverged from snapshot) from external edits (store
+    /// diverged from snapshot) without guessing.
+    last_synced_content: String,
 }
 
 impl BlockEditor {
+    pub fn block_id(&self) -> &str { &self.block_id }
+
     pub fn new(store: Entity<AppStore>, block_index: usize, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Create input for this block with FR placeholder
         let block_data = store.read(cx).project.blocks.get(block_index)
-            .map(|b| (b.content.clone(), b.block_type));
-        let (content, block_type) = block_data.unwrap_or((String::new(), inkwell_core::types::BlockType::Role));
+            .map(|b| (b.content.clone(), b.block_type, b.id.clone()));
+        let (content, block_type, block_id) = block_data.unwrap_or((String::new(), inkwell_core::types::BlockType::Role, String::new()));
         let placeholder = match block_type {
             BlockType::Role => "Tu es un expert en...",
             BlockType::Context => "Le contexte est...",
@@ -30,44 +43,84 @@ impl BlockEditor {
         };
         let input = Some(cx.new(|cx| {
             InputState::new(window, cx)
-                .default_value(content)
+                .default_value(content.clone())
                 .placeholder(placeholder)
                 .multi_line(true)
                 .auto_grow(3, 30)
         }));
 
-        // Subscribe to store — only re-render when OUR block changes
-        cx.subscribe(&store, move |_this, _, event: &StoreEvent, cx| {
+        // Subscribe to store — only re-render when OUR block changes.
+        // When an external source (MCP, SDD) rewrites our content in the store,
+        // flag pending_store_pull so render can push the new value into the Input widget.
+        cx.subscribe(&store, move |this, _, event: &StoreEvent, cx| {
             match event {
-                StoreEvent::BlockContentChanged(idx) if *idx == block_index => cx.notify(),
-                StoreEvent::ProjectChanged => cx.notify(),
+                StoreEvent::BlockContentChanged(idx) if *idx == block_index => {
+                    this.pending_store_pull = true;
+                    cx.notify();
+                }
+                StoreEvent::ProjectChanged => {
+                    this.pending_store_pull = true;
+                    cx.notify();
+                }
                 _ => {}
             }
         }).detach();
 
-        Self { store, block_index, input, show_type_menu: false }
+        Self {
+            store,
+            block_index,
+            block_id,
+            input,
+            show_type_menu: false,
+            pending_store_pull: false,
+            last_synced_content: content,
+        }
     }
 
-    /// Read current input value and sync to store if changed
-    pub fn sync_content(&self, cx: &mut Context<Self>) -> bool {
-        if let Some(ref input) = self.input {
-            let val = input.read(cx).value();
-            let store = self.store.read(cx);
-            if let Some(block) = store.project.blocks.get(self.block_index) {
-                if val != block.content.as_str() {
-                    let new_content = val.to_string();
-                    let idx = self.block_index;
-                    self.store.update(cx, |s, _cx| {
-                        if let Some(b) = s.project.blocks.get_mut(idx) {
-                            b.content = new_content;
-                        }
-                        s.prompt_dirty = true;
-                    });
-                    return true;
-                }
-            }
+    /// Reconcile input widget and store content.
+    /// Distinguishes three cases using `last_synced_content` as the reference point:
+    ///  - input != last && store == last  → user typed, push input → store
+    ///  - input == last && store != last  → external source (MCP, SDD), flag pull
+    ///  - both diverged                   → trust the store (external wins)
+    pub fn sync_content(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(ref input) = self.input else { return false; };
+        let input_val = input.read(cx).value().to_string();
+        let store = self.store.read(cx);
+        let Some(block) = store.project.blocks.get(self.block_index) else {
+            return false;
+        };
+        if block.id != self.block_id {
+            return false;
         }
-        false
+        let store_val = block.content.clone();
+        let _ = store;
+
+        let user_changed = input_val != self.last_synced_content;
+        let store_changed = store_val != self.last_synced_content;
+
+        match (user_changed, store_changed) {
+            (true, false) => {
+                // User edit — push to store
+                let idx = self.block_index;
+                let new_content = input_val.clone();
+                self.store.update(cx, |s, _| {
+                    if let Some(b) = s.project.blocks.get_mut(idx) {
+                        b.content = new_content;
+                    }
+                    s.prompt_dirty = true;
+                });
+                self.last_synced_content = input_val;
+                true
+            }
+            (false, true) | (true, true) => {
+                // External edit wins. Pull on next render.
+                self.last_synced_content = store_val;
+                self.pending_store_pull = true;
+                cx.notify();
+                false
+            }
+            (false, false) => false,
+        }
     }
 
     /// Reset the input entity (e.g. after SDD generation fills content)
@@ -85,10 +138,24 @@ impl BlockEditor {
 }
 
 impl Render for BlockEditor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let store = self.store.read(cx);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let idx = self.block_index;
 
+        // Pull store → input if an external source changed our content.
+        if self.pending_store_pull {
+            let new_content = self.store.read(cx).project.blocks.get(idx).map(|b| b.content.clone());
+            if let (Some(content), Some(input_entity)) = (new_content, self.input.as_ref()) {
+                let current = input_entity.read(cx).value();
+                if current.as_ref() != content.as_str() {
+                    let to_set = content.clone();
+                    input_entity.update(cx, |s, cx| s.set_value(to_set, window, cx));
+                }
+                self.last_synced_content = content;
+            }
+            self.pending_store_pull = false;
+        }
+
+        let store = self.store.read(cx);
         let Some(block) = store.project.blocks.get(idx) else {
             return div();
         };

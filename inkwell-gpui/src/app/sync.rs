@@ -16,7 +16,9 @@ impl InkwellApp {
             let result = match cmd.method.as_str() {
                 "devtools/set_block" | "devtools/add_block" | "devtools/delete_block"
                 | "devtools/toggle_block" | "devtools/reorder_blocks" | "devtools/select_tab"
-                | "devtools/toggle_panel" | "devtools/set_model" | "devtools/open_project" => {
+                | "devtools/select_left_tab" | "devtools/toggle_panel" | "devtools/set_model"
+                | "devtools/open_project" | "devtools/new_project" | "devtools/rename_project"
+                | "devtools/set_variable" | "devtools/delete_variable" => {
                     crate::devtools::mutators::handle_write(&cmd.method, &cmd.params, &mut self.state, &self.store, cx)
                 }
                 "devtools/run_prompt" | "devtools/run_sdd" | "devtools/send_chat" | "devtools/save_project" => {
@@ -326,8 +328,11 @@ impl InkwellApp {
         }
     }
 
-    pub(crate) fn save_to_backend(&mut self) {
-        self.state.save_status = "saving";
+    pub(crate) fn save_to_backend(&mut self, cx: &mut Context<Self>) {
+        // Caller (periodic sync) already set state.save_status = "saved" with a
+        // save_status_timer so the UI shows the transition. Don't touch it here
+        // — otherwise the next periodic tick copies "saving" into the store and
+        // the badge stays stuck because save_status_timer only resets from "saved".
 
         // 1. Save locally FIRST (instant, no network)
         let local_project = crate::persistence::LocalProject {
@@ -374,12 +379,17 @@ impl InkwellApp {
             selected_model: self.state.selected_model.clone(),
         }.save();
 
-        // Save layout state
+        // Save layout state — read panel sizes from the store, not derived from open flag
+        // (the old `left_open as u32 * 288.0` formula stored 0 whenever the panel was
+        // closed once, which left it invisible after re-opening).
+        let s = self.store.read(cx);
+        let l_w = if s.left_width < 180.0 { 288.0 } else { s.left_width };
+        let r_w = if s.right_width < 250.0 { 384.0 } else { s.right_width };
         crate::layout::SavedLayout {
-            left_open: self.state.left_open,
-            left_width: self.state.left_open as u32 as f32 * 288.0, // TODO: read from store
-            right_open: self.state.right_open,
-            right_width: 384.0,
+            left_open: s.left_open,
+            left_width: l_w,
+            right_open: s.right_open,
+            right_width: r_w,
             terminal_open: false,
             dark_mode: self.state.dark_mode,
         }.save();

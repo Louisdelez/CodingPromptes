@@ -196,6 +196,25 @@ impl InkwellApp {
                         snap.chat_messages_count = s.chat_messages.len();
                         snap.executions_count = s.executions.len();
                         snap.blocks_enabled = s.project.blocks.iter().filter(|b| b.enabled).count();
+                        snap.variables = s.project.variables.clone();
+                        snap.chat_messages = s.chat_messages.iter().map(|(role, content)| {
+                            crate::devtools::ChatMessageSnapshot {
+                                role: role.clone(),
+                                content: content.clone(),
+                            }
+                        }).collect();
+                        snap.executions = s.executions.iter().rev().take(50).map(|e| {
+                            crate::devtools::ExecutionSnapshot {
+                                model: e.model.clone(),
+                                tokens_in: e.tokens_in,
+                                tokens_out: e.tokens_out,
+                                latency_ms: e.latency_ms,
+                                cost: e.cost,
+                                timestamp: e.timestamp,
+                                prompt_preview: e.prompt_preview.clone(),
+                                response_preview: e.response_preview.clone(),
+                            }
+                        }).collect();
                     }
 
                     // Sync editor content to store
@@ -236,7 +255,7 @@ impl InkwellApp {
                             this.state.save_status = "saved";
                             this.state.save_status_timer = 30;
                             this.state.save_pending = false;
-                            this.save_to_backend();
+                            this.save_to_backend(cx);
                             // Save steering + hooks natively
                             {
                                 let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join("inkwell-ide");

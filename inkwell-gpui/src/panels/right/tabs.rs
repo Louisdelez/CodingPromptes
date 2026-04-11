@@ -427,21 +427,28 @@ impl RightPanel {
         let s = self.store.read(cx);
         let blocks = &s.project.blocks;
         let enabled = blocks.iter().filter(|b| b.enabled).count();
-        let empty = blocks.iter().filter(|b| b.enabled && b.content.trim().is_empty()).count();
+        // SDD blocks start empty by design — count them as "pending" info, not warnings.
+        let empty_non_sdd = blocks.iter()
+            .filter(|b| b.enabled && b.content.trim().is_empty() && !b.block_type.is_sdd())
+            .count();
+        let empty_sdd = blocks.iter()
+            .filter(|b| b.enabled && b.content.trim().is_empty() && b.block_type.is_sdd())
+            .count();
         let has_task = blocks.iter().any(|b| b.enabled && b.block_type == inkwell_core::types::BlockType::Task);
         let unresolved = s.cached_prompt.matches("{{").count();
         let chars = s.cached_chars; let has_neg = s.cached_prompt.contains("don't") || s.cached_prompt.contains("never");
         let has_ex = blocks.iter().any(|b| b.block_type == inkwell_core::types::BlockType::Examples && b.enabled);
         let mut checks = div().flex().flex_col().gap(px(6.0));
         if enabled == 0 { checks = checks.child(lint("error", "Aucun bloc active")); }
-        if empty > 0 { checks = checks.child(lint("warning", &format!("{empty} bloc(s) vide(s)"))); }
+        if empty_non_sdd > 0 { checks = checks.child(lint("warning", &format!("{empty_non_sdd} bloc(s) vide(s)"))); }
+        if empty_sdd > 0 { checks = checks.child(lint("info", &format!("{empty_sdd} bloc(s) SDD a generer"))); }
         if !has_task && enabled > 0 { checks = checks.child(lint("warning", "Pas de bloc tache/directive")); }
         if unresolved > 0 { checks = checks.child(lint("warning", &format!("{unresolved} variable(s) non resolue(s)"))); }
         if chars < 50 && enabled > 0 { checks = checks.child(lint("info", "Prompt tres court")); }
         if chars > 10000 { checks = checks.child(lint("warning", "Prompt tres long (>10K car.)")); }
         if has_neg { checks = checks.child(lint("info", "Instructions negatives — preferez le positif")); }
         if !has_ex && chars > 800 { checks = checks.child(lint("info", "Prompt complexe sans exemples")); }
-        let all_good = enabled > 0 && empty == 0 && has_task && unresolved == 0 && chars >= 50 && chars <= 10000;
+        let all_good = enabled > 0 && empty_non_sdd == 0 && has_task && unresolved == 0 && chars >= 50 && chars <= 10000;
         if all_good {
             checks = checks.child(lint("success", "Tous les checks sont passes !"));
         }
@@ -660,7 +667,7 @@ impl RightPanel {
             .child(div().flex().flex_wrap().gap(px(8.0))
                 .child(kpi("Executions", &exec_count.to_string(), accent()))
                 .child(kpi("Tokens", &format!("{}", total_in + total_out), success()))
-                .child(kpi("Cout", &format!("${:.4}", total_cost), hsla(50.0 / 360.0, 0.8, 0.5, 1.0)))
+                .child(kpi("Cout", &format!("${:.4}", total_cost.max(0.0)), hsla(50.0 / 360.0, 0.8, 0.5, 1.0)))
                 .child(kpi("Latence moy.", &format!("{}ms", avg_lat), text_secondary())));
 
         // Top model

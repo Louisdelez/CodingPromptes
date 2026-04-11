@@ -423,23 +423,71 @@ impl LeftPanel {
             .child(div().flex_1().text_xs().text_color(text_muted()).child("Steering (Kiro)")));
 
         let steering = &self.store.read(cx).steering;
+        let editing_idx = self.editing_steering_idx;
         for (i, rule) in steering.rules.iter().enumerate() {
-            c = c.child(
-                div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
-                    .hover(|s| s.bg(bg_tertiary()))
-                    .cursor_pointer()
-                    .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
-                        .bg(if rule.enabled { success() } else { text_muted() }))
-                    .child(Icon::new(IconName::File).text_color(if rule.enabled { accent() } else { text_muted() }))
-                    .child(div().flex_1().flex().flex_col()
-                        .child(div().text_xs().text_color(text_primary()).child(rule.name.clone()))
-                        .child(div().text_xs().text_color(text_muted()).child(rule.description.clone())))
-                    .child(div().text_xs().text_color(text_muted()).child(format!("{:?}", rule.inclusion)))
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                        this.store.update(cx, |s, _| { s.steering.toggle(i); });
-                        cx.notify();
-                    }))
-            );
+            let is_editing = editing_idx == Some(i);
+            if is_editing {
+                // Editable mode — show input for content
+                c = c.child(
+                    div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).bg(accent_bg()).border_1().border_color(accent())
+                        .flex().flex_col().gap(px(4.0))
+                        .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(accent()).child(rule.name.clone()))
+                        .child(if let Some(ref entity) = self.steering_input {
+                            div().child(Input::new(entity))
+                        } else { div() })
+                        .child(div().flex().gap(px(6.0))
+                            .child(div().px(px(8.0)).py(px(3.0)).rounded(px(4.0)).bg(accent())
+                                .text_xs().text_color(ink_white()).cursor_pointer().child("Sauver")
+                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                                    if let Some(ref input) = this.steering_input {
+                                        let val = input.read(cx).value().to_string();
+                                        this.store.update(cx, |s, _| {
+                                            if let Some(r) = s.steering.rules.get_mut(i) { r.content = val; }
+                                        });
+                                    }
+                                    this.editing_steering_idx = None;
+                                    this.steering_input = None;
+                                    cx.notify();
+                                })))
+                            .child(div().px(px(8.0)).py(px(3.0)).rounded(px(4.0)).bg(bg_tertiary())
+                                .text_xs().text_color(text_secondary()).cursor_pointer().child("Annuler")
+                                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                                    this.editing_steering_idx = None;
+                                    this.steering_input = None;
+                                    cx.notify();
+                                }))))
+                );
+            } else {
+                c = c.child(
+                    div().px(px(8.0)).py(px(6.0)).rounded(px(4.0)).flex().items_center().gap(px(6.0))
+                        .hover(|s| s.bg(bg_tertiary()))
+                        .cursor_pointer()
+                        .child(div().w(px(6.0)).h(px(6.0)).rounded(px(3.0))
+                            .bg(if rule.enabled { success() } else { text_muted() }))
+                        .child(Icon::new(IconName::File).text_color(if rule.enabled { accent() } else { text_muted() }))
+                        .child(div().flex_1().flex().flex_col()
+                            .child(div().text_xs().text_color(text_primary()).child(rule.name.clone()))
+                            .child(div().text_xs().text_color(text_muted()).child(
+                                if rule.content.is_empty() { rule.description.clone() }
+                                else { format!("{} ({} car.)", rule.description, rule.content.len()) }
+                            )))
+                        // Single click toggle, double click edit
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                            if ev.click_count == 2 {
+                                this.editing_steering_idx = Some(i);
+                                let content = this.store.read(cx).steering.rules.get(i)
+                                    .map(|r| r.content.clone()).unwrap_or_default();
+                                this.steering_input = Some(cx.new(|cx|
+                                    InputState::new(window, cx).default_value(content).multi_line(true).auto_grow(3, 10)
+                                ));
+                                cx.notify();
+                            } else {
+                                this.store.update(cx, |s, _| { s.steering.toggle(i); });
+                                cx.notify();
+                            }
+                        }))
+                );
+            }
         }
 
         c

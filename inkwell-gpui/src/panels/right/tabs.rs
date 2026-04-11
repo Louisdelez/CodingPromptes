@@ -115,6 +115,38 @@ impl RightPanel {
         let messages: Vec<(String, String)> = s.chat_messages.clone();
         let model = s.selected_model.clone();
         let system_prompt = s.chat_system_prompt.clone();
+        let sessions = &s.sessions;
+        let active_session_id = sessions.active_session_id.clone();
+
+        // Sessions header
+        let mut session_tabs = div().px(px(8.0)).py(px(4.0)).flex().items_center().gap(px(4.0))
+            .border_b_1().border_color(border_c());
+        for session in &sessions.sessions {
+            let is_active = active_session_id.as_deref() == Some(&session.id);
+            let sid = session.id.clone();
+            session_tabs = session_tabs.child(
+                div().px(px(8.0)).py(px(3.0)).rounded(px(4.0))
+                    .text_xs().cursor_pointer()
+                    .bg(if is_active { accent_bg() } else { transparent() })
+                    .text_color(if is_active { accent() } else { text_secondary() })
+                    .child(session.name.clone())
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, _| { s.sessions.switch_session(&sid); });
+                        cx.notify();
+                    }))
+            );
+        }
+        session_tabs = session_tabs.child(div().flex_1()).child(
+            div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                .text_xs().text_color(text_muted()).cursor_pointer()
+                .hover(|s| s.bg(bg_tertiary()))
+                .child("+")
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    let count = this.store.read(cx).sessions.sessions.len() + 1;
+                    this.store.update(cx, |s, _| { s.sessions.new_session(&format!("Session {}", count)); });
+                    cx.notify();
+                }))
+        );
 
         // Messages area
         let mut msg_view = div().flex().flex_col().gap(px(8.0));
@@ -134,6 +166,8 @@ impl RightPanel {
         }
 
         div().flex_1().flex().flex_col()
+            // Session tabs
+            .child(session_tabs)
             // Header with model + clear
             .child(div().px(px(12.0)).py(px(8.0)).border_b_1().border_color(border_c()).flex().items_center().gap(px(6.0))
                 .child(div().text_xs().text_color(text_muted()).child("Modele:"))

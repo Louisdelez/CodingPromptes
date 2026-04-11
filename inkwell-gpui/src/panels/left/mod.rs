@@ -57,6 +57,9 @@ pub struct LeftPanel {
     pub(crate) rename_input: Option<Entity<InputState>>,
     // Context menu (right-click)
     pub(crate) context_menu: Option<ContextTarget>,
+    // Steering editing
+    pub(crate) editing_steering_idx: Option<usize>,
+    pub(crate) steering_input: Option<Entity<InputState>>,
     // Delete confirmation modal
     pub(crate) confirm_delete_target: Option<ContextTarget>,
 }
@@ -85,6 +88,7 @@ impl LeftPanel {
             show_custom_frameworks: true, show_builtin_frameworks: true,
             version_label_input: None, expanded_versions: vec![],
             renaming_id: None, rename_input: None,
+            editing_steering_idx: None, steering_input: None,
             context_menu: None, confirm_delete_target: None,
         }
     }

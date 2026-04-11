@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand};
-use colored::Colorize;
 
 mod commands;
 mod project;
 mod sdd;
+mod chat;
 
 #[derive(Parser)]
 #[command(name = "inkwell", version, about = "Inkwell — Spec-Driven Development CLI")]
@@ -15,47 +15,35 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize a new Inkwell project
-    Init {
-        /// Project name
-        name: Option<String>,
-        /// Initialize in current directory
-        #[arg(long)]
-        here: bool,
-    },
+    Init { name: Option<String>, #[arg(long)] here: bool },
     /// Create a project constitution
-    Constitution {
-        /// Description of project principles
-        description: Option<String>,
-    },
+    Constitution { description: Option<String> },
     /// Create a feature specification
-    Specify {
-        /// Feature description
-        description: String,
-    },
+    Specify { description: String },
     /// Create an implementation plan
-    Plan {
-        /// Tech stack (e.g. "React, PostgreSQL")
-        tech: Option<String>,
-    },
+    Plan { tech: Option<String> },
     /// Generate task list from plan
     Tasks,
     /// Clarify specification requirements
-    Clarify {
-        /// Additional details
-        details: Option<String>,
-    },
+    Clarify { details: Option<String> },
     /// Execute tasks (autopilot)
     Implement,
     /// Generate quality checklist
     Checklist,
     /// Audit implementation plan
     Analyze,
-    /// Validate all SDD phases
+    /// Validate all SDD phases (offline)
     Validate,
     /// List projects
     List,
     /// Show project status
     Status,
+    /// Configure API keys and model
+    Config { action: Option<String>, key: Option<String>, value: Option<String> },
+    /// Install MCP server for Claude Code
+    McpInstall,
+    /// Interactive chat with AI
+    Chat,
     /// Show available commands
     Help,
 }
@@ -63,7 +51,6 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-
     match cli.command {
         Commands::Init { name, here } => commands::init(name, here),
         Commands::Constitution { description } => sdd::constitution(description).await,
@@ -77,6 +64,9 @@ async fn main() {
         Commands::Validate => sdd::validate(),
         Commands::List => commands::list(),
         Commands::Status => commands::status(),
+        Commands::Config { action, key, value } => commands::config(action, key, value),
+        Commands::McpInstall => commands::mcp_install(),
+        Commands::Chat => chat::run().await,
         Commands::Help => commands::help(),
     }
 }

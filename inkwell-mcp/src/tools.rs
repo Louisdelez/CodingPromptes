@@ -242,8 +242,8 @@ fn tool_read_tasks() -> String {
             let tasks = p["tasks"].as_str().unwrap_or("");
             if tasks.is_empty() { return "No tasks. Run `/inkwell.tasks` first.".into(); }
             let mut out = "# Tasks\n\n".to_string();
-            let total = tasks.matches("- [ ] T").count() + tasks.matches("- [x] T").count();
-            let done = tasks.matches("- [x] T").count();
+            let total = tasks.matches("- [ ] ").count() + tasks.matches("- [x] ").count();
+            let done = tasks.matches("- [x] ").count();
             out.push_str(&format!("Progress: {}/{} completed\n\n", done, total));
             out.push_str(tasks);
             out

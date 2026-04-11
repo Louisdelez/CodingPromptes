@@ -53,7 +53,11 @@ impl LocalProject {
 
     pub fn load_current() -> Option<Self> {
         let id = std::fs::read_to_string(Self::data_dir().join("current-project-id.txt")).ok()?;
-        let path = Self::projects_dir().join(format!("{}.json", id.trim()));
+        let id = id.trim();
+        if !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-') || id.len() < 32 {
+            return None;
+        }
+        let path = Self::projects_dir().join(format!("{}.json", id));
         let json = std::fs::read_to_string(path).ok()?;
         serde_json::from_str(&json).ok()
     }

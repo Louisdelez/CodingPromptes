@@ -6,6 +6,10 @@ pub fn init(name: Option<String>, here: bool) {
         if here { std::env::current_dir().unwrap_or_else(|e| { eprintln!("{} Impossible de lire le repertoire courant: {}", "✗".red(), e); std::path::PathBuf::from(".") }).file_name().unwrap_or_else(|| { eprintln!("{} Impossible de lire le nom du repertoire", "✗".red()); std::ffi::OsStr::new("projet") }).to_string_lossy().to_string() }
         else { "nouveau-projet".to_string() }
     });
+    if project_name.contains('/') || project_name.contains('\\') || project_name.contains("..") {
+        println!("{} Nom de projet invalide (caracteres interdits: / \\ ..)", "✗".red());
+        return;
+    }
     let project = LocalProject::new(&project_name);
     if !here {
         if let Err(e) = std::fs::create_dir_all(&project_name) {

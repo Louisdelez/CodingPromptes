@@ -217,19 +217,19 @@ pub async fn analyze() {
 pub fn validate() {
     let project = LocalProject::load_current().unwrap_or_else(|| LocalProject::new("projet"));
     println!("{}", "Validation SDD:".bold());
-    let checks: Vec<(&str, &str, Vec<&str>)> = vec![
-        ("Constitution", project.constitution(), vec!["###", "Governance"]),
-        ("Specification", project.specification(), vec!["User Story", "Given", "FR-"]),
-        ("Plan", project.plan(), vec!["Technical Context", "Project Structure"]),
-        ("Tasks", project.tasks(), vec!["- [ ] T", "Phase"]),
+    let checks: Vec<(&str, &str, Vec<Vec<&str>>)> = vec![
+        ("Constitution", project.constitution(), vec![vec!["###"], vec!["Governance", "Gouvernance"]]),
+        ("Specification", project.specification(), vec![vec!["User Story", "Histoire utilisateur", "Cas d'usage"], vec!["Given", "Etant donne", "Étant donné"], vec!["FR-"]]),
+        ("Plan", project.plan(), vec![vec!["Technical Context", "Contexte technique"], vec!["Project Structure"]]),
+        ("Tasks", project.tasks(), vec![vec!["- [ ] T"], vec!["Phase"]]),
     ];
     let mut total = 0;
     for (name, content, markers) in &checks {
         if content.is_empty() { println!("  {} {} — {}", "✗".red(), name, "vide".red()); total += 1; }
         else {
-            let missing: Vec<&&str> = markers.iter().filter(|m| !content.contains(**m)).collect();
+            let missing: Vec<String> = markers.iter().filter(|alts| !alts.iter().any(|m| content.contains(m))).map(|alts| alts.join("/")).collect();
             if missing.is_empty() { println!("  {} {} — {} ({} car.)", "✓".green(), name, "OK".green(), content.len()); }
-            else { println!("  {} {} — manque: {}", "⚠".yellow(), name, missing.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", ").yellow()); total += missing.len(); }
+            else { println!("  {} {} — manque: {}", "⚠".yellow(), name, missing.join(", ").yellow()); total += missing.len(); }
         }
     }
     if total == 0 { println!("\n{}", "Valide!".green().bold()); }

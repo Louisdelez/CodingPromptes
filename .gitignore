@@ -5,3 +5,5 @@ target/
 *.local
 .DS_Store
 Thumbs.db
+*.png
+.playwright-mcp/

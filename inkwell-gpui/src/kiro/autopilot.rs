@@ -83,6 +83,7 @@ pub fn progress(tasks: &[Task]) -> (usize, usize) {
 }
 
 /// Mark a task as completed in the raw tasks content
+#[allow(dead_code)]
 pub fn mark_completed(content: &str, task_id: &str) -> String {
     content.replace(
         &format!("- [ ] {}", task_id),

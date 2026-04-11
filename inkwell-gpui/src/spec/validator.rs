@@ -107,6 +107,7 @@ pub fn validate_plan(content: &str) -> Vec<ValidationIssue> {
 }
 
 /// Cross-validate plan against constitution (SpecKit gate)
+#[allow(dead_code)]
 pub fn validate_plan_vs_constitution(plan: &str, constitution: &str) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     if constitution.is_empty() {

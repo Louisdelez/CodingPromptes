@@ -63,10 +63,12 @@ impl HookEngine {
             .collect()
     }
 
+    #[allow(dead_code)]
     pub fn add(&mut self, hook: Hook) {
         self.hooks.push(hook);
     }
 
+    #[allow(dead_code)]
     pub fn remove(&mut self, index: usize) {
         if index < self.hooks.len() {
             self.hooks.remove(index);
@@ -79,12 +81,14 @@ impl HookEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn save(&self, path: &std::path::Path) {
         if let Ok(json) = serde_json::to_string_pretty(&self.hooks) {
             let _ = std::fs::write(path, json);
         }
     }
 
+    #[allow(dead_code)]
     pub fn load(path: &std::path::Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(json) => {

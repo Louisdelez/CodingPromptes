@@ -78,9 +78,72 @@ docker compose up -d
 
 ---
 
+## Native Desktop App (GPUI)
+
+Application native GPU-acceleree construite avec GPUI (le framework de Zed).
+
+```bash
+make install
+inkwell-gpui
+```
+
+Fonctionnalites :
+- Editeur de blocs avec drag-and-drop, numeros de ligne, selecteur de type
+- Pipeline SDD complet (Constitution, Specification, Plan, Tasks, Implementation)
+- Sidebar avec projets, workspaces, recherche, steering, hooks
+- Panneau droit avec 13+ onglets (SDD, Git, Credits, Chat, Autopilot, Catalog, ...)
+- Multi-provider LLM (OpenAI, Anthropic, Google, Ollama)
+
+---
+
+## CLI
+
+```bash
+make install
+# ou: cd inkwell-cli && cargo build --release
+
+# Pipeline SDD
+inkwell init mon-projet
+inkwell constitution "API REST de gestion de recettes"
+inkwell specify "CRUD complet avec auth JWT"
+inkwell plan rust
+inkwell tasks
+inkwell implement
+
+# Validation et audit
+inkwell validate
+inkwell checklist
+inkwell analyze
+
+# Chat interactif avec contexte projet
+inkwell chat
+
+# Configuration multi-provider
+inkwell config set model claude-sonnet-4.6
+inkwell config set openai-key sk-...
+inkwell config set anthropic-key sk-...
+
+# Auto-completion shell
+inkwell completions bash >> ~/.bashrc
+inkwell completions zsh >> ~/.zshrc
+inkwell completions fish > ~/.config/fish/completions/inkwell.fish
+```
+
+---
+
+## MCP Server (Claude Code)
+
+```bash
+inkwell mcp-install    # Configure automatiquement ~/.claude.json
+```
+
+10 outils MCP : `inkwell_status`, `inkwell_read_phase`, `inkwell_write_phase`, `inkwell_list_projects`, `inkwell_validate`, `inkwell_read_steering`, `inkwell_write_steering`, `inkwell_read_tasks`, `inkwell_search`, `inkwell_read_project`.
+
+---
+
 ## Local AI Server (optional)
 
-A Rust desktop app that runs Whisper (STT) and proxies Ollama (LLM) locally. The web app connects to it with a single URL.
+Serveur Rust desktop pour Whisper (STT) et proxy Ollama (LLM). L'app web se connecte via une seule URL.
 
 ### Prerequisites
 
@@ -101,24 +164,6 @@ cargo build --release
 ollama pull mistral-small3.1    # Best for French
 ollama pull deepseek-r1:32b     # Best for reasoning
 ollama pull qwen2.5:7b          # Fast, lightweight
-```
-
-### Architecture
-
-```
-┌──────────────────────────────────┐
-│  inkwell-server (Rust/Iced)    │
-│  http://0.0.0.0:8910             │
-│                                  │
-│  /transcribe     → Whisper STT   │
-│  /v1/chat/*      → Ollama proxy  │
-│  /health         → status        │
-└───────────────┬──────────────────┘
-                │ single URL
-       ┌────────▼─────────┐
-       │  Web App          │
-       │  (any browser)    │
-       └──────────────────┘
 ```
 
 ---
@@ -203,26 +248,13 @@ Any Ollama model works. Recommended:
 
 ```
 CodingPromptes/
-├── inkwell/                 # Web app (React + TypeScript)
-│   ├── src/
-│   │   ├── components/         # 20 React components
-│   │   ├── hooks/              # usePromptProject hook
-│   │   └── lib/                # 10 modules (api, auth, db, i18n, theme, stt, etc.)
-│   ├── docs/                   # Documentation
-│   ├── Dockerfile              # Multi-stage build (Node → Nginx)
-│   ├── docker-compose.yml
-│   └── nginx.conf
-│
-├── inkwell-gpu-server/          # Rust desktop app (STT + LLM proxy)
-│   └── src/
-│       ├── main.rs             # Iced GUI
-│       ├── server.rs           # axum HTTP server
-│       ├── whisper_engine.rs   # Whisper inference
-│       ├── ollama.rs           # Ollama proxy
-│       ├── models.rs           # Model catalog
-│       └── downloader.rs       # HuggingFace downloader
-│
-├── LICENSE                     # MIT
+├── inkwell-core/               # Types partages (PromptBlock, BlockType, ...)
+├── inkwell-gpui/               # App desktop native (GPUI/Zed)
+├── inkwell-cli/                # CLI (clap, tokio, reqwest)
+├── inkwell-mcp/                # Serveur MCP (JSON-RPC stdio)
+├── inkwell-gpu-server/         # Serveur local Whisper + Ollama proxy
+├── prompt-ide/                 # Web app (React + TypeScript)
+├── Makefile                    # Build & install des 3 binaires Rust
 └── README.md
 ```
 

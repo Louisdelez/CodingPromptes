@@ -77,6 +77,7 @@ pub fn community_catalog() -> Vec<CatalogEntry> {
 }
 
 /// Search catalog by query
+#[allow(dead_code)]
 pub fn search(query: &str) -> Vec<CatalogEntry> {
     let q = query.to_lowercase();
     community_catalog().into_iter()

@@ -5,6 +5,7 @@ use std::process::Command;
 use std::path::Path;
 
 /// Check if current directory is a git repo
+#[allow(dead_code)]
 pub fn is_git_repo(dir: &Path) -> bool {
     Command::new("git")
         .args(["rev-parse", "--is-inside-work-tree"])
@@ -15,6 +16,7 @@ pub fn is_git_repo(dir: &Path) -> bool {
 }
 
 /// Get current branch name
+#[allow(dead_code)]
 pub fn current_branch(dir: &Path) -> Option<String> {
     Command::new("git")
         .args(["branch", "--show-current"])

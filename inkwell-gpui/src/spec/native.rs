@@ -55,6 +55,7 @@ pub fn save_native(blocks: &[Block], project_name: &str, steering_rules: &[(Stri
 }
 
 /// Load from .inkwell/project.json
+#[allow(dead_code)]
 pub fn load_native(dir: &Path) -> Option<InkwellProject> {
     let path = dir.join(".inkwell").join("project.json");
     let json = std::fs::read_to_string(path).ok()?;

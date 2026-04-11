@@ -508,22 +508,19 @@ impl RightPanel {
             .child(export_btn("TXT (.txt)", "Export en texte brut")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
-                    let content = s.cached_prompt.clone(); let name = s.project.name.clone(); drop(s);
-                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.txt", name.replace(' ', "-").to_lowercase()), &content); });
+                    let content = s.cached_prompt.clone(); let name = s.project.name.clone();                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.txt", name.replace(' ', "-").to_lowercase()), &content); });
                 })))
             .child(export_btn("Markdown (.md)", "Export en fichier Markdown")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
-                    let content = s.cached_prompt.clone(); let name = s.project.name.clone(); drop(s);
-                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.md", name.replace(' ', "-").to_lowercase()), &content); });
+                    let content = s.cached_prompt.clone(); let name = s.project.name.clone();                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.md", name.replace(' ', "-").to_lowercase()), &content); });
                 })))
             .child(export_btn("JSON", "Export complet du projet")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
                     let blocks: Vec<inkwell_core::types::PromptBlock> = s.project.blocks.iter().map(|b|
                         inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }).collect();
-                    let name = s.project.name.clone(); drop(s);
-                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.json", name.replace(' ', "-").to_lowercase()), serde_json::to_string_pretty(&blocks).unwrap_or_default()); });
+                    let name = s.project.name.clone();                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.json", name.replace(' ', "-").to_lowercase()), serde_json::to_string_pretty(&blocks).unwrap_or_default()); });
                 })))
             .child(export_btn("OpenAI JSON", "Format API OpenAI"))
             .child(export_btn("Anthropic JSON", "Format API Anthropic"))
@@ -688,8 +685,7 @@ impl RightPanel {
                     let s = this.store.read(cx);
                     let blocks: Vec<String> = s.project.blocks.iter().filter(|b| b.enabled && !b.content.is_empty())
                         .map(|b| b.content.clone()).collect();
-                    let _server = s.server_url.clone(); let tx = s.msg_tx.clone(); drop(s);
-                    std::thread::spawn(move || { crate::app::rt().block_on(async {
+                    let _server = s.server_url.clone(); let tx = s.msg_tx.clone();                    std::thread::spawn(move || { crate::app::rt().block_on(async {
                         let client = reqwest::Client::new(); let mut output = String::new();
                         for (i, content) in blocks.iter().enumerate() {
                             let prompt = if output.is_empty() { content.clone() } else { format!("Sortie precedente:\n{output}\n\nMaintenant:\n{content}") };

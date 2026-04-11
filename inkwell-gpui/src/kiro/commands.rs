@@ -1,7 +1,6 @@
 //! Slash command router for Inkwell SDD commands.
 //! Parses /inkwell.* commands from chat and executes them.
 
-use std::sync::mpsc;
 use crate::types::*;
 use crate::spec::generator::{SpecPhase, SpecAction, SpecContext};
 use crate::spec::workflow;
@@ -116,6 +115,7 @@ pub fn build_command_prompt(
 }
 
 /// List available commands with descriptions
+#[allow(dead_code)]
 pub fn help() -> Vec<(&'static str, &'static str)> {
     vec![
         ("/inkwell.specify", "Creer une specification depuis une description"),

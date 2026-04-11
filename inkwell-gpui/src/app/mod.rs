@@ -5,7 +5,6 @@ mod profile_modal;
 mod sync;
 
 use gpui::*;
-use gpui_component::input::InputState;
 use crate::state::*;
 
 // Re-export for use in sub-modules
@@ -85,6 +84,7 @@ impl InkwellApp {
         Self { state, store, header, bottom_bar, editor, left_panel, right_panel, dock, auth_inputs: auth_screen::AuthScreenInputs::default(), settings_inputs: settings_modal::SettingsInputs::default() }
     }
 
+    #[allow(dead_code)]
     fn t(&self) -> crate::theme::InkwellTheme {
         crate::theme::InkwellTheme::from_mode(self.state.dark_mode)
     }

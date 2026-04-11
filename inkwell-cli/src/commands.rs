@@ -129,4 +129,5 @@ pub fn help() {
     println!("  {} {}", "config".cyan(), "       Configuration (cles API, modele)");
     println!("  {} {}", "mcp-install".cyan(), "  Configurer le MCP pour Claude Code");
     println!("  {} {}", "chat".cyan(), "         Chat interactif");
+    println!("  {} {}", "completions".cyan(), "  Completions shell (bash, zsh, fish)");
 }

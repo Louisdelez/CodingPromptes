@@ -5,9 +5,6 @@ use crate::state::*;
 
 use super::{InkwellApp, NewProject, ToggleTerminal, RunPrompt, ToggleSettings, Undo, SaveNow, FocusNextPanel};
 
-// Re-export drag types from dock for backward compat
-pub(crate) use crate::dock::{LeftResizeDrag, RightResizeDrag};
-
 impl InkwellApp {
     pub(crate) fn render_ide(&mut self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);

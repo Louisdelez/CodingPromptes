@@ -78,21 +78,25 @@ impl PresetEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn add(&mut self, preset: Preset) {
         self.presets.push(preset);
         self.presets.sort_by_key(|p| p.priority);
     }
 
+    #[allow(dead_code)]
     pub fn remove(&mut self, id: &str) {
         self.presets.retain(|p| p.id != id);
     }
 
+    #[allow(dead_code)]
     pub fn save(&self, path: &Path) {
         if let Ok(json) = serde_json::to_string_pretty(&self.presets) {
             let _ = std::fs::write(path, json);
         }
     }
 
+    #[allow(dead_code)]
     pub fn load(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(json) => {

@@ -1,4 +1,5 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 
 mod commands;
 mod project;
@@ -44,6 +45,8 @@ enum Commands {
     McpInstall,
     /// Interactive chat with AI
     Chat,
+    /// Generate shell completions (bash, zsh, fish)
+    Completions { shell: String },
     /// Show available commands
     Help,
 }
@@ -68,5 +71,13 @@ async fn main() {
         Commands::McpInstall => commands::mcp_install(),
         Commands::Chat => chat::run().await,
         Commands::Help => commands::help(),
+        Commands::Completions { shell } => {
+            let shell: Shell = shell.parse().unwrap_or_else(|_| {
+                eprintln!("Shell invalide: {}. Options: bash, zsh, fish, elvish, powershell", shell);
+                std::process::exit(1);
+            });
+            let mut cmd = Cli::command().disable_help_subcommand(true);
+            generate(shell, &mut cmd, "inkwell", &mut std::io::stdout());
+        }
     }
 }

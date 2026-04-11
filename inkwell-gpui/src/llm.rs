@@ -89,6 +89,7 @@ pub fn parse_llm_response(model: &str, data: &serde_json::Value) -> Option<Strin
 }
 
 /// STT endpoint based on provider and local keys.
+#[allow(dead_code)]
 pub fn stt_endpoint(provider: &crate::state::SttProvider, api_key_openai: &str, server_url: &str)
     -> (String, Vec<(String, String)>)
 {

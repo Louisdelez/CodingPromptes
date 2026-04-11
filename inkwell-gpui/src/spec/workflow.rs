@@ -37,6 +37,7 @@ pub fn find_sdd_blocks(blocks: &[Block]) -> Vec<(usize, SpecPhase)> {
 }
 
 /// Build context from existing blocks
+#[allow(dead_code)]
 pub fn build_context(blocks: &[Block], project_name: &str) -> SpecContext {
     let pairs: Vec<(BlockType, String)> = blocks.iter()
         .filter(|b| b.enabled && b.block_type.is_sdd())

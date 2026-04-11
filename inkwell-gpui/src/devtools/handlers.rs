@@ -123,6 +123,46 @@ pub fn get_playground_response(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serd
     }
 }
 
+pub fn get_settings(snapshot: &Arc<RwLock<DevToolsSnapshot>>) -> serde_json::Value {
+    if let Ok(s) = snapshot.read() {
+        json!({
+            "dark_mode": s.dark_mode,
+            "selected_model": s.selected_model,
+            "screen": s.screen,
+            "project_name": s.project_name,
+        })
+    } else {
+        json!({"error": "lock poisoned"})
+    }
+}
+
+pub fn list_frameworks() -> serde_json::Value {
+    let fws = crate::persistence::load_frameworks();
+    let items: Vec<serde_json::Value> = fws.iter().map(|f| {
+        json!({
+            "name": f.name,
+            "blocks_count": f.blocks.len(),
+            "block_types": f.blocks.iter().map(|(bt, _)| format!("{:?}", bt)).collect::<Vec<_>>(),
+        })
+    }).collect();
+    json!({ "frameworks": items, "count": items.len() })
+}
+
+pub fn list_projects() -> serde_json::Value {
+    let projects = crate::persistence::load_all_projects();
+    let items: Vec<serde_json::Value> = projects.iter().map(|p| {
+        json!({
+            "id": p.id,
+            "name": p.name,
+            "blocks_count": p.blocks.len(),
+            "variables_count": p.variables.len(),
+            "tags": p.tags,
+            "updated_at": p.updated_at,
+        })
+    }).collect();
+    json!({ "projects": items, "count": items.len() })
+}
+
 pub fn get_logs(params: &serde_json::Value) -> serde_json::Value {
     let lines = params["lines"].as_u64().unwrap_or(50) as usize;
     let logs = super::get_logs(lines);

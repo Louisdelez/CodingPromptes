@@ -18,7 +18,11 @@ impl InkwellApp {
                 | "devtools/toggle_block" | "devtools/reorder_blocks" | "devtools/select_tab"
                 | "devtools/select_left_tab" | "devtools/toggle_panel" | "devtools/set_model"
                 | "devtools/open_project" | "devtools/new_project" | "devtools/rename_project"
-                | "devtools/set_variable" | "devtools/delete_variable" => {
+                | "devtools/delete_project"
+                | "devtools/set_variable" | "devtools/delete_variable"
+                | "devtools/set_dark_mode" | "devtools/set_lang" | "devtools/set_api_key"
+                | "devtools/set_github_repo" | "devtools/save_framework"
+                | "devtools/delete_framework" => {
                     crate::devtools::mutators::handle_write(&cmd.method, &cmd.params, &mut self.state, &self.store, cx)
                 }
                 "devtools/run_prompt" | "devtools/run_sdd" | "devtools/send_chat" | "devtools/save_project" => {

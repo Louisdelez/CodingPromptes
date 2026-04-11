@@ -2,8 +2,10 @@ use crate::types::PromptBlock;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+// Match {{var_name}} where var_name accepts letters, digits, underscore, dot, hyphen.
+// Allows namespaced names like {{user.name}}, {{api-key}}, {{v1.2.3}}.
 static VAR_REGEX: LazyLock<regex_lite::Regex> =
-    LazyLock::new(|| regex_lite::Regex::new(r"\{\{(\w+)\}\}").unwrap());
+    LazyLock::new(|| regex_lite::Regex::new(r"\{\{([\w.-]+)\}\}").unwrap());
 
 pub fn compile_prompt(blocks: &[PromptBlock], variables: &HashMap<String, String>) -> String {
     let mut result = String::new();

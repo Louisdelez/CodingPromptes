@@ -477,6 +477,138 @@ pub fn handle_write(
             json!({"ok": true, "project_id": project_id})
         }
 
+        "devtools/delete_project" => {
+            let project_id = match params["project_id"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json!({"ok": false, "error": "Missing 'project_id' parameter"}),
+            };
+            if state.project.id == project_id {
+                return json!({"ok": false, "error": "Cannot delete the currently open project. Switch to another first."});
+            }
+            crate::persistence::delete_project(&project_id);
+            state.projects.retain(|p| p.id != project_id);
+            store.update(cx, |s, cx| {
+                s.projects.retain(|p| p.id != project_id);
+                cx.emit(StoreEvent::ProjectChanged);
+            });
+            json!({"ok": true, "deleted": project_id})
+        }
+
+        "devtools/set_dark_mode" => {
+            let enabled = match params["enabled"].as_bool() {
+                Some(b) => b,
+                None => return json!({"ok": false, "error": "Missing 'enabled' boolean parameter"}),
+            };
+            state.dark_mode = enabled;
+            store.update(cx, |s, cx| {
+                s.dark_mode = enabled;
+                cx.emit(StoreEvent::SettingsChanged);
+            });
+            json!({"ok": true, "dark_mode": enabled})
+        }
+
+        "devtools/set_lang" => {
+            let lang = match params["lang"].as_str() {
+                Some(s) if s == "fr" || s == "en" => s.to_string(),
+                _ => return json!({"ok": false, "error": "'lang' must be 'fr' or 'en'"}),
+            };
+            state.lang = lang.clone();
+            store.update(cx, |s, cx| {
+                s.lang = lang.clone();
+                cx.emit(StoreEvent::SettingsChanged);
+            });
+            json!({"ok": true, "lang": lang})
+        }
+
+        "devtools/set_api_key" => {
+            let provider = match params["provider"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json!({"ok": false, "error": "Missing 'provider' (openai|anthropic|google)"}),
+            };
+            let key = match params["key"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json!({"ok": false, "error": "Missing 'key' parameter"}),
+            };
+            match provider.as_str() {
+                "openai" => {
+                    state.api_key_openai = key.clone();
+                    store.update(cx, |s, _| s.api_key_openai = key);
+                }
+                "anthropic" => {
+                    state.api_key_anthropic = key.clone();
+                    store.update(cx, |s, _| s.api_key_anthropic = key);
+                }
+                "google" => {
+                    state.api_key_google = key.clone();
+                    store.update(cx, |s, _| s.api_key_google = key);
+                }
+                _ => return json!({"ok": false, "error": format!("Unknown provider '{}'. Valid: openai, anthropic, google", provider)}),
+            }
+            state.save_pending = true;
+            state.save_timer = 1;
+            json!({"ok": true, "provider": provider})
+        }
+
+        "devtools/set_github_repo" => {
+            let repo = match params["repo"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json!({"ok": false, "error": "Missing 'repo' parameter"}),
+            };
+            state.github_repo = repo.clone();
+            store.update(cx, |s, _| s.github_repo = repo.clone());
+            state.save_pending = true;
+            state.save_timer = 1;
+            json!({"ok": true, "repo": repo})
+        }
+
+        "devtools/save_framework" => {
+            let name = match params["name"].as_str() {
+                Some(s) if !s.trim().is_empty() => s.to_string(),
+                _ => return json!({"ok": false, "error": "Missing or empty 'name'"}),
+            };
+            // CustomFramework stores (BlockType, String) tuples
+            let blocks: Vec<(inkwell_core::types::BlockType, String)> = state.project.blocks.iter()
+                .filter(|b| b.enabled)
+                .map(|b| (b.block_type, b.content.clone()))
+                .collect();
+            let framework = crate::state::CustomFramework {
+                name: name.clone(),
+                blocks: blocks.clone(),
+            };
+            state.custom_frameworks.retain(|f| f.name != name);
+            state.custom_frameworks.push(framework.clone());
+            store.update(cx, |s, cx| {
+                s.custom_frameworks.retain(|f| f.name != name);
+                s.custom_frameworks.push(framework);
+                cx.emit(StoreEvent::SettingsChanged);
+            });
+            // Persist
+            let local_fws: Vec<crate::persistence::LocalFramework> = state.custom_frameworks.iter()
+                .map(|f| crate::persistence::LocalFramework { name: f.name.clone(), blocks: f.blocks.clone() })
+                .collect();
+            crate::persistence::save_frameworks(&local_fws);
+            json!({"ok": true, "name": name, "blocks_count": blocks.len()})
+        }
+
+        "devtools/delete_framework" => {
+            let name = match params["name"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json!({"ok": false, "error": "Missing 'name' parameter"}),
+            };
+            let before = state.custom_frameworks.len();
+            state.custom_frameworks.retain(|f| f.name != name);
+            let removed = before > state.custom_frameworks.len();
+            store.update(cx, |s, cx| {
+                s.custom_frameworks.retain(|f| f.name != name);
+                cx.emit(StoreEvent::SettingsChanged);
+            });
+            let local_fws: Vec<crate::persistence::LocalFramework> = state.custom_frameworks.iter()
+                .map(|f| crate::persistence::LocalFramework { name: f.name.clone(), blocks: f.blocks.clone() })
+                .collect();
+            crate::persistence::save_frameworks(&local_fws);
+            json!({"ok": true, "removed": removed})
+        }
+
         _ => json!({"error": format!("Unknown write method: {}", method)}),
     }
 }

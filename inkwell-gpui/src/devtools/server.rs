@@ -98,6 +98,9 @@ async fn dispatch(
         "devtools/get_chat_messages" => handlers::get_chat_messages(snapshot, &params),
         "devtools/get_executions" => handlers::get_executions(snapshot, &params),
         "devtools/get_playground_response" => handlers::get_playground_response(snapshot),
+        "devtools/get_settings" => handlers::get_settings(snapshot),
+        "devtools/list_frameworks" => handlers::list_frameworks(),
+        "devtools/list_projects" => handlers::list_projects(),
 
         // Screenshot
         "devtools/screenshot" => screenshot::capture().await,
@@ -107,7 +110,10 @@ async fn dispatch(
         | "devtools/toggle_block" | "devtools/reorder_blocks" | "devtools/select_tab"
         | "devtools/select_left_tab" | "devtools/toggle_panel" | "devtools/set_model"
         | "devtools/open_project" | "devtools/new_project" | "devtools/rename_project"
+        | "devtools/delete_project"
         | "devtools/set_variable" | "devtools/delete_variable"
+        | "devtools/set_dark_mode" | "devtools/set_lang" | "devtools/set_api_key"
+        | "devtools/set_github_repo" | "devtools/save_framework" | "devtools/delete_framework"
         | "devtools/run_prompt" | "devtools/run_sdd" | "devtools/send_chat"
         | "devtools/save_project" => {
             send_command(method, params, cmd_tx).await

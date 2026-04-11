@@ -127,6 +127,49 @@ pub fn list_tools() -> Vec<serde_json::Value> {
             "properties":{"limit":{"type":"integer","description":"Max executions to return (default 20)"}},
         })),
         tool("devtools_get_playground_response", "Get the last run_prompt response and loading state", json!({"type":"object","properties":{}})),
+        tool("devtools_get_settings", "Get current app settings (dark_mode, model, project name)", json!({"type":"object","properties":{}})),
+        tool("devtools_list_frameworks", "List saved custom prompt frameworks on disk", json!({"type":"object","properties":{}})),
+        tool("devtools_list_projects", "List all projects on disk (full metadata, not just summary)", json!({"type":"object","properties":{}})),
+
+        // Project & settings writes
+        tool("devtools_delete_project", "Delete a project by id. Cannot delete the currently-open project.", json!({
+            "type":"object",
+            "properties":{"project_id":{"type":"string","description":"Project UUID"}},
+            "required":["project_id"]
+        })),
+        tool("devtools_set_dark_mode", "Toggle dark/light mode", json!({
+            "type":"object",
+            "properties":{"enabled":{"type":"boolean","description":"true for dark, false for light"}},
+            "required":["enabled"]
+        })),
+        tool("devtools_set_lang", "Change app language", json!({
+            "type":"object",
+            "properties":{"lang":{"type":"string","description":"Language code: 'fr' or 'en'"}},
+            "required":["lang"]
+        })),
+        tool("devtools_set_api_key", "Set an LLM provider API key", json!({
+            "type":"object",
+            "properties":{
+                "provider":{"type":"string","description":"Provider: openai, anthropic, or google"},
+                "key":{"type":"string","description":"API key value"}
+            },
+            "required":["provider","key"]
+        })),
+        tool("devtools_set_github_repo", "Set the GitHub repository URL for push sync", json!({
+            "type":"object",
+            "properties":{"repo":{"type":"string","description":"owner/repo or full URL"}},
+            "required":["repo"]
+        })),
+        tool("devtools_save_framework", "Save current enabled project blocks as a reusable framework", json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","description":"Framework name"}},
+            "required":["name"]
+        })),
+        tool("devtools_delete_framework", "Delete a custom framework by name", json!({
+            "type":"object",
+            "properties":{"name":{"type":"string","description":"Framework name"}},
+            "required":["name"]
+        })),
     ]
 }
 
@@ -172,6 +215,16 @@ pub async fn call_tool(name: &str, args: &serde_json::Value) -> String {
         "devtools_get_chat_messages" => "devtools/get_chat_messages",
         "devtools_get_executions" => "devtools/get_executions",
         "devtools_get_playground_response" => "devtools/get_playground_response",
+        "devtools_get_settings" => "devtools/get_settings",
+        "devtools_list_frameworks" => "devtools/list_frameworks",
+        "devtools_list_projects" => "devtools/list_projects",
+        "devtools_delete_project" => "devtools/delete_project",
+        "devtools_set_dark_mode" => "devtools/set_dark_mode",
+        "devtools_set_lang" => "devtools/set_lang",
+        "devtools_set_api_key" => "devtools/set_api_key",
+        "devtools_set_github_repo" => "devtools/set_github_repo",
+        "devtools_save_framework" => "devtools/save_framework",
+        "devtools_delete_framework" => "devtools/delete_framework",
         _ => return format!("Unknown tool: {}", name),
     };
 

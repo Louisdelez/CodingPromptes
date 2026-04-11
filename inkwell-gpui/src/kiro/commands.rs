@@ -1,5 +1,5 @@
-//! Slash command router for SpecKit commands.
-//! Parses /speckit.* commands from chat and executes them.
+//! Slash command router for Inkwell SDD commands.
+//! Parses /inkwell.* commands from chat and executes them.
 
 use std::sync::mpsc;
 use crate::types::*;
@@ -23,27 +23,27 @@ pub enum SpecCommand {
 /// Parse a slash command from chat input
 pub fn parse_command(input: &str) -> Option<SpecCommand> {
     let trimmed = input.trim();
-    if !trimmed.starts_with("/speckit.") { return None; }
+    if !trimmed.starts_with("/inkwell.") { return None; }
 
     let parts: Vec<&str> = trimmed.splitn(2, ' ').collect();
     let cmd = parts[0];
     let args = parts.get(1).unwrap_or(&"").trim().to_string();
 
     match cmd {
-        "/speckit.specify" => Some(SpecCommand::Specify(args)),
-        "/speckit.plan" => Some(SpecCommand::Plan(args)),
-        "/speckit.tasks" => Some(SpecCommand::Tasks),
-        "/speckit.clarify" => Some(SpecCommand::Clarify(args)),
-        "/speckit.constitution" => Some(SpecCommand::Constitution(args)),
-        "/speckit.implement" => Some(SpecCommand::Implement),
-        "/speckit.checklist" => Some(SpecCommand::Checklist),
-        "/speckit.analyze" => Some(SpecCommand::Analyze),
-        "/speckit.taskstoissues" => Some(SpecCommand::TasksToIssues),
+        "/inkwell.specify" => Some(SpecCommand::Specify(args)),
+        "/inkwell.plan" => Some(SpecCommand::Plan(args)),
+        "/inkwell.tasks" => Some(SpecCommand::Tasks),
+        "/inkwell.clarify" => Some(SpecCommand::Clarify(args)),
+        "/inkwell.constitution" => Some(SpecCommand::Constitution(args)),
+        "/inkwell.implement" => Some(SpecCommand::Implement),
+        "/inkwell.checklist" => Some(SpecCommand::Checklist),
+        "/inkwell.analyze" => Some(SpecCommand::Analyze),
+        "/inkwell.taskstoissues" => Some(SpecCommand::TasksToIssues),
         _ => None,
     }
 }
 
-/// Execute a SpecKit command — returns (system_prompt, user_prompt, target_block_type)
+/// Execute a Inkwell SDD command — returns (system_prompt, user_prompt, target_block_type)
 pub fn build_command_prompt(
     cmd: &SpecCommand,
     blocks: &[Block],
@@ -109,7 +109,7 @@ pub fn build_command_prompt(
             let sys = "Convert the following task list into GitHub issue format. For each task, output:\n\n## Issue: [Task Description]\n**Labels**: [phase], [story]\n**Body**: [Details]\n\nGroup by user story.".to_string();
             let usr = if !ctx.tasks.is_empty() {
                 format!("## Tasks\n{}\n\nConvert to GitHub issues.", ctx.tasks)
-            } else { "No tasks found. Run /speckit.tasks first.".to_string() };
+            } else { "No tasks found. Run /inkwell.tasks first.".to_string() };
             Some((sys, usr, None))
         }
     }
@@ -118,14 +118,14 @@ pub fn build_command_prompt(
 /// List available commands with descriptions
 pub fn help() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("/speckit.specify", "Creer une specification depuis une description"),
-        ("/speckit.plan", "Creer un plan d'implementation"),
-        ("/speckit.tasks", "Generer la liste de taches"),
-        ("/speckit.clarify", "Clarifier les requirements"),
-        ("/speckit.constitution", "Definir les principes du projet"),
-        ("/speckit.implement", "Executer les taches (autopilot)"),
-        ("/speckit.checklist", "Generer un checklist qualite"),
-        ("/speckit.analyze", "Auditer le plan d'implementation"),
-        ("/speckit.taskstoissues", "Convertir les taches en issues GitHub"),
+        ("/inkwell.specify", "Creer une specification depuis une description"),
+        ("/inkwell.plan", "Creer un plan d'implementation"),
+        ("/inkwell.tasks", "Generer la liste de taches"),
+        ("/inkwell.clarify", "Clarifier les requirements"),
+        ("/inkwell.constitution", "Definir les principes du projet"),
+        ("/inkwell.implement", "Executer les taches (autopilot)"),
+        ("/inkwell.checklist", "Generer un checklist qualite"),
+        ("/inkwell.analyze", "Auditer le plan d'implementation"),
+        ("/inkwell.taskstoissues", "Convertir les taches en issues GitHub"),
     ]
 }

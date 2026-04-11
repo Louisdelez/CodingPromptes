@@ -2,7 +2,7 @@
 //! Inspired by SpecKit's preset resolution stack.
 //!
 //! Resolution order (highest priority first):
-//! 1. Project-local overrides (.specify/templates/overrides/)
+//! 1. Project-local overrides (.inkwell/templates/overrides/)
 //! 2. Installed presets (by priority number)
 //! 3. Core templates (fallback)
 

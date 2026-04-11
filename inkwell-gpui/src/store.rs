@@ -195,8 +195,14 @@ impl AppStore {
             chat_messages: vec![], chat_system_prompt: String::new(),
             terminal_sessions: vec![], active_terminal: 0,
             sdd_running: false,
-            hooks: crate::kiro::hooks::HookEngine::new(),
-            steering: crate::kiro::steering::SteeringEngine::new(),
+            hooks: {
+                let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join("inkwell-ide");
+                crate::kiro::hooks::HookEngine::load(&data_dir.join("hooks.json"))
+            },
+            steering: {
+                let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join("inkwell-ide");
+                crate::kiro::steering::SteeringEngine::load(&data_dir.join("steering.json"))
+            },
             feature_counter: 1,
             presets: crate::spec::presets::PresetEngine::new(),
             extensions: crate::spec::extensions::ExtensionRegistry::new(),

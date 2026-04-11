@@ -369,6 +369,8 @@ impl InkwellApp {
             dark_mode: self.state.dark_mode,
         }.save();
 
+        // Steering + hooks saved in periodic sync (where cx is available)
+
         // 2. Background sync to server (non-blocking, best-effort)
         let server_url = self.state.server_url.clone();
         let token = self.state.session.as_ref().map(|s| s.token.clone()).unwrap_or_default();

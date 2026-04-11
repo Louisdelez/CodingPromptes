@@ -47,8 +47,8 @@ pub fn create_feature_branch(dir: &Path, feature_num: u32, feature_name: &str) -
 
 /// Auto-commit spec artifacts
 pub fn commit_specs(dir: &Path, message: &str) -> Result<(), String> {
-    // Stage .specify/ and .kiro/ directories
-    let _ = Command::new("git").args(["add", ".specify/", ".kiro/"]).current_dir(dir).output();
+    // Stage native .inkwell/ directory
+    let _ = Command::new("git").args(["add", ".inkwell/"]).current_dir(dir).output();
 
     let output = Command::new("git")
         .args(["commit", "-m", message])

@@ -81,3 +81,11 @@ pub fn progress(tasks: &[Task]) -> (usize, usize) {
     let completed = tasks.iter().filter(|t| t.completed).count();
     (completed, tasks.len())
 }
+
+/// Mark a task as completed in the raw tasks content
+pub fn mark_completed(content: &str, task_id: &str) -> String {
+    content.replace(
+        &format!("- [ ] {}", task_id),
+        &format!("- [x] {}", task_id),
+    )
+}

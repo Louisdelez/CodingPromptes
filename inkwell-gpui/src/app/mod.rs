@@ -180,6 +180,13 @@ impl InkwellApp {
                             this.state.save_status_timer = 30;
                             this.state.save_pending = false;
                             this.save_to_backend();
+                            // Save steering + hooks natively
+                            {
+                                let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from(".")).join("inkwell-ide");
+                                let _ = std::fs::create_dir_all(&data_dir);
+                                this.store.read(cx).steering.save(&data_dir.join("steering.json"));
+                                this.store.read(cx).hooks.save(&data_dir.join("hooks.json"));
+                            }
                             this.store.update(cx, |s, cx| {
                                 s.save_status = "saved";
                                 cx.emit(crate::store::StoreEvent::SaveStatusChanged);

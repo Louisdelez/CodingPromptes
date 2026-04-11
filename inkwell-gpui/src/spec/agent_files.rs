@@ -30,7 +30,7 @@ pub fn generate_agents_md(project_name: &str, constitution: &str, tech_stack: &s
 
     content.push_str("## Spec Files Location\n\n");
     content.push_str("```\n");
-    content.push_str(".specify/\n");
+    content.push_str(".inkwell/\n");
     content.push_str("  specs/     — Feature specifications\n");
     content.push_str("  memory/    — Constitution and project memory\n");
     content.push_str("  templates/ — Spec templates\n");
@@ -56,14 +56,14 @@ pub fn generate_claude_md(project_name: &str, constitution: &str, steering_rules
         }
     }
 
-    content.push_str("## Commands\n\n");
-    content.push_str("- `/speckit.specify` — Create feature specification\n");
-    content.push_str("- `/speckit.plan` — Create implementation plan\n");
-    content.push_str("- `/speckit.tasks` — Generate task list\n");
-    content.push_str("- `/speckit.clarify` — Clarify requirements\n");
-    content.push_str("- `/speckit.implement` — Execute tasks\n");
-    content.push_str("- `/speckit.checklist` — Quality validation\n");
-    content.push_str("- `/speckit.analyze` — Audit plan\n");
+    content.push_str("## Commands (Inkwell SDD)\n\n");
+    content.push_str("- `/inkwell.specify` — Create feature specification\n");
+    content.push_str("- `/inkwell.plan` — Create implementation plan\n");
+    content.push_str("- `/inkwell.tasks` — Generate task list\n");
+    content.push_str("- `/inkwell.clarify` — Clarify requirements\n");
+    content.push_str("- `/inkwell.implement` — Execute tasks\n");
+    content.push_str("- `/inkwell.checklist` — Quality validation\n");
+    content.push_str("- `/inkwell.analyze` — Audit plan\n");
 
     content
 }
@@ -86,12 +86,6 @@ pub fn export_agent_files(
     let claude_md = generate_claude_md(project_name, constitution, steering_rules);
     std::fs::write(claude_dir.join("CLAUDE.md"), &claude_md)?;
 
-    // .kiro/steering/ files
-    let steering_dir = dir.join(".kiro").join("steering");
-    std::fs::create_dir_all(&steering_dir)?;
-    for (name, content) in steering_rules {
-        std::fs::write(steering_dir.join(format!("{}.md", name)), content)?;
-    }
-
+    // Steering rules saved natively in Inkwell (no .inkwell/ dependency)
     Ok(())
 }

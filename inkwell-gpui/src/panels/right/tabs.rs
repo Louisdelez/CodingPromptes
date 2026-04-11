@@ -878,83 +878,25 @@ impl RightPanel {
                             let _ = crate::spec::git::commit_specs(&dir, &msg);
                         });
                     }))))
-            // Export buttons
+            // Native save (.inkwell/ format)
             .child(div().h(px(1.0)).bg(border_c()))
-            .child(div().flex().gap(px(8.0))
-                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
-                    .text_xs().text_color(text_secondary()).cursor_pointer()
-                    .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Download)).child("Export .specify/")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        let s = this.store.read(cx);
-                        let blocks: Vec<crate::types::Block> = s.project.blocks.clone();
-                        let name = s.project.name.clone();
-                        std::thread::spawn(move || {
-                            let dir = dirs::document_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-                            let _ = crate::spec::export::export_speckit(&blocks, &name, &dir);
-                        });
-                    })))
-                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
-                    .text_xs().text_color(text_secondary()).cursor_pointer()
-                    .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Download)).child("Export .kiro/")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        let s = this.store.read(cx);
-                        let blocks: Vec<crate::types::Block> = s.project.blocks.clone();
-                        let name = s.project.name.clone();
-                        std::thread::spawn(move || {
-                            let dir = dirs::document_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-                            let _ = crate::spec::export::export_kiro(&blocks, &name, &dir);
-                        });
-                    })))
-            ) // close export flex container
-            // Import buttons
-            .child(div().flex().gap(px(8.0))
-                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
-                    .text_xs().text_color(text_secondary()).cursor_pointer()
-                    .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Upload)).child("Import .specify/")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        let dir = dirs::document_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-                        let imported = crate::spec::export::import_speckit(&dir);
-                        if !imported.is_empty() {
-                            this.store.update(cx, |s, cx| {
-                                for (bt, content) in imported {
-                                    s.project.blocks.push(crate::types::Block {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        block_type: bt, content, enabled: true, editing: false,
-                                    });
-                                }
-                                s.prompt_dirty = true;
-                                cx.emit(StoreEvent::ProjectChanged);
-                            });
-                        }
-                    })))
-                .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
-                    .bg(bg_tertiary()).flex().items_center().gap(px(4.0))
-                    .text_xs().text_color(text_secondary()).cursor_pointer()
-                    .hover(|s| s.bg(bg_hover()))
-                    .child(Icon::new(IconName::Upload)).child("Import .kiro/")
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        let dir = dirs::document_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-                        let imported = crate::spec::export::import_kiro(&dir);
-                        if !imported.is_empty() {
-                            this.store.update(cx, |s, cx| {
-                                for (bt, content) in imported {
-                                    s.project.blocks.push(crate::types::Block {
-                                        id: uuid::Uuid::new_v4().to_string(),
-                                        block_type: bt, content, enabled: true, editing: false,
-                                    });
-                                }
-                                s.prompt_dirty = true;
-                                cx.emit(StoreEvent::ProjectChanged);
-                            });
-                        }
-                    })))
-            )
+            .child(div().px(px(10.0)).py(px(6.0)).rounded(px(6.0)).border_1().border_color(border_c())
+                .bg(bg_tertiary()).flex().items_center().gap(px(4.0)).w_full()
+                .text_xs().text_color(text_secondary()).cursor_pointer()
+                .hover(|s| s.bg(bg_hover()))
+                .child(Icon::new(IconName::Save)).child("Sauvegarder .inkwell/")
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    let s = this.store.read(cx);
+                    let blocks: Vec<crate::types::Block> = s.project.blocks.clone();
+                    let name = s.project.name.clone();
+                    let steering: Vec<(String, String)> = s.steering.rules.iter()
+                        .filter(|r| r.enabled && !r.content.is_empty())
+                        .map(|r| (r.name.clone(), r.content.clone())).collect();
+                    std::thread::spawn(move || {
+                        let dir = std::env::current_dir().unwrap_or_default();
+                        let _ = crate::spec::native::save_native(&blocks, &name, &steering, &dir);
+                    });
+                })))
             // Extensions section
             .child(div().h(px(1.0)).bg(border_c()))
             .child({

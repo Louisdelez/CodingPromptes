@@ -3,20 +3,28 @@ use crate::project::{LocalProject, LocalSettings};
 
 pub fn init(name: Option<String>, here: bool) {
     let project_name = name.unwrap_or_else(|| {
-        if here { std::env::current_dir().unwrap().file_name().unwrap().to_string_lossy().to_string() }
+        if here { std::env::current_dir().unwrap_or_else(|e| { eprintln!("{} Impossible de lire le repertoire courant: {}", "✗".red(), e); std::path::PathBuf::from(".") }).file_name().unwrap_or_else(|| { eprintln!("{} Impossible de lire le nom du repertoire", "✗".red()); std::ffi::OsStr::new("projet") }).to_string_lossy().to_string() }
         else { "nouveau-projet".to_string() }
     });
     let project = LocalProject::new(&project_name);
     if !here {
-        let _ = std::fs::create_dir_all(&project_name);
-        let _ = project.save_to_inkwell(std::path::Path::new(&project_name));
+        if let Err(e) = std::fs::create_dir_all(&project_name) {
+            println!("{} Erreur creation repertoire: {}", "✗".red(), e);
+        }
+        if let Err(e) = project.save_to_inkwell(std::path::Path::new(&project_name)) {
+            println!("{} Erreur sauvegarde: {}", "✗".red(), e);
+        }
         println!("{} Projet {} cree", "✓".green(), project_name.cyan());
         println!("  cd {}", project_name);
     } else {
-        let _ = project.save_to_inkwell(std::path::Path::new("."));
+        if let Err(e) = project.save_to_inkwell(std::path::Path::new(".")) {
+            println!("{} Erreur sauvegarde: {}", "✗".red(), e);
+        }
         println!("{} Projet initialise dans le repertoire courant", "✓".green());
     }
-    let _ = project.save();
+    if let Err(e) = project.save() {
+        println!("{} Erreur sauvegarde: {}", "✗".red(), e);
+    }
     println!("\n{}", "Commandes:".bold());
     println!("  inkwell constitution  — Principes du projet");
     println!("  inkwell specify       — Specification");
@@ -70,7 +78,9 @@ pub fn config(action: Option<String>, key: Option<String>, value: Option<String>
                 "google-key" => { settings.api_key_google = v; println!("{} Cle Google configuree", "✓".green()); }
                 _ => { println!("{} Cle inconnue: {}. Options: model, openai-key, anthropic-key, google-key", "✗".red(), k); return; }
             }
-            let _ = settings.save();
+            if let Err(e) = settings.save() {
+                println!("{} Erreur sauvegarde: {}", "✗".red(), e);
+            }
         }
         _ => {
             println!("{}", "Configuration Inkwell:".bold());

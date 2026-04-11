@@ -74,6 +74,7 @@ impl InkwellApp {
                 AsyncMsg::LlmResponse(text) => {
                     if text.starts_with("__CHAT__") {
                         self.state.chat_messages.push(("assistant".into(), text[8..].to_string()));
+                        if self.state.chat_messages.len() > 200 { self.state.chat_messages.drain(..self.state.chat_messages.len() - 200); }
                     } else if text.starts_with("__LOADPROJECT__") {
                         let json_str = &text[15..];
                         if let Ok(proj) = serde_json::from_str::<inkwell_core::types::PromptProject>(json_str) {

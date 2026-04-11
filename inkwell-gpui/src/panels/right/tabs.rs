@@ -1,6 +1,13 @@
 //! Right panel tab implementations — extracted from right_panel.rs
 //! Each tab method is `impl RightPanel { fn tab_xxx() }`.
 
+fn safe_truncate(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
+
 use gpui::*;
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Icon, IconName};
@@ -186,7 +193,7 @@ impl RightPanel {
                 .child(div().text_xs().text_color(text_muted()).child("Systeme:"))
                 .child(div().flex_1().text_xs().text_color(text_secondary()).overflow_hidden()
                     .child(if system_prompt.is_empty() { "(prompt courant)".to_string() } else {
-                        if system_prompt.len() > 40 { format!("{}...", &system_prompt[..40]) } else { system_prompt }
+                        if system_prompt.len() > 40 { format!("{}...", safe_truncate(&system_prompt, 40)) } else { system_prompt }
                     }))
                 .child(div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                     .text_xs().text_color(accent()).child(Icon::new(IconName::File))
@@ -204,7 +211,10 @@ impl RightPanel {
                         if raw_msg.is_empty() { return; }
                         // Intent detection (Kiro) + context providers + slash commands
                         let intent = crate::kiro::intent::detect(&raw_msg);
-                        this.store.update(cx, |s, _| { s.chat_messages.push(("user".into(), raw_msg.clone())); });
+                        this.store.update(cx, |s, _| {
+                            s.chat_messages.push(("user".into(), raw_msg.clone()));
+                            if s.chat_messages.len() > 200 { s.chat_messages.drain(..s.chat_messages.len() - 200); }
+                        });
                         this.chat_input = Some(cx.new(|cx| InputState::new(window, cx).placeholder("Envoyer un message...")));
                         cx.notify();
 
@@ -554,7 +564,7 @@ impl RightPanel {
             c = c.child(div().text_xs().text_color(text_muted()).child("Aucune execution. Lancez un prompt dans le Playground."));
         } else {
             for exec in execs {
-                let preview: String = if exec.response_preview.len() > 80 { format!("{}...", &exec.response_preview[..80]) } else { exec.response_preview.clone() };
+                let preview: String = if exec.response_preview.len() > 80 { format!("{}...", safe_truncate(&exec.response_preview, 80)) } else { exec.response_preview.clone() };
                 c = c.child(div().py(px(8.0)).border_b_1().border_color(border_c()).flex().flex_col().gap(px(4.0))
                     .child(div().flex().items_center().gap(px(6.0))
                         .child(Icon::new(IconName::ChevronRight).text_color(text_muted()))
@@ -635,7 +645,7 @@ impl RightPanel {
         let workspaces = s.workspaces.clone();
         let blocks: Vec<(usize, String)> = s.project.blocks.iter().enumerate()
             .filter(|(_, b)| b.enabled && !b.content.is_empty())
-            .map(|(i, b)| (i, if b.content.len() > 40 { format!("{}...", &b.content[..40]) } else { b.content.clone() }))
+            .map(|(i, b)| (i, if b.content.len() > 40 { format!("{}...", safe_truncate(&b.content, 40)) } else { b.content.clone() }))
             .collect();
         let model = s.selected_model.clone();
 
@@ -962,7 +972,7 @@ impl RightPanel {
                         .child(div().text_xs().font_weight(FontWeight::SEMIBOLD).text_color(accent())
                             .child(format!("Diff: {} (bloc {})", block_label, idx)))
                         .child(div().text_xs().text_color(text_secondary()).max_h(px(100.0)).overflow_hidden()
-                            .child(if content.len() > 200 { format!("{}...", &content[..200]) } else { content.clone() }))
+                            .child(if content.len() > 200 { format!("{}...", safe_truncate(&content, 200)) } else { content.clone() }))
                         .child(div().flex().gap(px(8.0))
                             .child(div().px(px(12.0)).py(px(4.0)).rounded(px(6.0)).bg(success())
                                 .text_xs().text_color(ink_white()).cursor_pointer()

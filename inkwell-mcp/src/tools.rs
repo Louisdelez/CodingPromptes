@@ -25,8 +25,13 @@ fn load_all_projects() -> Vec<Value> {
             }
         }
     }
-    // Also load current project
-    if let Some(p) = load_project() { projects.push(p); }
+    // Also load current project, but avoid duplicates
+    if let Some(current) = load_project() {
+        let current_id = current.get("id").cloned();
+        if current_id.is_none() || !projects.iter().any(|p| p.get("id") == current_id.as_ref()) {
+            projects.push(current);
+        }
+    }
     projects
 }
 
@@ -147,6 +152,10 @@ fn tool_status() -> String {
 }
 
 fn tool_read_phase(phase: &str) -> String {
+    const VALID_PHASES: &[&str] = &["constitution", "specification", "plan", "tasks", "implementation"];
+    if !VALID_PHASES.contains(&phase) {
+        return format!("Invalid phase '{}'. Valid: constitution, specification, plan, tasks, implementation", phase);
+    }
     match load_project() {
         Some(p) => p[phase].as_str().unwrap_or("Phase is empty.").to_string(),
         None => "No active project.".into(),
@@ -263,12 +272,22 @@ fn tool_search(query: &str) -> String {
 }
 
 fn tool_write_phase(phase: &str, content: &str) -> String {
+    const VALID_PHASES: &[&str] = &["constitution", "specification", "plan", "tasks", "implementation"];
+    if !VALID_PHASES.contains(&phase) {
+        return format!("Invalid phase '{}'. Valid: constitution, specification, plan, tasks, implementation", phase);
+    }
     match load_project() {
         Some(mut p) => {
             p[phase] = json!(content);
             let path = project_dir().join("current-project.json");
             if let Ok(json) = serde_json::to_string_pretty(&p) {
-                let _ = std::fs::write(&path, json);
+                let tmp_path = path.with_extension("json.tmp");
+                if let Err(e) = std::fs::write(&tmp_path, &json) {
+                    return format!("Write error: {}", e);
+                }
+                if let Err(e) = std::fs::rename(&tmp_path, &path) {
+                    return format!("Rename error: {}", e);
+                }
                 format!("Written {} chars to phase '{}'", content.len(), phase)
             } else { "Failed to serialize project".into() }
         }
@@ -289,7 +308,13 @@ fn tool_write_steering(name: &str, content: &str) -> String {
     }
 
     if let Ok(json) = serde_json::to_string_pretty(&rules) {
-        let _ = std::fs::write(&path, json);
+        let tmp_path = path.with_extension("json.tmp");
+        if let Err(e) = std::fs::write(&tmp_path, &json) {
+            return format!("Write error: {}", e);
+        }
+        if let Err(e) = std::fs::rename(&tmp_path, &path) {
+            return format!("Rename error: {}", e);
+        }
         format!("Steering rule '{}' updated ({} chars)", name, content.len())
     } else { "Failed to save steering".into() }
 }

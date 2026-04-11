@@ -39,8 +39,18 @@ fn main() {
 
         let request: JsonRpcRequest = match serde_json::from_str(&line) {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(_) => {
+                let err = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}});
+                let mut out = stdout.lock();
+                let _ = writeln!(out, "{}", err);
+                let _ = out.flush();
+                continue;
+            }
         };
+
+        if request.method.starts_with("notifications/") {
+            continue;
+        }
 
         let response = handle_request(&request);
         let json = serde_json::to_string(&response).unwrap_or_default();
@@ -66,9 +76,6 @@ fn handle_request(req: &JsonRpcRequest) -> JsonRpcResponse {
                     "version": "0.1.0"
                 }
             })),
-        },
-        "notifications/initialized" => JsonRpcResponse {
-            jsonrpc: "2.0".into(), id, result: Some(json!({})), error: None,
         },
         "tools/list" => JsonRpcResponse {
             jsonrpc: "2.0".into(), id, error: None,

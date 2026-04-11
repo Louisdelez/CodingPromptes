@@ -125,6 +125,12 @@ impl LocalSettings {
         let dir = LocalProject::data_dir();
         std::fs::create_dir_all(&dir)?;
         let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(dir.join("settings.json"), json)
+        std::fs::write(dir.join("settings.json"), &json)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(dir.join("settings.json"), std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
     }
 }

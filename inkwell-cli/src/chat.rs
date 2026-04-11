@@ -90,6 +90,8 @@ async fn chat_with_llm(message: &str) {
 
     let key = if model.starts_with("claude") {
         if settings.api_key_anthropic.is_empty() { std::env::var("ANTHROPIC_API_KEY").unwrap_or_default() } else { settings.api_key_anthropic.clone() }
+    } else if model.starts_with("gemini") {
+        if settings.api_key_google.is_empty() { std::env::var("GOOGLE_API_KEY").unwrap_or_default() } else { settings.api_key_google.clone() }
     } else {
         if settings.api_key_openai.is_empty() { std::env::var("OPENAI_API_KEY").unwrap_or_default() } else { settings.api_key_openai.clone() }
     };
@@ -99,26 +101,38 @@ async fn chat_with_llm(message: &str) {
         return;
     }
 
-    let client = reqwest::Client::new();
-    let (url, body) = if model.starts_with("claude") {
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap_or_default();
+    let is_anthropic = model.starts_with("claude");
+    let (url, body) = if is_anthropic {
         ("https://api.anthropic.com/v1/messages".to_string(),
          serde_json::json!({"model": model, "max_tokens": 2048, "system": system, "messages": [{"role": "user", "content": user_prompt}]}))
+    } else if model.starts_with("gemini") {
+        ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions".to_string(),
+         serde_json::json!({"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_prompt}], "temperature": 0.7, "max_tokens": 2048}))
     } else {
         ("https://api.openai.com/v1/chat/completions".to_string(),
          serde_json::json!({"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user_prompt}], "temperature": 0.7, "max_tokens": 2048}))
     };
 
     let mut req = client.post(&url).json(&body);
-    if model.starts_with("claude") {
+    if is_anthropic {
         req = req.header("x-api-key", &key).header("anthropic-version", "2023-06-01");
+    } else if model.starts_with("gemini") {
+        req = req.header("x-goog-api-key", &key);
     } else {
         req = req.header("Authorization", format!("Bearer {}", key));
     }
 
     match req.send().await {
         Ok(resp) => {
+            let status = resp.status();
+            if !status.is_success() {
+                let body_text = resp.text().await.unwrap_or_default();
+                println!("{} HTTP {} — {}", "✗".red(), status, body_text);
+                return;
+            }
             if let Ok(data) = resp.json::<serde_json::Value>().await {
-                let text = if model.starts_with("claude") {
+                let text = if is_anthropic {
                     data["content"][0]["text"].as_str().unwrap_or("")
                 } else {
                     data["choices"][0]["message"]["content"].as_str().unwrap_or("")

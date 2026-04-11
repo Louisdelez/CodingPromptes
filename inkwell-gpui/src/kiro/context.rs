@@ -2,6 +2,13 @@
 
 use std::path::Path;
 
+fn safe_truncate(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
+
 /// Available context providers (triggered by # in chat)
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextProvider {
@@ -81,7 +88,7 @@ fn resolve_file(path: &str) -> String {
     match std::fs::read_to_string(path) {
         Ok(content) => {
             let truncated = if content.len() > 5000 {
-                format!("{}...\n[truncated, {} total chars]", &content[..5000], content.len())
+                format!("{}...\n[truncated, {} total chars]", safe_truncate(&content, 5000), content.len())
             } else { content };
             format!("## File: {}\n```\n{}\n```\n", path, truncated)
         }

@@ -14,7 +14,7 @@ pub struct RightPanel {
     pub(crate) active_tab: RightTab,
     pub(crate) show_dropdown: bool,
     pub(crate) chat_input: Option<Entity<InputState>>,
-    pub(crate) copy_feedback: u32,
+    pub(crate) copy_feedback_at: Option<std::time::Instant>,
 }
 
 impl Focusable for RightPanel {
@@ -35,14 +35,12 @@ impl RightPanel {
                 _ => {}
             }
         }).detach();
-        Self { focus_handle, store, active_tab: RightTab::Preview, show_dropdown: false, chat_input, copy_feedback: 0 }
+        Self { focus_handle, store, active_tab: RightTab::Preview, show_dropdown: false, chat_input, copy_feedback_at: None }
     }
 }
 
 impl Render for RightPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.copy_feedback > 0 { self.copy_feedback -= 1; }
-
         const TABS: &[(&str, RightTab, IconName)] = &[
             ("Preview", RightTab::Preview, IconName::File),
             ("Playground", RightTab::Playground, IconName::Play),

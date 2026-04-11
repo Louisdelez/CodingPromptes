@@ -83,6 +83,7 @@ pub struct AppStore {
     pub stt_target_block: Option<usize>,
     pub stt_stop_tx: Option<mpsc::Sender<()>>,
     pub stt_provider: SttProvider,
+    pub stt_language: String,
 
     // Settings
     pub show_settings: bool,
@@ -209,7 +210,7 @@ impl AppStore {
             credits: crate::kiro::credits::CreditTracker::new(),
             sessions: crate::kiro::sessions::SessionManager::new(),
             pending_diff: None,
-            stt_recording: false, stt_target_block: None, stt_stop_tx: None, stt_provider: SttProvider::Local,
+            stt_recording: false, stt_target_block: None, stt_stop_tx: None, stt_provider: SttProvider::Local, stt_language: "Auto".into(),
             show_settings: false, show_profile: false,
             api_key_openai: local_settings.api_key_openai,
             api_key_anthropic: local_settings.api_key_anthropic,

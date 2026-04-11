@@ -21,7 +21,7 @@ impl RightPanel {
     pub(crate) fn tab_preview(&self, cx: &mut Context<Self>) -> Div {
         let s = self.store.read(cx);
         let compiled = s.cached_prompt.clone();
-        let is_copied = self.copy_feedback > 0;
+        let is_copied = self.copy_feedback_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(2));
         div().flex_1().flex().flex_col()
             .child(div().px(px(16.0)).py(px(10.0)).flex().items_center().gap(px(8.0))
                 .border_b_1().border_color(border_c())
@@ -35,7 +35,8 @@ impl RightPanel {
                         .cursor_pointer().hover(|s| s.bg(accent_bg()))
                         .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(cc.clone()));
-                            this.copy_feedback = 120;
+                            this.copy_feedback_at = Some(std::time::Instant::now());
+                            cx.notify();
                         }))
                 }))
             .child(div().flex_1().p(px(16.0))
@@ -69,7 +70,7 @@ impl RightPanel {
                     let prompt = s.cached_prompt.clone(); let model = s.selected_model.clone();
                     let server = s.server_url.clone(); let tx = s.msg_tx.clone();
                     let temp = s.playground_temperature; let max_tok = s.playground_max_tokens;
-                    std::thread::spawn(move || { crate::app::rt().block_on(async {
+                    let _ = crate::app::rt().spawn(async move {
                         let client = reqwest::Client::new();
                         let body = serde_json::json!({"model":model,"messages":[{"role":"user","content":prompt}],"temperature":temp,"max_tokens":max_tok,"stream":false});
                         if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
@@ -79,7 +80,7 @@ impl RightPanel {
                             }
                         }
                         let _ = tx.send(AsyncMsg::LlmDone);
-                    }); });
+                    });
                 })))
             .child(div().p(px(8.0)).rounded(px(8.0)).border_1().border_color(border_c())
                 .child(Icon::new(IconName::Settings).text_color(text_muted()))
@@ -229,7 +230,7 @@ impl RightPanel {
 
                             if let Some((system, user, target_bt)) = crate::kiro::commands::build_command_prompt(&cmd, &blocks, &name) {
                                 // If command creates a block, send SddBlockResult; otherwise chat response
-                                std::thread::spawn(move || { crate::app::rt().block_on(async {
+                                let _ = crate::app::rt().spawn(async move {
                                     let client = reqwest::Client::new();
                                     let body = serde_json::json!({"model":model,"messages":[
                                         {"role":"system","content":system},
@@ -248,7 +249,7 @@ impl RightPanel {
                                         }
                                     }
                                     let _ = tx.send(AsyncMsg::LlmDone);
-                                }); });
+                                });
                             }
                             return;
                         }
@@ -264,7 +265,7 @@ impl RightPanel {
                             serde_json::json!({"role":"system","content":system_prompt}),
                             serde_json::json!({"role":"user","content":enriched_msg}),
                         ];
-                        std::thread::spawn(move || { crate::app::rt().block_on(async {
+                        let _ = crate::app::rt().spawn(async move {
                             let client = reqwest::Client::new();
                             let body = serde_json::json!({"model":model,"messages":msgs,"temperature":0.7,"max_tokens":2048,"stream":false});
                             if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
@@ -273,7 +274,7 @@ impl RightPanel {
                                     let _ = tx.send(AsyncMsg::LlmResponse(format!("__CHAT__{text}")));
                                 }
                             }
-                        }); });
+                        });
                     }))))
     }
 
@@ -281,6 +282,7 @@ impl RightPanel {
         let s = self.store.read(cx);
         let recording = s.stt_recording;
         let provider = s.stt_provider;
+        let selected_lang = s.stt_language.clone();
 
         const PROVIDERS: &[(&str, &str, SttProvider)] = &[
             ("Local", "Utilise le serveur GPU local", SttProvider::Local),
@@ -314,14 +316,20 @@ impl RightPanel {
         // Language selector
         let mut lang_chips = div().flex().flex_wrap().gap(px(4.0));
         for &lang in LANGUAGES {
-            let is_sel = lang == "Auto"; // default
+            let is_sel = selected_lang == lang;
+            let lang_id = lang.to_string();
             lang_chips = lang_chips.child(
                 div().px(px(8.0)).py(px(3.0)).rounded(px(10.0))
                     .text_xs().cursor_pointer()
                     .bg(if is_sel { accent() } else { bg_tertiary() })
                     .text_color(if is_sel { gpui::hsla(0.0, 0.0, 1.0, 1.0) } else { text_secondary() })
                     .border_1().border_color(if is_sel { accent() } else { border_c() })
+                    .hover(|s| s.bg(if is_sel { accent() } else { bg_secondary() }))
                     .child(lang.to_string())
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                        this.store.update(cx, |s, _| { s.stt_language = lang_id.clone(); });
+                        cx.notify();
+                    }))
             );
         }
 
@@ -367,7 +375,7 @@ impl RightPanel {
                         this.store.update(cx, |s, _| { if s.playground_loading { return; } s.playground_loading = true; s.playground_response.clear(); });
                         let s = this.store.read(cx);
                         let prompt = s.cached_prompt.clone(); let server = s.server_url.clone(); let tx = s.msg_tx.clone();
-                        std::thread::spawn(move || { crate::app::rt().block_on(async {
+                        let _ = crate::app::rt().spawn(async move {
                             let client = reqwest::Client::new();
                             let body = serde_json::json!({"model":"gpt-4o-mini","messages":[
                                 {"role":"system","content":"You are a prompt engineering expert. Rewrite the prompt to be clearer, more specific, and effective. Keep the same intent."},
@@ -380,19 +388,34 @@ impl RightPanel {
                                 }
                             }
                             let _ = tx.send(AsyncMsg::LlmDone);
-                        }); });
+                        });
                     }))))
             .child(div().text_xs().text_color(text_secondary()).child("Ameliorez votre prompt avec l'IA. L'optimiseur reecrit pour plus de clarte et d'efficacite."))
             // Optimized result
             .child(if has_result {
                 let optimized = response.strip_prefix("--- Optimise ---\n").unwrap_or(&response).to_string();
+                let optimized_for_apply = optimized.clone();
                 div().flex().flex_col().gap(px(8.0))
                     .child(div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                         .text_xs().text_color(text_primary()).child(optimized))
                     .child(div().py(px(6.0)).px(px(12.0)).rounded(px(6.0)).bg(success())
                         .text_xs().text_color(gpui::hsla(0.0, 0.0, 1.0, 1.0)).flex().items_center().justify_center().gap(px(4.0))
                         .child(Icon::new(IconName::Check)).child("Appliquer")
-                        .cursor_pointer().hover(|s| s.bg(hsla(120.0/360.0, 0.6, 0.35, 1.0))))
+                        .cursor_pointer().hover(|s| s.bg(hsla(120.0/360.0, 0.6, 0.35, 1.0)))
+                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                            // Apply optimized prompt to the first enabled Task block
+                            // TODO: for multi-block prompts, consider a smarter merge strategy
+                            let text = optimized_for_apply.clone();
+                            this.store.update(cx, |s, cx| {
+                                if let Some(block) = s.project.blocks.iter_mut().find(|b| b.enabled && b.block_type == inkwell_core::types::BlockType::Task) {
+                                    block.content = text;
+                                } else if let Some(block) = s.project.blocks.first_mut() {
+                                    block.content = text;
+                                }
+                                cx.emit(StoreEvent::ProjectChanged);
+                            });
+                            cx.notify();
+                        })))
             } else {
                 div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
                     .text_xs().text_color(text_muted())
@@ -502,7 +525,7 @@ impl RightPanel {
     }
 
     pub(crate) fn tab_export(&self, cx: &mut Context<Self>) -> Div {
-        let is_copied = self.copy_feedback > 0;
+        let is_copied = self.copy_feedback_at.map_or(false, |t| t.elapsed() < std::time::Duration::from_secs(2));
         div().flex_1().p(px(16.0)).flex().flex_col().gap(px(10.0))
             // Import section
             .child(div().flex().items_center().gap(px(6.0))
@@ -518,19 +541,43 @@ impl RightPanel {
             .child(export_btn("TXT (.txt)", "Export en texte brut")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
-                    let content = s.cached_prompt.clone(); let name = s.project.name.clone();                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.txt", name.replace(' ', "-").to_lowercase()), &content); });
+                    let content = s.cached_prompt.clone(); let name = s.project.name.clone();
+                    std::thread::spawn(move || {
+                        let dir = dirs::download_dir().or_else(dirs::document_dir).unwrap_or_else(|| dirs::home_dir().unwrap_or_default());
+                        let path = dir.join(format!("{}.txt", name.replace(' ', "-").to_lowercase()));
+                        match std::fs::write(&path, &content) {
+                            Ok(_) => log::info!("Exported to {}", path.display()),
+                            Err(e) => log::error!("Export failed: {e}"),
+                        }
+                    });
                 })))
             .child(export_btn("Markdown (.md)", "Export en fichier Markdown")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
-                    let content = s.cached_prompt.clone(); let name = s.project.name.clone();                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.md", name.replace(' ', "-").to_lowercase()), &content); });
+                    let content = s.cached_prompt.clone(); let name = s.project.name.clone();
+                    std::thread::spawn(move || {
+                        let dir = dirs::download_dir().or_else(dirs::document_dir).unwrap_or_else(|| dirs::home_dir().unwrap_or_default());
+                        let path = dir.join(format!("{}.md", name.replace(' ', "-").to_lowercase()));
+                        match std::fs::write(&path, &content) {
+                            Ok(_) => log::info!("Exported to {}", path.display()),
+                            Err(e) => log::error!("Export failed: {e}"),
+                        }
+                    });
                 })))
             .child(export_btn("JSON", "Export complet du projet")
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let s = this.store.read(cx);
                     let blocks: Vec<inkwell_core::types::PromptBlock> = s.project.blocks.iter().map(|b|
                         inkwell_core::types::PromptBlock { id: b.id.clone(), block_type: b.block_type, content: b.content.clone(), enabled: b.enabled }).collect();
-                    let name = s.project.name.clone();                    std::thread::spawn(move || { let _ = std::fs::write(format!("{}.json", name.replace(' ', "-").to_lowercase()), serde_json::to_string_pretty(&blocks).unwrap_or_default()); });
+                    let name = s.project.name.clone();
+                    std::thread::spawn(move || {
+                        let dir = dirs::download_dir().or_else(dirs::document_dir).unwrap_or_else(|| dirs::home_dir().unwrap_or_default());
+                        let path = dir.join(format!("{}.json", name.replace(' ', "-").to_lowercase()));
+                        match std::fs::write(&path, serde_json::to_string_pretty(&blocks).unwrap_or_default()) {
+                            Ok(_) => log::info!("Exported to {}", path.display()),
+                            Err(e) => log::error!("Export failed: {e}"),
+                        }
+                    });
                 })))
             .child(export_btn("OpenAI JSON", "Format API OpenAI"))
             .child(export_btn("Anthropic JSON", "Format API Anthropic"))
@@ -544,7 +591,8 @@ impl RightPanel {
                 .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
                     let compiled = this.store.read(cx).cached_prompt.clone();
                     cx.write_to_clipboard(ClipboardItem::new_string(compiled));
-                    this.copy_feedback = 120;
+                    this.copy_feedback_at = Some(std::time::Instant::now());
+                    cx.notify();
                 })))
     }
 
@@ -695,7 +743,8 @@ impl RightPanel {
                     let s = this.store.read(cx);
                     let blocks: Vec<String> = s.project.blocks.iter().filter(|b| b.enabled && !b.content.is_empty())
                         .map(|b| b.content.clone()).collect();
-                    let _server = s.server_url.clone(); let tx = s.msg_tx.clone();                    std::thread::spawn(move || { crate::app::rt().block_on(async {
+                    let _server = s.server_url.clone(); let tx = s.msg_tx.clone();
+                    let _ = crate::app::rt().spawn(async move {
                         let client = reqwest::Client::new(); let mut output = String::new();
                         for (i, content) in blocks.iter().enumerate() {
                             let prompt = if output.is_empty() { content.clone() } else { format!("Sortie precedente:\n{output}\n\nMaintenant:\n{content}") };
@@ -709,7 +758,7 @@ impl RightPanel {
                             }
                         }
                         let _ = tx.send(AsyncMsg::LlmDone);
-                    }); });
+                    });
                 })))
     }
 
@@ -1073,7 +1122,7 @@ impl RightPanel {
                                 let model = s.selected_model.clone();
                                 let server = s.server_url.clone();
                                 let tx = s.msg_tx.clone();
-                                std::thread::spawn(move || { crate::app::rt().block_on(async {
+                                let _ = crate::app::rt().spawn(async move {
                                     let client = reqwest::Client::new();
                                     let body = serde_json::json!({"model":model,"messages":[
                                         {"role":"system","content":"You are a developer implementing a task from a spec-driven development plan."},
@@ -1086,7 +1135,7 @@ impl RightPanel {
                                         }
                                     }
                                     let _ = tx.send(AsyncMsg::LlmDone);
-                                }); });
+                                });
                             })));
                 }
                 section

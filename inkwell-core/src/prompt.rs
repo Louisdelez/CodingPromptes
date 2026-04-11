@@ -1,5 +1,9 @@
 use crate::types::PromptBlock;
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+static VAR_REGEX: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"\{\{(\w+)\}\}").unwrap());
 
 pub fn compile_prompt(blocks: &[PromptBlock], variables: &HashMap<String, String>) -> String {
     let mut result = String::new();
@@ -19,10 +23,9 @@ pub fn compile_prompt(blocks: &[PromptBlock], variables: &HashMap<String, String
 
 pub fn extract_variables(blocks: &[PromptBlock]) -> Vec<String> {
     let mut vars = Vec::new();
-    let re = regex_lite::Regex::new(r"\{\{(\w+)\}\}").unwrap();
     for block in blocks {
         if !block.enabled { continue; }
-        for cap in re.captures_iter(&block.content) {
+        for cap in VAR_REGEX.captures_iter(&block.content) {
             let var = cap.get(1).unwrap().as_str().to_string();
             if !vars.contains(&var) {
                 vars.push(var);

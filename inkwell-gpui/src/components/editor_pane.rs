@@ -194,38 +194,36 @@ impl Render for EditorPane {
                             this.store.update(cx, |s, _| { s.sdd_running = true; });
 
                             // Run all phases sequentially in background
-                            std::thread::spawn(move || {
-                                crate::app::rt().block_on(async {
-                                    let client = reqwest::Client::new();
-                                    let mut ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
+                            let _ = crate::app::rt().spawn(async move {
+                                let client = reqwest::Client::new();
+                                let mut ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
 
-                                    for (block_idx, phase) in &sdd_blocks {
-                                        let (system, user) = crate::spec::workflow::build_llm_messages(
-                                            *phase, crate::spec::generator::SpecAction::Generate, &ctx
-                                        );
-                                        let body = serde_json::json!({
-                                            "model": model, "messages": [
-                                                {"role": "system", "content": system},
-                                                {"role": "user", "content": user}
-                                            ], "temperature": 0.3, "max_tokens": 4096, "stream": false
-                                        });
-                                        if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body.clone()).send().await {
-                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                                                let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
-                                                // Update context for next phase
-                                                match phase {
-                                                    crate::spec::generator::SpecPhase::Constitution => ctx.constitution = text.clone(),
-                                                    crate::spec::generator::SpecPhase::Specification => ctx.specification = text.clone(),
-                                                    crate::spec::generator::SpecPhase::Plan => ctx.plan = text.clone(),
-                                                    crate::spec::generator::SpecPhase::Tasks => ctx.tasks = text.clone(),
-                                                    crate::spec::generator::SpecPhase::Implementation => ctx.implementation = text.clone(),
-                                                }
-                                                let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx: *block_idx, content: text });
+                                for (block_idx, phase) in &sdd_blocks {
+                                    let (system, user) = crate::spec::workflow::build_llm_messages(
+                                        *phase, crate::spec::generator::SpecAction::Generate, &ctx
+                                    );
+                                    let body = serde_json::json!({
+                                        "model": model, "messages": [
+                                            {"role": "system", "content": system},
+                                            {"role": "user", "content": user}
+                                        ], "temperature": 0.3, "max_tokens": 4096, "stream": false
+                                    });
+                                    if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body.clone()).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                            // Update context for next phase
+                                            match phase {
+                                                crate::spec::generator::SpecPhase::Constitution => ctx.constitution = text.clone(),
+                                                crate::spec::generator::SpecPhase::Specification => ctx.specification = text.clone(),
+                                                crate::spec::generator::SpecPhase::Plan => ctx.plan = text.clone(),
+                                                crate::spec::generator::SpecPhase::Tasks => ctx.tasks = text.clone(),
+                                                crate::spec::generator::SpecPhase::Implementation => ctx.implementation = text.clone(),
                                             }
+                                            let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx: *block_idx, content: text });
                                         }
                                     }
-                                    let _ = tx.send(crate::types::AsyncMsg::LlmDone);
-                                });
+                                }
+                                let _ = tx.send(crate::types::AsyncMsg::LlmDone);
                             });
                         }))
                 );

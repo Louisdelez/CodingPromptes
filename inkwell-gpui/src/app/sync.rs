@@ -72,11 +72,10 @@ impl InkwellApp {
                     self.state.auth_error = Some(e);
                 }
                 AsyncMsg::LlmResponse(text) => {
-                    if text.starts_with("__CHAT__") {
-                        self.state.chat_messages.push(("assistant".into(), text[8..].to_string()));
+                    if let Some(rest) = text.strip_prefix("__CHAT__") {
+                        self.state.chat_messages.push(("assistant".into(), rest.to_string()));
                         if self.state.chat_messages.len() > 200 { self.state.chat_messages.drain(..self.state.chat_messages.len() - 200); }
-                    } else if text.starts_with("__LOADPROJECT__") {
-                        let json_str = &text[15..];
+                    } else if let Some(json_str) = text.strip_prefix("__LOADPROJECT__") {
                         if let Ok(proj) = serde_json::from_str::<inkwell_core::types::PromptProject>(json_str) {
                             self.state.project.name = proj.name.clone();
                             self.state.project.id = proj.id.clone();
@@ -87,8 +86,7 @@ impl InkwellApp {
                             self.state.block_inputs.clear();
                             self.state.variable_inputs.clear();
                         }
-                    } else if text.starts_with("__IMPORT__") {
-                        let json_str = &text[10..];
+                    } else if let Some(json_str) = text.strip_prefix("__IMPORT__") {
                         if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(json_str) {
                             self.state.undo_stack.push_back(self.state.project.blocks.clone());
                             self.state.project.blocks = blocks.into_iter().map(|b| {

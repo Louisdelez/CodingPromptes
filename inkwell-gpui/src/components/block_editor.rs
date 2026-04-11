@@ -206,27 +206,25 @@ impl Render for BlockEditor {
                                 );
                                 this.store.update(cx, |s, _| { s.sdd_running = true; });
 
-                                std::thread::spawn(move || {
-                                    crate::app::rt().block_on(async {
-                                        let client = reqwest::Client::new();
-                                        let body = serde_json::json!({
-                                            "model": model,
-                                            "messages": [
-                                                {"role": "system", "content": system},
-                                                {"role": "user", "content": user}
-                                            ],
-                                            "temperature": 0.3,
-                                            "max_tokens": 4096,
-                                            "stream": false
-                                        });
-                                        if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
-                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                                                let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
-                                                let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx, content: text });
-                                            }
-                                        }
-                                        let _ = tx.send(crate::types::AsyncMsg::LlmDone);
+                                let _ = crate::app::rt().spawn(async move {
+                                    let client = reqwest::Client::new();
+                                    let body = serde_json::json!({
+                                        "model": model,
+                                        "messages": [
+                                            {"role": "system", "content": system},
+                                            {"role": "user", "content": user}
+                                        ],
+                                        "temperature": 0.3,
+                                        "max_tokens": 4096,
+                                        "stream": false
                                     });
+                                    if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                            let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx, content: text });
+                                        }
+                                    }
+                                    let _ = tx.send(crate::types::AsyncMsg::LlmDone);
                                 });
                             }
                         }
@@ -283,27 +281,25 @@ impl Render for BlockEditor {
                                 );
                                 this.store.update(cx, |s, _| { s.sdd_running = true; });
 
-                                std::thread::spawn(move || {
-                                    crate::app::rt().block_on(async {
-                                        let client = reqwest::Client::new();
-                                        let body = serde_json::json!({
-                                            "model": model,
-                                            "messages": [
-                                                {"role": "system", "content": system},
-                                                {"role": "user", "content": user}
-                                            ],
-                                            "temperature": 0.3,
-                                            "max_tokens": 4096,
-                                            "stream": false
-                                        });
-                                        if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
-                                            if let Ok(data) = resp.json::<serde_json::Value>().await {
-                                                let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
-                                                let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx, content: text });
-                                            }
-                                        }
-                                        let _ = tx.send(crate::types::AsyncMsg::LlmDone);
+                                let _ = crate::app::rt().spawn(async move {
+                                    let client = reqwest::Client::new();
+                                    let body = serde_json::json!({
+                                        "model": model,
+                                        "messages": [
+                                            {"role": "system", "content": system},
+                                            {"role": "user", "content": user}
+                                        ],
+                                        "temperature": 0.3,
+                                        "max_tokens": 4096,
+                                        "stream": false
                                     });
+                                    if let Ok(resp) = crate::app::llm_post(&client, &model, &server, body).send().await {
+                                        if let Ok(data) = resp.json::<serde_json::Value>().await {
+                                            let text = crate::llm::parse_llm_response(&model, &data).unwrap_or_default();
+                                            let _ = tx.send(crate::types::AsyncMsg::SddBlockResult { idx, content: text });
+                                        }
+                                    }
+                                    let _ = tx.send(crate::types::AsyncMsg::LlmDone);
                                 });
                             }
                         }
@@ -330,7 +326,7 @@ impl Render for BlockEditor {
                                 let ctx = crate::spec::generator::SpecContext::from_blocks(&project_name, &blocks);
                                 let (system, user) = crate::spec::workflow::build_llm_messages(
                                     phase, crate::spec::generator::SpecAction::Clarify, &ctx);
-                                std::thread::spawn(move || { crate::app::rt().block_on(async {
+                                let _ = crate::app::rt().spawn(async move {
                                     let client = reqwest::Client::new();
                                     let body = serde_json::json!({"model":model,"messages":[
                                         {"role":"system","content":system},{"role":"user","content":user}
@@ -341,7 +337,7 @@ impl Render for BlockEditor {
                                             let _ = tx.send(crate::types::AsyncMsg::LlmResponse(format!("--- Questions de clarification ---\n{text}")));
                                         }
                                     }
-                                }); });
+                                });
                             }
                         }
                     }))

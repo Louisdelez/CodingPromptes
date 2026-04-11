@@ -144,6 +144,7 @@ impl InkwellApp {
                         s.cached_vars = this.state.cached_vars.clone();
                         s.playground_response = this.state.playground_response.clone();
                         s.playground_loading = this.state.playground_loading;
+                        s.sdd_running = this.state.sdd_running;
                         s.selected_model = this.state.selected_model.clone();
                         s.executions = this.state.executions.clone();
                         s.stt_recording = this.state.stt_recording;

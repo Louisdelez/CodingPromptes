@@ -282,6 +282,15 @@ pub fn handle_write(
                     editing: false,
                 })
                 .collect();
+            // Insert the new project into the projects list immediately so the
+            // sidebar Library reflects it without waiting for the next app restart.
+            let summary = crate::state::ProjectSummary {
+                id: new_id.clone(),
+                name: name.clone(),
+                workspace_id: None,
+            };
+            state.projects.retain(|p| p.id != new_id);
+            state.projects.insert(0, summary.clone());
             store.update(cx, |s, cx| {
                 s.project = crate::state::Project {
                     id: p.id.clone(),
@@ -292,6 +301,8 @@ pub fn handle_write(
                     tags: vec![],
                     framework: None,
                 };
+                s.projects.retain(|p| p.id != summary.id);
+                s.projects.insert(0, summary);
                 s.feature_counter += 1;
                 s.prompt_dirty = true;
                 s.refresh_cache();
@@ -299,7 +310,7 @@ pub fn handle_write(
                 cx.emit(StoreEvent::PromptCacheUpdated);
             });
             let _ = crate::persistence::save_current_project_id(&new_id);
-            // Ensure the project shows up in the projects list after the next save.
+            // Ensure the project shows up on disk on the next tick.
             state.save_pending = true;
             state.save_timer = 1;
             json!({"ok": true, "project_id": new_id, "name": name})
@@ -310,9 +321,21 @@ pub fn handle_write(
                 Some(s) if !s.trim().is_empty() => s.to_string(),
                 _ => return json!({"ok": false, "error": "Missing or empty 'name' parameter"}),
             };
+            let pid = state.project.id.clone();
             state.project.name = name.clone();
+            // Mirror the rename into the project list so the sidebar updates.
+            for p in state.projects.iter_mut() {
+                if p.id == pid {
+                    p.name = name.clone();
+                }
+            }
             store.update(cx, |s, cx| {
                 s.project.name = name.clone();
+                for p in s.projects.iter_mut() {
+                    if p.id == pid {
+                        p.name = name.clone();
+                    }
+                }
                 cx.emit(StoreEvent::ProjectChanged);
             });
             state.save_pending = true;
@@ -404,6 +427,10 @@ pub fn handle_write(
             state.block_inputs.clear();
             state.variable_inputs.clear();
             state.prompt_dirty = true;
+            // Reset transient UI state from the previous project
+            state.playground_response.clear();
+            state.playground_loading = false;
+            state.sdd_running = false;
             // Apply to store
             let store_blocks: Vec<Block> = state.project.blocks.iter().map(|b| Block {
                 id: b.id.clone(),
@@ -420,6 +447,9 @@ pub fn handle_write(
                 s.project.name = name_copy;
                 s.project.framework = fw_copy;
                 s.project.blocks = store_blocks;
+                s.playground_response.clear();
+                s.playground_loading = false;
+                s.sdd_running = false;
                 s.prompt_dirty = true;
                 s.refresh_cache();
                 cx.emit(StoreEvent::ProjectChanged);

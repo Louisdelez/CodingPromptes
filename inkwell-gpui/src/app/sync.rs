@@ -125,6 +125,11 @@ impl InkwellApp {
                 AsyncMsg::LlmDone => {
                     self.state.playground_loading = false;
                     self.state.sdd_running = false;
+                    self.store.update(cx, |s, cx| {
+                        s.playground_loading = false;
+                        s.sdd_running = false;
+                        cx.emit(crate::store::StoreEvent::PlaygroundUpdated);
+                    });
                     // Execution already tracked via ExecutionRecorded message (local).
                     // Optionally sync to server in background.
                     if !self.state.playground_response.is_empty() {
@@ -149,7 +154,15 @@ impl InkwellApp {
                 }
                 AsyncMsg::LlmError(e) => {
                     self.state.playground_loading = false;
+                    self.state.sdd_running = false;
                     self.state.playground_response = format!("Error: {e}");
+                    let err_msg = format!("Error: {e}");
+                    self.store.update(cx, |s, cx| {
+                        s.playground_loading = false;
+                        s.sdd_running = false;
+                        s.playground_response = err_msg;
+                        cx.emit(crate::store::StoreEvent::PlaygroundUpdated);
+                    });
                 }
                 AsyncMsg::SddBlockResult { idx, content } => {
                     if let Some(block) = self.state.project.blocks.get_mut(idx) {

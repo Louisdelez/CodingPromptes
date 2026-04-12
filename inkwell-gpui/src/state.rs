@@ -191,14 +191,24 @@ impl AppState {
             dark_mode: saved.dark_mode, show_add_menu: false, custom_frameworks,
             selected_model: if local_settings.selected_model.is_empty() { "gpt-4o-mini".into() } else { local_settings.selected_model },
             sdd_running: false, playground_response: String::new(), playground_loading: false,
-            chat_messages: vec![], chat_input_entity: None,
+            chat_messages: {
+                let sd = crate::persistence::load_session_data();
+                sd.chat_messages
+            }, chat_input_entity: None,
             terminal_sessions: vec![], active_terminal: 0, terminal_input_entity: None,
             show_ssh_modal: false, ssh_host: String::new(), ssh_user: String::new(), ssh_port: "22".into(),
             ssh_host_input: None, ssh_user_input: None, tag_input: None, version_label_input: None,
             cached_prompt: String::new(), cached_tokens: 0, cached_chars: 0, cached_words: 0, cached_lines: 0,
             prompt_dirty: true, cached_vars: vec![], undo_stack: VecDeque::new(),
             confirm_delete: None, search_query: String::new(), search_input: None,
-            variable_inputs: HashMap::new(), executions: vec![],
+            variable_inputs: HashMap::new(), executions: {
+                let sd = crate::persistence::load_session_data();
+                sd.executions.into_iter().map(|e| Execution {
+                    model: e.model, tokens_in: e.tokens_in, tokens_out: e.tokens_out,
+                    latency_ms: e.latency_ms, cost: e.cost, timestamp: e.timestamp,
+                    prompt_preview: e.prompt_preview, response_preview: e.response_preview,
+                }).collect()
+            },
             multi_model_responses: vec![], multi_model_loading: false,
             stt_provider: SttProvider::Local, analytics_range: AnalyticsRange::All,
             github_repo: local_settings.github_repo,

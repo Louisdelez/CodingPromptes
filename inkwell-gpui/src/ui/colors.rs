@@ -88,6 +88,14 @@ pub fn hex_to_hsla(hex: &str) -> Hsla {
     hsla(h, s, l, 1.0)
 }
 
+// ── Text hierarchy guide ──
+// Use these text sizes consistently:
+//   text_xs()  → labels, metadata, badges, bottom bar stats
+//   text_sm()  → body content, block headers, tab labels, buttons
+//   text_base() → primary headings (project name in header)
+//   text_lg()  → rare, only for hero/splash text
+// Rule: if it's interactive or a section title, use text_sm. If it's auxiliary info, use text_xs.
+
 pub fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut in_escape = false;

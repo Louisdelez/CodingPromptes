@@ -7,6 +7,7 @@ use crate::state::*;
 use crate::ui::colors::*;
 
 #[derive(Clone, Copy, PartialEq)]
+#[derive(Debug)]
 pub(crate) enum SidebarView { Library, Frameworks, Versions }
 
 /// Context menu action for right-click
@@ -285,15 +286,22 @@ impl Render for LeftPanel {
             self.rename_input = Some(input);
         }
 
+        let view_key = format!("{:?}", self.view);
         panel = panel.child(div().id("left-content").flex_1().overflow_y_scroll()
             .child(content)
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, cx| {
                 if this.show_dropdown { this.show_dropdown = false; }
                 if this.context_menu.is_some() { this.context_menu = None; }
                 if this.renaming_id.is_some() { Self::confirm_rename(this, cx); }
-                window.blur(); // Remove focus from search input
+                window.blur();
                 cx.notify();
-            })));
+            }))
+            .with_animation(
+                SharedString::from(format!("left-fade-{}", view_key)),
+                Animation::new(std::time::Duration::from_millis(150))
+                    .with_easing(gpui_component::animation::cubic_bezier(0.25, 0.1, 0.25, 1.0)),
+                |this, delta| this.opacity(delta),
+            ));
 
         // Delete confirmation modal (centered overlay)
         if let Some(ref target) = self.confirm_delete_target.clone() {

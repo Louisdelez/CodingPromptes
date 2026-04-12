@@ -1,0 +1,74 @@
+name: CI Inkwell
+
+on:
+  push:
+    paths:
+      - 'inkwell-core/**'
+      - 'inkwell-gpui/**'
+      - 'inkwell-cli/**'
+      - 'inkwell-mcp/**'
+      - 'inkwell-devtools-mcp/**'
+  pull_request:
+    paths:
+      - 'inkwell-core/**'
+      - 'inkwell-gpui/**'
+      - 'inkwell-cli/**'
+      - 'inkwell-mcp/**'
+      - 'inkwell-devtools-mcp/**'
+
+jobs:
+  check:
+    name: Build + Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libvulkan-dev libwayland-dev libxkbcommon-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev \
+            libx11-dev libxi-dev libasound2-dev libssl-dev \
+            cmake pkg-config clang
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build inkwell-core
+        working-directory: inkwell-core
+        run: cargo build --release
+
+      - name: Build inkwell-cli
+        working-directory: inkwell-cli
+        run: cargo build --release
+
+      - name: Build inkwell-devtools-mcp
+        working-directory: inkwell-devtools-mcp
+        run: cargo build --release
+
+      - name: Build inkwell-gpui
+        working-directory: inkwell-gpui
+        run: cargo build --release
+
+      - name: Clippy inkwell-core
+        working-directory: inkwell-core
+        run: cargo clippy -- -W warnings
+
+      - name: Clippy inkwell-cli
+        working-directory: inkwell-cli
+        run: cargo clippy -- -W warnings

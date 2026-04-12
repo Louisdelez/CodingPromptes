@@ -384,6 +384,16 @@ impl InkwellApp {
             .collect();
         crate::persistence::save_frameworks(&local_fws);
 
+        // Save chat + executions (session-level)
+        crate::persistence::save_session_data(&crate::persistence::SessionData {
+            chat_messages: self.state.chat_messages.clone(),
+            executions: self.state.executions.iter().map(|e| crate::persistence::LocalExecution {
+                model: e.model.clone(), tokens_in: e.tokens_in, tokens_out: e.tokens_out,
+                latency_ms: e.latency_ms, cost: e.cost, timestamp: e.timestamp,
+                prompt_preview: e.prompt_preview.clone(), response_preview: e.response_preview.clone(),
+            }).collect(),
+        });
+
         // Save settings (both old format + new structured format)
         crate::persistence::save_settings(&crate::persistence::LocalSettings {
             api_key_openai: self.state.api_key_openai.clone(),

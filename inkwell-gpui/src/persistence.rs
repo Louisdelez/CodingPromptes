@@ -127,6 +127,43 @@ pub fn delete_project(id: &str) {
     let _ = std::fs::remove_file(path);
 }
 
+// ── Chat + Executions (session-level, not per-project) ──
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct SessionData {
+    pub chat_messages: Vec<(String, String)>,
+    pub executions: Vec<LocalExecution>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LocalExecution {
+    pub model: String,
+    pub tokens_in: u64,
+    pub tokens_out: u64,
+    pub latency_ms: u64,
+    pub cost: f64,
+    pub timestamp: i64,
+    pub prompt_preview: String,
+    pub response_preview: String,
+}
+
+pub fn load_session_data() -> SessionData {
+    let path = data_dir().join("session-data.json");
+    if let Ok(data) = std::fs::read_to_string(&path) {
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        SessionData::default()
+    }
+}
+
+pub fn save_session_data(data: &SessionData) {
+    let dir = data_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string_pretty(data) {
+        let _ = std::fs::write(dir.join("session-data.json"), json);
+    }
+}
+
 /// Persist the current project selection — shared pointer used by CLI and MCP.
 pub fn save_current_project_id(id: &str) {
     let dir = data_dir();

@@ -162,12 +162,14 @@ impl Render for EditorPane {
                         }
                     }))
                     .child(editor.clone())
-                    // Fade-in animation after reorder
+                    // Slide-in + fade animation for new/reordered blocks
                     .with_animation(
                         SharedString::from(format!("block-{}-{}", i, self.reorder_gen)),
                         Animation::new(Duration::from_millis(200))
                             .with_easing(cubic_bezier(0.25, 0.1, 0.25, 1.0)),
-                        |this, delta| this.opacity(0.3 + delta * 0.7),
+                        |this, delta| this
+                            .opacity(delta.min(1.0))
+                            .mt(px((1.0 - delta) * -8.0)),
                     )
             );
         }

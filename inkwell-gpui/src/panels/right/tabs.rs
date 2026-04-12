@@ -110,9 +110,24 @@ impl RightPanel {
             .child(controls)
             .child(div().text_xs().font_weight(FontWeight::MEDIUM).text_color(text_muted()).child("MODELES CLOUD (API)"))
             .child(cloud_chips)
-            .child(div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
-                .text_xs().text_color(if response.is_empty() { text_muted() } else { text_primary() })
-                .child(if response.is_empty() { "Selectionnez un ou plusieurs modeles et cliquez sur Executer".into() } else { response }))
+            .child({
+                let response_box = div().flex_1().p(px(12.0)).rounded(px(8.0)).bg(bg_tertiary()).border_1().border_color(border_c())
+                    .text_xs();
+                if loading {
+                    response_box
+                        .child(div().flex().items_center().gap(px(8.0)).py(px(8.0))
+                            .child(gpui_component::spinner::Spinner::new())
+                            .child(div().text_color(text_muted()).child("Generation en cours...")))
+                        .child(div().flex().flex_col().gap(px(6.0)).mt(px(8.0))
+                            .child(gpui_component::skeleton::Skeleton::new().h(px(14.0)).w_full().rounded(px(4.0)))
+                            .child(gpui_component::skeleton::Skeleton::new().h(px(14.0)).w(px(240.0)).rounded(px(4.0)))
+                            .child(gpui_component::skeleton::Skeleton::new().h(px(14.0)).w(px(180.0)).rounded(px(4.0))))
+                } else {
+                    response_box
+                        .text_color(if response.is_empty() { text_muted() } else { text_primary() })
+                        .child(if response.is_empty() { "Selectionnez un ou plusieurs modeles et cliquez sur Executer".into() } else { response })
+                }
+            })
             .children(last_exec.map(|e| div().flex().items_center().gap(px(8.0)).flex_wrap()
                 .child(div().text_xs().text_color(accent()).child(format!("{}ms", e.latency_ms)))
                 .child(div().text_xs().text_color(success()).child(format!("{}/{} tok", e.tokens_in, e.tokens_out)))))

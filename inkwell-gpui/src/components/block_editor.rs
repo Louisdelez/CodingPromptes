@@ -483,11 +483,18 @@ impl Render for BlockEditor {
                 div().flex_1().p(px(8.0)).text_sm().text_color(text_secondary()).child("Click to edit...")
             });
 
-        div().rounded(px(8.0))
+        let block_div = div().rounded(px(8.0))
             .border_1().border_color(border_c())
             .border_l_3().border_color(color)
             .bg(bg_secondary())
             .child(header)
-            .child(block_content)
+            .child(block_content);
+
+        // Disabled blocks are visually dimmed
+        if is_enabled {
+            block_div
+        } else {
+            block_div.opacity(0.45)
+        }
     }
 }

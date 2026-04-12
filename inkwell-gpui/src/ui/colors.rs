@@ -1,6 +1,36 @@
 #![allow(dead_code)]
 use gpui::*;
 use std::cell::RefCell;
+use std::time::Duration;
+
+// ── Spacing tokens ──
+pub const SP_2XS: f32 = 2.0;
+pub const SP_XS: f32 = 4.0;
+pub const SP_SM: f32 = 6.0;
+pub const SP_MD: f32 = 8.0;
+pub const SP_LG: f32 = 12.0;
+pub const SP_XL: f32 = 16.0;
+pub const SP_2XL: f32 = 24.0;
+
+// ── Border radius tokens ──
+pub const RADIUS_SM: f32 = 4.0;
+pub const RADIUS_MD: f32 = 6.0;
+pub const RADIUS_LG: f32 = 8.0;
+pub const RADIUS_XL: f32 = 12.0;
+
+// ── Animation tokens (Zed-style timings) ──
+pub const ANIM_FAST: Duration = Duration::from_millis(100);
+pub const ANIM_NORMAL: Duration = Duration::from_millis(150);
+pub const ANIM_SLOW: Duration = Duration::from_millis(300);
+pub const ANIM_PULSE: Duration = Duration::from_millis(600);
+
+pub fn easing_default() -> impl Fn(f32) -> f32 {
+    gpui_component::animation::cubic_bezier(0.25, 0.1, 0.25, 1.0)
+}
+
+pub fn easing_bounce() -> impl Fn(f32) -> f32 {
+    gpui_component::animation::cubic_bezier(0.34, 1.56, 0.64, 1.0)
+}
 
 thread_local! {
     static DARK_MODE: RefCell<bool> = const { RefCell::new(true) };
@@ -35,6 +65,8 @@ pub fn danger() -> Hsla { if is_dark() { hex_to_hsla("f87171") } else { hex_to_h
 pub fn success() -> Hsla { if is_dark() { hex_to_hsla("34d399") } else { hex_to_hsla("059669") } }
 // Dark: #fbbf24, Light: #d97706
 pub fn warning() -> Hsla { if is_dark() { hex_to_hsla("fbbf24") } else { hex_to_hsla("d97706") } }
+// Dark: #60a5fa, Light: #2563eb
+pub fn info() -> Hsla { if is_dark() { hex_to_hsla("60a5fa") } else { hex_to_hsla("2563eb") } }
 
 pub fn accent_bg() -> Hsla { hsla(239.0 / 360.0, 0.84, 0.67, 0.1) }
 pub fn ink_white() -> Hsla { hsla(0.0, 0.0, 1.0, 1.0) }

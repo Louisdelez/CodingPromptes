@@ -118,8 +118,12 @@ impl InkwellApp {
                 cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
                 let should_continue = this.update(cx, |this, cx| {
                     // ── Every tick (16ms / ~60fps) ──
-                    // Always poll async messages (fast: just try_recv on channels)
-                    this.poll_messages(cx);
+                    // Poll async messages — near-zero cost (try_recv).
+                    // Only notify (trigger re-render) if messages were processed.
+                    let had_messages = this.poll_messages(cx);
+                    if had_messages {
+                        cx.notify();
+                    }
 
                     // FPS counter — every ~62 ticks (~1 second)
                     this.state.fps_tick_counter += 1;
@@ -129,17 +133,21 @@ impl InkwellApp {
                         this.state.fps_frame_snapshot = this.state.frame_count;
                         this.state.fps_tick_counter = 0;
                         this.store.update(cx, |s, _| s.fps = frames);
+                        cx.notify();
                     }
-
-                    // Mark view dirty → GPUI will call render() this frame
-                    cx.notify();
 
                     // ── Heavy sync every 6th tick (~100ms) ──
                     this.state.sync_divider += 1;
                     if this.state.sync_divider < 6 { return; }
                     this.state.sync_divider = 0;
 
-                    // Push AppState → AppStore
+                    // Push AppState → AppStore — only if dirty
+                    let state_dirty = this.state.prompt_dirty
+                        || this.state.save_pending
+                        || this.state.playground_loading
+                        || this.state.sdd_running;
+                    if !state_dirty && !had_messages { /* skip heavy sync */ }
+                    else {
                     this.store.update(cx, |s, _| {
                         s.screen = this.state.screen;
                         s.lang = this.state.lang.clone();
@@ -177,6 +185,16 @@ impl InkwellApp {
                         s.api_key_google = this.state.api_key_google.clone();
                         s.github_repo = this.state.github_repo.clone();
                     });
+
+                    // Compile prompt cache if dirty (startup, MCP writes, imports)
+                    if this.state.prompt_dirty {
+                        this.store.update(cx, |s, cx| {
+                            s.refresh_cache();
+                            cx.emit(crate::store::StoreEvent::PromptCacheUpdated);
+                        });
+                        this.state.prompt_dirty = false;
+                        cx.notify();
+                    }
 
                     // Update DevTools snapshot from store
                     if let Ok(mut snap) = this.devtools_snapshot.write() {
@@ -237,6 +255,8 @@ impl InkwellApp {
                         }).collect();
                     }
 
+                    } // end state_dirty / had_messages gate
+
                     // Sync editor content to store
                     let changed = this.editor.update(cx, |e, cx| e.sync_content(cx));
                     if changed {
@@ -247,6 +267,7 @@ impl InkwellApp {
                             }
                         });
                         this.state.save_pending = true;
+                        cx.notify();
                     }
 
                     // Sync old state inputs (bridge)

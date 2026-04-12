@@ -10,9 +10,12 @@ use crate::ui::colors::*;
 use super::{InkwellApp, rt};
 
 impl InkwellApp {
-    pub(crate) fn poll_messages(&mut self, cx: &mut Context<Self>) {
+    /// Returns true if any message was processed (MCP command or async msg).
+    pub(crate) fn poll_messages(&mut self, cx: &mut Context<Self>) -> bool {
+        let mut any = false;
         // Poll DevTools commands (write/action handlers)
         while let Ok(cmd) = self.devtools_cmd_rx.try_recv() {
+            any = true;
             let result = match cmd.method.as_str() {
                 "devtools/set_block" | "devtools/add_block" | "devtools/delete_block"
                 | "devtools/toggle_block" | "devtools/reorder_blocks" | "devtools/select_tab"
@@ -291,6 +294,8 @@ impl InkwellApp {
                 }
             });
         }
+        if count > 0 { any = true; }
+        any
     }
 }
 

@@ -127,6 +127,7 @@ impl InkwellApp {
                     self.state.playground_response = text;
                 }
                 AsyncMsg::LlmDone => {
+                    log::info!("[llm] LlmDone — response_len={}", self.state.playground_response.len());
                     self.state.playground_loading = false;
                     self.state.sdd_running = false;
                     self.store.update(cx, |s, cx| {
@@ -157,6 +158,7 @@ impl InkwellApp {
                     }
                 }
                 AsyncMsg::LlmError(e) => {
+                    log::error!("[llm] LlmError: {e}");
                     self.state.playground_loading = false;
                     self.state.sdd_running = false;
                     self.state.playground_response = format!("Error: {e}");
@@ -351,6 +353,8 @@ impl InkwellApp {
         // — otherwise the next periodic tick copies "saving" into the store and
         // the badge stays stuck because save_status_timer only resets from "saved".
 
+        log::info!("[save] save_to_backend project={} name={:?} blocks={}",
+            self.state.project.id, self.state.project.name, self.state.project.blocks.len());
         // 1. Save locally FIRST (instant, no network)
         let local_project = crate::persistence::LocalProject {
             id: self.state.project.id.clone(),

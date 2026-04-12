@@ -84,6 +84,42 @@ async fn dispatch(
     cmd_tx: &tokio::sync::mpsc::Sender<DevToolsCommand>,
     start_time: std::time::Instant,
 ) -> serde_json::Value {
+    let t0 = std::time::Instant::now();
+    let is_read = method.starts_with("devtools/get_")
+        || method.starts_with("devtools/list_")
+        || matches!(method, "devtools/health_check" | "devtools/app_state" | "devtools/validate_state");
+    if !is_read {
+        log::info!("[mcp] → {} params={}", method, summarize_params(&params));
+    }
+    let result = dispatch_inner(method, params, snapshot, cmd_tx, start_time).await;
+    let ms = t0.elapsed().as_millis();
+    let ok = result.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
+    if !is_read {
+        if ok {
+            log::info!("[mcp] ← {} ok ({ms}ms)", method);
+        } else {
+            let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("?");
+            log::warn!("[mcp] ← {} FAILED: {err} ({ms}ms)", method);
+        }
+    }
+    result
+}
+
+fn summarize_params(params: &serde_json::Value) -> String {
+    if params.is_null() || (params.is_object() && params.as_object().unwrap().is_empty()) {
+        return "{}".into();
+    }
+    let s = params.to_string();
+    if s.len() > 120 { format!("{}...", &s[..120]) } else { s }
+}
+
+async fn dispatch_inner(
+    method: &str,
+    params: serde_json::Value,
+    snapshot: &Arc<RwLock<DevToolsSnapshot>>,
+    cmd_tx: &tokio::sync::mpsc::Sender<DevToolsCommand>,
+    start_time: std::time::Instant,
+) -> serde_json::Value {
     match method {
         // Read handlers (from snapshot, no GPUI round-trip)
         "devtools/health_check" => handlers::health_check(start_time),

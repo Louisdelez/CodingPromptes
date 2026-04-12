@@ -100,6 +100,8 @@ pub fn save_project(project: &LocalProject) {
 /// (new_project, open_project) — without this, rapid switches lose
 /// pending edits that the periodic auto-save hadn't committed yet.
 pub fn flush_project_from_state(state: &crate::state::AppState) {
+    log::info!("[save] flush_project_from_state id={} name={:?} blocks={}",
+        state.project.id, state.project.name, state.project.blocks.len());
     let local_project = LocalProject {
         id: state.project.id.clone(),
         name: state.project.name.clone(),

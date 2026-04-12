@@ -50,9 +50,9 @@ pub fn handle_write(
                 Some(s) => s.to_string(),
                 None => return json!({"ok": false, "error": "Missing or non-string 'content' parameter"}),
             };
+            log::info!("[block] set_block idx={idx} len={}", content.len());
             state.project.blocks[idx].content = content.clone();
             state.prompt_dirty = true;
-            // Reset input entity to force re-creation from the new content on next sync
             if let Some(inp) = state.block_inputs.get_mut(idx) { *inp = None; }
             // Also push to store immediately so BlockEditor observers see it.
             store.update(cx, |s, cx| {
@@ -81,6 +81,7 @@ pub fn handle_write(
                 }),
             };
             let content = params["content"].as_str().unwrap_or("").to_string();
+            log::info!("[block] add_block type={bt_str} content_len={}", content.len());
             let mut block = Block::new(block_type);
             block.content = content;
             let idx = state.project.blocks.len();
@@ -110,6 +111,7 @@ pub fn handle_write(
             };
             let len = state.project.blocks.len();
             if let Some(err) = check_bounds(idx, len) { return err; }
+            log::info!("[block] delete_block idx={idx}");
             state.project.blocks.remove(idx);
             if idx < state.block_inputs.len() { state.block_inputs.remove(idx); }
             state.prompt_dirty = true;
@@ -132,6 +134,7 @@ pub fn handle_write(
             if let Some(err) = check_bounds(idx, len) { return err; }
             state.project.blocks[idx].enabled = !state.project.blocks[idx].enabled;
             let enabled = state.project.blocks[idx].enabled;
+            log::info!("[block] toggle_block idx={idx} enabled={enabled}");
             state.prompt_dirty = true;
             store.update(cx, |s, cx| {
                 if let Some(b) = s.project.blocks.get_mut(idx) { b.enabled = enabled; }
@@ -253,6 +256,7 @@ pub fn handle_write(
                     "supported": inkwell_core::models::SUPPORTED_MODELS,
                 });
             }
+            log::info!("[settings] set_model model={model}");
             state.selected_model = model.clone();
             store.update(cx, |s, cx| {
                 s.selected_model = model;
@@ -266,9 +270,7 @@ pub fn handle_write(
                 .as_str()
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "Nouveau prompt".to_string());
-            // CRITICAL: flush any pending edits of the current project to disk
-            // BEFORE replacing state.project. Otherwise rapid switches
-            // (new_project → edits → new_project) lose the first project's work.
+            log::info!("[project] new_project name={name:?} (flushing current={})", state.project.id);
             crate::persistence::flush_project_from_state(state);
             state.save_pending = false;
             let mut p = crate::state::Project::default_prompt();
@@ -421,7 +423,7 @@ pub fn handle_write(
                 Some(s) => s.to_string(),
                 None => return json!({"ok": false, "error": "Missing 'project_id' parameter"}),
             };
-            // CRITICAL: same as new_project — flush pending edits before swap.
+            log::info!("[project] open_project id={project_id} (flushing current={})", state.project.id);
             crate::persistence::flush_project_from_state(state);
             state.save_pending = false;
             let local = crate::persistence::load_all_projects();

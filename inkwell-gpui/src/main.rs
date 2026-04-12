@@ -54,6 +54,7 @@ fn init_logging() {
 
 fn main() {
     init_logging();
+    log::info!("[app] Inkwell GPUI starting — pid={}", std::process::id());
 
     application().with_assets(Assets).run(|cx: &mut App| {
         gpui_component::init(cx);

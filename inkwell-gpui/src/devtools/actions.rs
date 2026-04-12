@@ -19,7 +19,7 @@ pub fn handle_action(
                     s.refresh_cache();
                 }
             });
-            // Trigger prompt execution same as Ctrl+Enter
+            log::info!("[llm] run_prompt starting model={}", store.read(cx).selected_model);
             let s = store.read(cx);
             let model = s.selected_model.clone();
             let prompt = s.cached_prompt.clone();
@@ -87,6 +87,7 @@ pub fn handle_action(
             if s.sdd_running {
                 return json!({"ok": false, "error": "SDD pipeline already running"});
             }
+            log::info!("[llm] run_sdd starting model={}", s.selected_model);
             let sdd_blocks = crate::spec::workflow::find_sdd_blocks(&s.project.blocks);
             let phase_count = sdd_blocks.len();
             if phase_count == 0 {
@@ -162,7 +163,7 @@ pub fn handle_action(
                 return json!({"ok": false, "error": "Empty message"});
             }
 
-            // Push user message
+            log::info!("[chat] send_chat len={}", message.len());
             state.chat_messages.push(("user".to_string(), message.clone()));
             if state.chat_messages.len() > 200 {
                 state.chat_messages.drain(..state.chat_messages.len() - 200);
@@ -208,8 +209,9 @@ pub fn handle_action(
         }
 
         "devtools/save_project" => {
+            log::info!("[save] save_project triggered for project={}", state.project.id);
             state.save_pending = true;
-            state.save_timer = 1; // Trigger save on next sync cycle
+            state.save_timer = 1;
             json!({"ok": true, "message": "Save triggered"})
         }
 

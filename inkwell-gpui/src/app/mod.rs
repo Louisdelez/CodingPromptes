@@ -243,6 +243,10 @@ impl InkwellApp {
                         this.state.fps_tick_counter = 0;
                         this.store.update(cx, |s, _| s.fps = frames);
                     }
+                    // Ensure InkwellApp re-renders every tick so the FPS counter
+                    // and bottom bar stay alive. GPUI dirty rendering skips render()
+                    // when no view is marked dirty; without this the counter stalls.
+                    cx.notify();
 
                     // Timers
                     if this.state.copy_feedback > 0 { this.state.copy_feedback = this.state.copy_feedback.saturating_sub(6); }

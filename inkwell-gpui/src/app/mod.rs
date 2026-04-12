@@ -109,18 +109,37 @@ impl InkwellApp {
 }
 
 impl InkwellApp {
-    /// Start a periodic timer for background work (sync, timers, polling).
-    /// This runs OUTSIDE of render — doesn't force re-renders.
+    /// Zed-style periodic tick: 16ms (~60fps) render loop.
+    /// Heavy sync (state→store, snapshot, save) runs every 6th tick (~100ms).
+    /// Light work (notify, FPS, poll) runs every tick.
     fn start_periodic_sync(cx: &mut Context<Self>) {
-        // Run every 100ms (~10fps) instead of every frame (60fps)
         cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+                cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
                 let should_continue = this.update(cx, |this, cx| {
-                    // Poll async messages
+                    // ── Every tick (16ms / ~60fps) ──
+                    // Always poll async messages (fast: just try_recv on channels)
                     this.poll_messages(cx);
 
-                    // Push AppState → AppStore (eliminates stale data)
+                    // FPS counter — every ~62 ticks (~1 second)
+                    this.state.fps_tick_counter += 1;
+                    if this.state.fps_tick_counter >= 62 {
+                        let frames = this.state.frame_count.wrapping_sub(this.state.fps_frame_snapshot);
+                        this.state.fps = frames;
+                        this.state.fps_frame_snapshot = this.state.frame_count;
+                        this.state.fps_tick_counter = 0;
+                        this.store.update(cx, |s, _| s.fps = frames);
+                    }
+
+                    // Mark view dirty → GPUI will call render() this frame
+                    cx.notify();
+
+                    // ── Heavy sync every 6th tick (~100ms) ──
+                    this.state.sync_divider += 1;
+                    if this.state.sync_divider < 6 { return; }
+                    this.state.sync_divider = 0;
+
+                    // Push AppState → AppStore
                     this.store.update(cx, |s, _| {
                         s.screen = this.state.screen;
                         s.lang = this.state.lang.clone();
@@ -150,7 +169,6 @@ impl InkwellApp {
                         s.stt_recording = this.state.stt_recording;
                         s.custom_frameworks = this.state.custom_frameworks.clone();
                         s.chat_messages = this.state.chat_messages.clone();
-                        // terminal_sessions not cloned (contains non-Clone mpsc::Sender)
                         s.versions = this.state.versions.clone();
                         s.gpu_nodes = this.state.gpu_nodes.clone();
                         s.collab_users = this.state.collab_users.clone();
@@ -234,24 +252,10 @@ impl InkwellApp {
                     // Sync old state inputs (bridge)
                     this.sync_block_content(cx);
 
-                    // FPS counter — every 10 ticks (~1 second) snapshot render count
-                    this.state.fps_tick_counter += 1;
-                    if this.state.fps_tick_counter >= 10 {
-                        let frames = this.state.frame_count.wrapping_sub(this.state.fps_frame_snapshot);
-                        this.state.fps = frames;
-                        this.state.fps_frame_snapshot = this.state.frame_count;
-                        this.state.fps_tick_counter = 0;
-                        this.store.update(cx, |s, _| s.fps = frames);
-                    }
-                    // Ensure InkwellApp re-renders every tick so the FPS counter
-                    // and bottom bar stay alive. GPUI dirty rendering skips render()
-                    // when no view is marked dirty; without this the counter stalls.
-                    cx.notify();
-
-                    // Timers
-                    if this.state.copy_feedback > 0 { this.state.copy_feedback = this.state.copy_feedback.saturating_sub(6); }
+                    // Timers (adjusted for ~100ms ticks instead of per-frame)
+                    if this.state.copy_feedback > 0 { this.state.copy_feedback = this.state.copy_feedback.saturating_sub(1); }
                     if this.state.save_status_timer > 0 {
-                        this.state.save_status_timer = this.state.save_status_timer.saturating_sub(6);
+                        this.state.save_status_timer = this.state.save_status_timer.saturating_sub(1);
                         if this.state.save_status_timer == 0 && this.state.save_status == "saved" {
                             this.state.save_status = "idle";
                             this.store.update(cx, |s, cx| {
@@ -263,7 +267,7 @@ impl InkwellApp {
 
                     // Auto-save
                     if this.state.save_pending && this.state.save_timer == 0 {
-                        this.state.save_timer = 5; // ~500ms
+                        this.state.save_timer = 5; // ~500ms (5 × 100ms)
                     }
                     if this.state.save_timer > 0 {
                         this.state.save_timer -= 1;

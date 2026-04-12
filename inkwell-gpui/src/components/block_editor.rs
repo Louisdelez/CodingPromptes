@@ -248,10 +248,11 @@ impl Render for BlockEditor {
         if is_sdd {
             // Generate button (fills block from previous SDD blocks context)
             header = header.child(
-                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0)).flex().items_center().gap(px(2.0))
+                div().id(("sdd-gen", idx)).px(px(6.0)).py(px(2.0)).rounded(px(4.0)).flex().items_center().gap(px(2.0))
                     .text_xs().text_color(accent()).cursor_pointer()
                     .hover(|s| s.bg(accent_bg()))
                     .child(Icon::new(IconName::Sparkles))
+                    .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Generer").build(window, cx))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         // Collect SDD context from all blocks and generate this one
                         let store = this.store.read(cx);
@@ -299,10 +300,11 @@ impl Render for BlockEditor {
             );
             // Validate button
             header = header.child(
-                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                div().id(("sdd-val", idx)).px(px(6.0)).py(px(2.0)).rounded(px(4.0))
                     .text_xs().text_color(success()).cursor_pointer()
                     .hover(|s| s.bg(accent_bg()))
                     .child(Icon::new(IconName::Check))
+                    .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Valider").build(window, cx))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         let store = this.store.read(cx);
                         if let Some(block) = store.project.blocks.get(idx) {
@@ -324,10 +326,11 @@ impl Render for BlockEditor {
             );
             // Improve button
             header = header.child(
-                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                div().id(("sdd-imp", idx)).px(px(6.0)).py(px(2.0)).rounded(px(4.0))
                     .text_xs().text_color(text_muted()).cursor_pointer()
                     .hover(|s| s.bg(accent_bg()))
                     .child(Icon::new(IconName::Wand2))
+                    .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Ameliorer").build(window, cx))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         let store = this.store.read(cx);
                         let blocks: Vec<(inkwell_core::types::BlockType, String)> = store.project.blocks.iter()
@@ -374,10 +377,11 @@ impl Render for BlockEditor {
             );
             // Clarify button — generates clarifying questions
             header = header.child(
-                div().px(px(6.0)).py(px(2.0)).rounded(px(4.0))
+                div().id(("sdd-cla", idx)).px(px(6.0)).py(px(2.0)).rounded(px(4.0))
                     .text_xs().text_color(text_secondary()).cursor_pointer()
                     .hover(|s| s.bg(accent_bg()))
                     .child(Icon::new(IconName::CircleHelp))
+                    .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Clarifier").build(window, cx))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                         let store = this.store.read(cx);
                         let blocks: Vec<(inkwell_core::types::BlockType, String)> = store.project.blocks.iter()
@@ -413,9 +417,10 @@ impl Render for BlockEditor {
 
         // Mic (STT)
         header = header.child(
-            div().px(px(4.0)).py(px(2.0)).rounded(px(3.0))
+            div().id(("mic", idx)).px(px(4.0)).py(px(2.0)).rounded(px(3.0))
                 .text_xs().text_color(if is_recording { danger() } else { text_muted() })
                 .child(Icon::new(if is_recording { IconName::Circle } else { IconName::Mic }))
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Dicter (STT)").build(window, cx))
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                     this.store.update(cx, |s, _cx| {
                         if s.stt_recording {
@@ -432,9 +437,10 @@ impl Render for BlockEditor {
 
         // Toggle enabled
         header = header.child(
-            div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+            div().id(("toggle", idx)).px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                 .text_xs().text_color(if is_enabled { success() } else { text_muted() })
                 .child(Icon::new(if is_enabled { IconName::Eye } else { IconName::EyeOff }))
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(if is_enabled { "Desactiver" } else { "Activer" }).build(window, cx))
                 .cursor_pointer().on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                     this.store.update(cx, |s, cx| {
                         if let Some(b) = s.project.blocks.get_mut(idx) { b.enabled = !b.enabled; }
@@ -446,9 +452,10 @@ impl Render for BlockEditor {
 
         // Delete — triggers confirmation modal in EditorPane
         header = header.child(
-            div().px(px(6.0)).py(px(2.0)).rounded(px(3.0))
+            div().id(("del", idx)).px(px(6.0)).py(px(2.0)).rounded(px(3.0))
                 .text_xs().text_color(danger()).child(Icon::new(IconName::Trash2))
                 .cursor_pointer().hover(|s| s.bg(bg_hover()))
+                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new("Supprimer").build(window, cx))
                 .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
                     this.store.update(cx, |s, cx| {
                         s.confirm_delete_block = Some(idx);

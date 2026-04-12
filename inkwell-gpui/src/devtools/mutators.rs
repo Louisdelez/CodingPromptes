@@ -611,6 +611,71 @@ pub fn handle_write(
             json!({"ok": true, "removed": removed})
         }
 
+        "devtools/create_version" => {
+            let label = params["label"].as_str().unwrap_or("").to_string();
+            let project_id = state.project.id.clone();
+            let blocks_json = serde_json::to_string(&state.project.blocks.iter().map(|b| {
+                inkwell_core::types::PromptBlock {
+                    id: b.id.clone(), block_type: b.block_type,
+                    content: b.content.clone(), enabled: b.enabled,
+                }
+            }).collect::<Vec<_>>()).unwrap_or_default();
+            let variables_json = serde_json::to_string(&state.project.variables).unwrap_or_default();
+            let version = inkwell_core::types::Version {
+                id: uuid::Uuid::new_v4().to_string(),
+                project_id: project_id.clone(),
+                blocks_json,
+                variables_json,
+                label: if label.is_empty() { chrono::Local::now().format("%Y-%m-%d %H:%M").to_string() } else { label },
+                created_at: chrono::Utc::now().timestamp_millis(),
+            };
+            log::info!("[project] create_version project={} label={:?}", project_id, version.label);
+            crate::persistence::save_version(&project_id, &version);
+            json!({"ok": true, "version_id": version.id, "label": version.label})
+        }
+
+        "devtools/list_versions" => {
+            let project_id = state.project.id.clone();
+            let versions = crate::persistence::load_versions(&project_id);
+            let items: Vec<serde_json::Value> = versions.iter().map(|v| json!({
+                "id": v.id, "label": v.label, "created_at": v.created_at,
+            })).collect();
+            json!({"versions": items, "count": items.len()})
+        }
+
+        "devtools/restore_version" => {
+            let version_id = match params["version_id"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json!({"ok": false, "error": "Missing 'version_id'"}),
+            };
+            let project_id = state.project.id.clone();
+            let versions = crate::persistence::load_versions(&project_id);
+            let Some(version) = versions.iter().find(|v| v.id == version_id) else {
+                return json!({"ok": false, "error": "Version not found"});
+            };
+            if let Ok(blocks) = serde_json::from_str::<Vec<inkwell_core::types::PromptBlock>>(&version.blocks_json) {
+                state.project.blocks = blocks.iter().map(|b| Block {
+                    id: b.id.clone(), block_type: b.block_type,
+                    content: b.content.clone(), enabled: b.enabled, editing: false,
+                }).collect();
+                state.block_inputs.clear();
+                state.prompt_dirty = true;
+            }
+            if let Ok(vars) = serde_json::from_str::<std::collections::HashMap<String, String>>(&version.variables_json) {
+                state.project.variables = vars;
+                state.variable_inputs.clear();
+            }
+            log::info!("[project] restore_version id={} label={:?}", version_id, version.label);
+            store.update(cx, |s, cx| {
+                s.project = state.project.clone();
+                s.prompt_dirty = true;
+                s.refresh_cache();
+                cx.emit(StoreEvent::ProjectChanged);
+                cx.emit(StoreEvent::PromptCacheUpdated);
+            });
+            json!({"ok": true, "restored": version_id})
+        }
+
         _ => json!({"error": format!("Unknown write method: {}", method)}),
     }
 }

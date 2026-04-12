@@ -164,6 +164,38 @@ pub fn save_session_data(data: &SessionData) {
     }
 }
 
+// ── Versions (per-project snapshots) ──
+
+pub fn versions_dir(project_id: &str) -> std::path::PathBuf {
+    data_dir().join("versions").join(project_id)
+}
+
+pub fn save_version(project_id: &str, version: &inkwell_core::types::Version) {
+    let dir = versions_dir(project_id);
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string_pretty(version) {
+        let _ = std::fs::write(dir.join(format!("{}.json", version.id)), json);
+    }
+}
+
+pub fn load_versions(project_id: &str) -> Vec<inkwell_core::types::Version> {
+    let dir = versions_dir(project_id);
+    let mut versions = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
+                if let Ok(data) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(v) = serde_json::from_str::<inkwell_core::types::Version>(&data) {
+                        versions.push(v);
+                    }
+                }
+            }
+        }
+    }
+    versions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    versions
+}
+
 /// Persist the current project selection — shared pointer used by CLI and MCP.
 pub fn save_current_project_id(id: &str) {
     let dir = data_dir();

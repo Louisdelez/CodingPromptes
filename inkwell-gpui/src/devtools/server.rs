@@ -150,6 +150,7 @@ async fn dispatch_inner(
         | "devtools/set_variable" | "devtools/delete_variable"
         | "devtools/set_dark_mode" | "devtools/set_lang" | "devtools/set_api_key"
         | "devtools/set_github_repo" | "devtools/save_framework" | "devtools/delete_framework"
+        | "devtools/create_version" | "devtools/list_versions" | "devtools/restore_version"
         | "devtools/run_prompt" | "devtools/run_sdd" | "devtools/send_chat"
         | "devtools/save_project" => {
             send_command(method, params, cmd_tx).await

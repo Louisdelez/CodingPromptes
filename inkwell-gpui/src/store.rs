@@ -130,6 +130,7 @@ pub struct AppStore {
     pub fleet_poll_timer: u32,
     pub collab_poll_timer: u32,
     pub frame_count: u32,
+    pub fps: u32,
 
     // Async
     pub msg_tx: mpsc::Sender<AsyncMsg>,
@@ -232,7 +233,7 @@ impl AppStore {
             analytics_range: AnalyticsRange::All, collab_users: vec![],
             save_status: "idle", save_status_timer: 0, save_pending: false, save_timer: 0,
             undo_stack: std::collections::VecDeque::new(),
-            copy_feedback: 0, fleet_poll_timer: 0, collab_poll_timer: 0, frame_count: 0,
+            copy_feedback: 0, fleet_poll_timer: 0, collab_poll_timer: 0, frame_count: 0, fps: 0,
             msg_tx,
         }
     }

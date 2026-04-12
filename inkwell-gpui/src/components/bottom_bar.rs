@@ -46,6 +46,7 @@ impl Render for BottomBar {
         let left_open = store.left_open;
         let right_open = store.right_open;
         let terminal_open = store.terminal_open;
+        let fps = store.fps;
 
         let max_ctx = 128000u64;
         let pct = (tokens as f64 / max_ctx as f64 * 100.0).min(100.0);
@@ -81,6 +82,12 @@ impl Render for BottomBar {
                         cx.emit(StoreEvent::SettingsChanged);
                     });
                 })))
+            // FPS counter
+            .child({
+                let fps_color = if fps >= 30 { success() } else if fps >= 15 { warning() } else { danger() };
+                div().text_xs().text_color(fps_color).child(format!("{fps} fps"))
+            })
+            .child(div().w(px(1.0)).h(px(12.0)).bg(border_c()))
             // Context usage bar
             .child(div().w(px(60.0)).h(px(4.0)).rounded(px(2.0)).bg(bg_tertiary())
                 .child(div().h(px(4.0)).rounded(px(2.0)).bg(bar_color)

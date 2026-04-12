@@ -123,8 +123,11 @@ pub struct AppState {
     // Auto-poll timers
     pub fleet_poll_timer: u32,
     pub collab_poll_timer: u32,
-    // Frame counter for throttling
+    // Frame counter + FPS
     pub frame_count: u32,
+    pub fps: u32,
+    pub fps_frame_snapshot: u32,
+    pub fps_tick_counter: u32,
     pub inputs_initialized: bool,
     // Async message channel
     pub msg_rx: mpsc::Receiver<AsyncMsg>,
@@ -201,7 +204,8 @@ impl AppState {
             collab_users: vec![], editing_workspace_id: None, workspace_name_input: None,
             show_profile: false, framework_name_input: None, selected_workspace_color: "#6366f1".into(),
             copy_feedback: 0, fleet_poll_timer: 0, collab_poll_timer: 0,
-            frame_count: 0, inputs_initialized: false, msg_rx, msg_tx,
+            frame_count: 0, fps: 0, fps_frame_snapshot: 0, fps_tick_counter: 0,
+            inputs_initialized: false, msg_rx, msg_tx,
         }
     }
 }

@@ -197,6 +197,7 @@ impl InkwellApp {
                         snap.chat_messages_count = s.chat_messages.len();
                         snap.executions_count = s.executions.len();
                         snap.blocks_enabled = s.project.blocks.iter().filter(|b| b.enabled).count();
+                        snap.fps = this.state.fps;
                         snap.variables = s.project.variables.clone();
                         snap.chat_messages = s.chat_messages.iter().map(|(role, content)| {
                             crate::devtools::ChatMessageSnapshot {
@@ -232,6 +233,16 @@ impl InkwellApp {
 
                     // Sync old state inputs (bridge)
                     this.sync_block_content(cx);
+
+                    // FPS counter — every 10 ticks (~1 second) snapshot render count
+                    this.state.fps_tick_counter += 1;
+                    if this.state.fps_tick_counter >= 10 {
+                        let frames = this.state.frame_count.wrapping_sub(this.state.fps_frame_snapshot);
+                        this.state.fps = frames;
+                        this.state.fps_frame_snapshot = this.state.frame_count;
+                        this.state.fps_tick_counter = 0;
+                        this.store.update(cx, |s, _| s.fps = frames);
+                    }
 
                     // Timers
                     if this.state.copy_feedback > 0 { this.state.copy_feedback = this.state.copy_feedback.saturating_sub(6); }
@@ -279,7 +290,8 @@ impl InkwellApp {
 
 impl Render for InkwellApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // PURE render — zero state mutation
+        // Count every render call for FPS calculation
+        self.state.frame_count = self.state.frame_count.wrapping_add(1);
 
         // One-time init
         if !self.state.inputs_initialized {

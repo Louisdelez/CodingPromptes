@@ -37,6 +37,7 @@ pub struct DevToolsSnapshot {
     pub chat_messages_count: usize,
     pub executions_count: usize,
     pub blocks_enabled: usize,
+    pub fps: u32,
     pub variables: std::collections::HashMap<String, String>,
     pub chat_messages: Vec<ChatMessageSnapshot>,
     pub executions: Vec<ExecutionSnapshot>,

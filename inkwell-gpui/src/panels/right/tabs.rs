@@ -866,17 +866,24 @@ impl RightPanel {
                         .child(format!("{completed}/{total} phases")))
                     .child(div().flex_1())
                     .child(if sdd_running {
-                        div().text_xs().text_color(warning()).child("Generation...")
+                        div().flex().items_center().gap(px(4.0))
+                            .child(gpui_component::spinner::Spinner::new())
+                            .child(div().text_xs().text_color(warning()).child("Generation..."))
                     } else if completed == total && total > 0 {
-                        div().text_xs().text_color(success()).child("Complet")
+                        div().flex().items_center().gap(px(4.0))
+                            .child(Icon::new(IconName::Check).text_color(success()))
+                            .child(div().text_xs().text_color(success()).child("Complet"))
                     } else {
-                        div().text_xs().text_color(text_muted()).child("En attente")
+                        div().flex().items_center().gap(px(4.0))
+                            .child(div().text_xs().text_color(text_muted()).child("En attente"))
                     }))
-                // Progress bar
-                .child(div().w_full().h(px(4.0)).rounded(px(2.0)).bg(border_c())
-                    .child(div().h(px(4.0)).rounded(px(2.0))
-                        .bg(if completed == total && total > 0 { success() } else { accent() })
-                        .w(px(if total > 0 { completed as f32 / total as f32 * 200.0 } else { 0.0 })))))
+                // Progress bar (gpui-component)
+                .child({
+                    let pct = if total > 0 { (completed as f32 / total as f32) * 100.0 } else { 0.0 };
+                    let mut bar = gpui_component::progress::Progress::new("sdd-progress").value(pct);
+                    if sdd_running { bar = bar.loading(true); }
+                    bar
+                }))
             // Phase list
             .child({
                 let mut phases = div().flex().flex_col().gap(px(4.0));

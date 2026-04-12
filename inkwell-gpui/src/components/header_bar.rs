@@ -95,14 +95,30 @@ impl Render for HeaderBar {
                         this.editing_name = true; this.name_input = None; cx.notify();
                     }))
             })
-            .child(match save_status {
-                "saving" => div().text_xs().text_color(warning()).flex().items_center().gap(px(4.0))
-                    .child(Icon::new(IconName::LoaderCircle).text_color(warning()))
-                    .child(if is_fr { "Sauvegarde..." } else { "Saving..." }),
-                "saved" => div().flex().items_center().gap(px(4.0)).text_xs().text_color(success())
-                    .child(Icon::new(IconName::Check))
-                    .child(if is_fr { "Sauvegarde" } else { "Saved" }),
-                _ => div(),
+            .child({
+                let save_label = match save_status {
+                    "saving" => div().text_xs().text_color(warning()).flex().items_center().gap(px(4.0))
+                        .child(gpui_component::spinner::Spinner::new())
+                        .child(if is_fr { "Sauvegarde..." } else { "Saving..." }),
+                    "saved" => div().flex().items_center().gap(px(4.0)).text_xs().text_color(success())
+                        .child(Icon::new(IconName::Check))
+                        .child(if is_fr { "Sauvegarde" } else { "Saved" }),
+                    _ => div(),
+                };
+                if save_status == "saved" {
+                    div().child(save_label).with_animation(
+                        "save-ok",
+                        Animation::new(std::time::Duration::from_millis(400))
+                            .with_easing(gpui_component::animation::cubic_bezier(0.25, 0.1, 0.25, 1.0)),
+                        |this, delta| this.opacity(0.4 + delta * 0.6),
+                    )
+                } else {
+                    div().child(save_label).with_animation(
+                        "save-idle",
+                        Animation::new(std::time::Duration::from_millis(1)),
+                        |this, _| this,
+                    )
+                }
             });
 
         // Right section: theme dropdown, lang dropdown, user menu (no panel toggles)
